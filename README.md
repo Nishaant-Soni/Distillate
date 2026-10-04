@@ -60,7 +60,7 @@ tests/               Unit tests (pytest)
 
 ## Installation
 
-**Prerequisites:** Python 3.11, Docker, the `gcloud` CLI, and read access to the team's GCS bucket.
+**Prerequisites:** Python 3.12, Docker, the `gcloud` CLI, and read access to the team's GCS bucket.
 
 ```bash
 git clone https://github.com/Nishaant-Soni/Distillate.git
