@@ -1,0 +1,31 @@
+# TensorFlow / TFDV environment, built as a separate virtualenv at /opt/tfenv.
+# Only two tasks use it: acquire (TFDS download) and schema_stats (TFDV).
+#
+# Why it is separate, and why Python 3.11 while Airflow runs on 3.12:
+#   * TFDV 1.16.1 is the last release built as manylinux_2_17. Every release
+#     from 1.17.0 on targets manylinux_2_39, which needs glibc >= 2.39; the
+#     Airflow image is Debian bookworm (glibc 2.36) and cannot load those.
+#   * TFDV 1.16.1 publishes cp39/cp310/cp311 wheels only -- there is no cp312
+#     build -- so this environment is Python 3.11 (bookworm's system Python).
+#   * TFDV pins pandas<2 and pyarrow<11, which would drag the whole Airflow
+#     environment backwards if installed together.
+#   * TFDV has no Linux aarch64 wheel at any version, so the image is pinned to
+#     linux/amd64 (see Dockerfile).
+# Parquet on disk is the interchange format between the two environments, so the
+# pandas and pyarrow version gap never crosses a task boundary.
+
+tensorflow-data-validation==1.16.1
+tfx-bsl==1.16.1
+tensorflow-metadata==1.16.1
+tensorflow-cpu==2.16.2                  # CPU build: the GPU wheel adds ~3 GB we never use
+tensorflow-datasets==4.9.10             # acquire.py: wikipedia_toxicity_subtypes, civil_comments
+apache-beam[gcp]==2.60.0                # TFDV's execution engine
+
+# Transitive pins TFDV requires, stated explicitly so a resolver change is visible.
+pyfarmhash==0.3.2                       # sdist only on Linux -> needs g++ at build time
+pyarrow==10.0.1
+pandas==1.5.3
+numpy==1.26.4
+protobuf==4.25.5
+
+pyyaml==6.0.3                           # scripts.utils.load_config runs in this env too

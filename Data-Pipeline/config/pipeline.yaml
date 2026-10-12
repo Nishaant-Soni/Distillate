@@ -1,0 +1,75 @@
+# Distillate data pipeline configuration.
+# Every tunable value lives here; scripts must not hard-code any of these.
+# If a change affects another lane, update CONTRACTS.md in the same PR.
+
+seed: 42
+
+paths:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  splits_dir: data/splits
+  schema_dir: data/schema
+  reports_dir: reports
+  summaries_dir: reports/summaries
+  identity_terms: config/identity_terms.txt
+  tfds_data_dir: /opt/airflow/tfds   # mounted volume in docker compose
+
+datasets:
+  wikipedia:
+    tfds_name: wikipedia_toxicity_subtypes/EnglishSubtypes:0.3.1
+    splits: [train, test]
+    expected_rows: {train: 159571, test: 63978}
+  civil_comments:
+    tfds_name: civil_comments/CivilComments:1.2.4
+    splits: [train, validation, test]
+    expected_rows: {train: 1804874, validation: 97320, test: 97320}
+    dropped_columns: [parent_text]
+  civil_identities:
+    tfds_name: civil_comments/CivilCommentsIdentities:1.2.4
+    splits: [test]
+    expected_rows: {test: 21577}
+
+labels:
+  names: [toxicity, severe_toxicity, obscene, threat, insult, identity_attack]
+  civil_positive_threshold: 0.5
+  civil_dropped_labels: [sexual_explicit]
+
+preprocess:
+  max_char_len_flag: 5000
+  obfuscation_nonalpha_share: 0.3   # TODO(Praniti): confirm during EDA
+
+dedupe:
+  jaccard_threshold: 0.9
+  shingle_words: 3
+  minhash_num_perm: 128
+  lsh_bands: null                   # tuned in the Gantt optimization step
+
+splits:
+  val_fraction: 0.15
+  canary_wikipedia_size: 2000
+  civil:
+    h2_size: 10000
+    canary_size: 4000
+    drift_total: 40000
+    drift_batches: 20
+  obfuscation_size: 3000
+
+validation:
+  raw_civil_stats_sample: 100000
+  max_missing_fraction: 0.001       # above this fails; below warns and drops
+  prevalence_tolerance_pts: 1.0
+
+bias:
+  min_slice_size: 100
+  fpr_flag_margin_pts: 5.0
+  reweight_factors: [1, 2, 3, 5]
+  max_auc_drop: 0.005
+
+dvc:
+  push: true                        # overridden by the DVC_PUSH env var
+
+stubs:
+  # Rows each placeholder stage writes until the real module is merged. Small on
+  # purpose: the point is that the DAG runs end to end in seconds, not that the
+  # numbers mean anything. Has no effect once a stage has a real run().
+  rows: 200

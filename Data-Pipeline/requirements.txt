@@ -1,0 +1,29 @@
+# Main Airflow environment (Python 3.12), used by every task except the two that
+# need TensorFlow (acquire.py, schema_stats.py) -- those run in /opt/tfenv from
+# requirements-tf.txt.
+#
+# Installed with the official Airflow constraints file, so anything Airflow
+# already pins (pandas, numpy, pyarrow, scikit-learn, PyYAML, protobuf, the
+# Google provider) takes its version from there and stays consistent with core.
+# Only packages Airflow does not pin are pinned here.
+#
+# Rebuild after editing:  docker compose build --no-cache
+
+# --- Airflow core and providers -------------------------------------------
+apache-airflow==3.3.2
+apache-airflow-providers-google         # GCS access for DVC remote and alerts
+
+# --- Shared data handling (version comes from the constraints file) --------
+pandas
+pyarrow
+numpy
+pyyaml
+
+# --- Lane-specific libraries ----------------------------------------------
+datasketch==2.0.0                       # Praniti: MinHash LSH near-duplicate detection
+iterative-stratification==0.1.9         # Sai: seeded multilabel stratified split
+scikit-learn                            # Ruchita: TF-IDF + logistic regression baseline
+fairlearn==0.15.0                       # Ruchita: MetricFrame bias metrics
+
+# --- Reproducibility -------------------------------------------------------
+dvc[gs]==3.67.1                         # data versioning with a GCS remote

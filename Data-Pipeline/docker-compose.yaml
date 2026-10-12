@@ -1,0 +1,188 @@
+---
+# Distillate data pipeline, adapted from the official Apache Airflow 3.3.2
+# docker-compose.yaml. Differences from the upstream file:
+#   * LocalExecutor instead of CeleryExecutor -- the redis, airflow-worker and
+#     flower services are gone. One scheduler process runs the tasks.
+#   * Builds the local Dockerfile (Airflow 3.12 env + TFDV 3.11 env at /opt/tfenv)
+#     instead of pulling the stock image.
+#   * The whole Data-Pipeline folder is mounted at /opt/airflow/pipeline and put
+#     on PYTHONPATH, so `from scripts.utils import ...` resolves the same way in
+#     a DAG, in the CLI and under pytest.
+#   * tfds-cache is a named volume: TFDS downloads survive `docker compose down`,
+#     which is what makes the cached run in the Gantt comparison meaningful.
+#   * Example DAGs are off and new DAGs are unpaused, so a fresh clone shows
+#     exactly one DAG.
+#
+# Give Docker Desktop at least 8 GB of memory, and turn on Rosetta emulation --
+# this stack is linux/amd64 because TFDV publishes no arm64 wheel.
+#
+#   docker compose build          # ~15 min first time (TensorFlow is large)
+#   docker compose up -d
+#   open http://localhost:8080    # login from _AIRFLOW_WWW_USER_* in .env
+
+x-airflow-common:
+  &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: distillate/data-pipeline:3.3.2
+  platform: linux/amd64
+  env_file:
+    # Project-wide .env at the repo root (cp .env.example .env). Optional: with
+    # no SLACK_WEBHOOK_URL the alert contract says alerts only log.
+    - path: ${ENV_FILE_PATH:-../.env}
+      required: false
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY:-}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-distillate_jwt_secret}
+    AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    # LocalExecutor parallelism. The optimized Gantt run needs room for the
+    # Wikipedia and Civil branches to overlap; 4 is comfortable at 8 GB.
+    AIRFLOW__CORE__PARALLELISM: ${AIRFLOW_PARALLELISM:-8}
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: ${AIRFLOW_PARALLELISM:-8}
+    # Pipeline code and its own folders, not Airflow's.
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/pipeline/dags
+    AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/pipeline/logs
+    PYTHONPATH: /opt/airflow/pipeline
+    TFDS_DATA_DIR: /opt/airflow/tfds
+    TFENV_PYTHON: /opt/tfenv/bin/python
+    # Passed through from .env; all have safe defaults so a fresh clone runs.
+    SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    ALERT_EMAIL: ${ALERT_EMAIL:-}
+    DVC_PUSH: ${DVC_PUSH:-false}
+    GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+    GCS_DATA_BUCKET: ${GCS_DATA_BUCKET:-}
+    GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+  volumes:
+    # One mount for everything: dags/, scripts/, config/, data/, reports/, tests/.
+    - ${AIRFLOW_PROJ_DIR:-.}:/opt/airflow/pipeline
+    - tfds-cache:/opt/airflow/tfds
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+  airflow-apiserver:
+    <<: *airflow-common
+    command: api-server
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -e
+        mkdir -p /opt/airflow/pipeline/{logs,reports/summaries,data/raw,data/processed}
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/pipeline/{logs,reports,data} /opt/airflow/tfds
+        /entrypoint airflow version
+        echo "TFDV environment check:"
+        /opt/tfenv/bin/python -c "import tensorflow_data_validation as t; print('  tfdv', t.__version__)"
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+    user: "0:0"
+
+  # One-off commands:  docker compose run --rm airflow-cli airflow dags list
+  airflow-cli:
+    <<: *airflow-common
+    profiles:
+      - debug
+    environment:
+      <<: *airflow-common-env
+      CONNECTION_CHECK_MAX_COUNT: "0"
+    command:
+      - bash
+      - -c
+      - airflow
+
+volumes:
+  postgres-db-volume:
+  tfds-cache:
