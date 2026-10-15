@@ -1,0 +1,10 @@
+logs/
+reports/summaries/*.json
+# data/raw and data/processed are tracked by DVC (data/raw.dvc, data/processed.dvc live in Git).
+# Don't add .gitkeep files inside them: dvc add fails if Git already tracks files there.
+data/raw/
+data/processed/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.tmp

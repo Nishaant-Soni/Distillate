@@ -1,0 +1,5 @@
+# Minimal set to run unit tests and lint without Docker.
+# Full pinned requirements.txt / requirements-tf.txt come with the Dockerfile (Oct 14).
+pyyaml
+pytest
+ruff
