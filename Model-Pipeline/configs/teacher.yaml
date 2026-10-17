@@ -14,7 +14,9 @@ model:
   max_model_len: 3072
 
 data:
-  tfds_name: wikipedia_toxicity_subtypes/EnglishSubtypes:0.3.1
+  # Same rows and ids as TFDS wikipedia_toxicity_subtypes/EnglishSubtypes:0.3.1, whose
+  # download source now returns 403. Accept the competition rules on Kaggle once.
+  kaggle_competition: jigsaw-toxic-comment-classification-challenge
   expected_rows: {train: 159571, test: 63978}
   files: {train: wiki_train_raw.parquet, test: wiki_test_raw.parquet}
   manifest: data_manifest.json

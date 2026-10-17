@@ -1,8 +1,14 @@
-"""Raw Wikipedia data for the teacher: light cleaning, TFDS conversion, checks, manifest.
+"""Raw Wikipedia data for the teacher: loading, light cleaning, checks, manifest.
+
+The source is the Jigsaw Toxic Comment Classification Challenge files on Kaggle, the data
+TFDS ``wikipedia_toxicity_subtypes/EnglishSubtypes:0.3.1`` repackaged (TFDS can no longer
+download it: its source bucket returns 403). Same rows and ids: train is ``train.csv``
+(159,571 rows); test is ``test.csv`` joined with ``test_labels.csv``, keeping the 63,978
+rows whose labels are not -1.
 
 Used by ``kaggle/00_prepare_data.ipynb``. The cleaning here must stay identical to the
-data pipeline's preprocess step (CONTRACTS.md section 2), because the teacher labels
-the same text the student is later trained on.
+data pipeline's preprocess step, because the teacher labels the same text the student
+is later trained on.
 """
 
 from __future__ import annotations
@@ -12,7 +18,7 @@ import html
 import json
 import re
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +26,17 @@ from typing import Any
 from src.teacher.config import LABELS
 
 _WHITESPACE = re.compile(r"\s+")
+
+# Competition column -> our label name, in LABELS order.
+KAGGLE_LABELS = {
+    "toxic": "toxicity",
+    "severe_toxic": "severe_toxicity",
+    "obscene": "obscene",
+    "threat": "threat",
+    "insult": "insult",
+    "identity_hate": "identity_attack",
+}
+assert tuple(KAGGLE_LABELS.values()) == LABELS
 
 
 def clean_text(text: str) -> str:
@@ -29,36 +46,69 @@ def clean_text(text: str) -> str:
     return _WHITESPACE.sub(" ", text).strip()
 
 
-def _as_str(value: Any) -> str:
-    return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+def find_competition_file(competition_dir: str | Path, name: str) -> Path:
+    """``<name>`` or ``<name>.zip`` in the competition folder (Kaggle ships both forms)."""
+    for candidate in (Path(competition_dir) / name, Path(competition_dir) / f"{name}.zip"):
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(f"{name}[.zip] not found in {competition_dir}")
 
 
-def records_to_frame(records: Iterable[Mapping[str, Any]]):
-    """Turn TFDS examples (``tfds.as_numpy``) into the raw frame: ``id``, ``text``, six labels.
+def find_competition_dir(root: str | Path) -> Path:
+    """The folder under ``root`` (e.g. ``/kaggle/input``) that holds ``test_labels.csv``."""
+    matches = sorted({p.parent for p in Path(root).rglob("test_labels.csv*")})
+    if len(matches) != 1:
+        raise FileNotFoundError(f"expected one competition folder under {root}, found {matches}")
+    return matches[0]
 
-    Text is cleaned; labels must already be 0 or 1 and are cast to int8. Any other TFDS
-    feature (for example ``language``) is dropped.
-    """
-    import numpy as np
+
+def _read_csv(path: Path):
     import pandas as pd
 
-    ids, texts = [], []
-    labels: dict[str, list[float]] = {name: [] for name in LABELS}
-    for rec in records:
-        ids.append(_as_str(rec["id"]))
-        texts.append(clean_text(_as_str(rec["text"])))
-        for name in LABELS:
-            labels[name].append(float(rec[name]))
+    # Text is read as-is: without keep_default_na=False, comments such as "NA" or "null"
+    # would become missing values.
+    return pd.read_csv(path, dtype=str, keep_default_na=False)
 
-    df = pd.DataFrame({"id": pd.Series(ids, dtype="string"),
-                       "text": pd.Series(texts, dtype="string")})
-    for name in LABELS:
-        values = np.asarray(labels[name], dtype="float64")
-        bad = ~np.isin(values, (0.0, 1.0))
+
+def read_competition_split(competition_dir: str | Path, split: str):
+    """The competition rows for ``split`` with columns ``id``, ``comment_text``, label columns."""
+    if split == "train":
+        return _read_csv(find_competition_file(competition_dir, "train.csv"))
+    if split != "test":
+        raise ValueError(f"split must be train or test, got {split!r}")
+
+    text = _read_csv(find_competition_file(competition_dir, "test.csv"))
+    labels = _read_csv(find_competition_file(competition_dir, "test_labels.csv"))
+    df = text.merge(labels, on="id", how="inner", validate="one_to_one")
+    if len(df) != len(text) or len(df) != len(labels):
+        raise ValueError(f"test.csv ({len(text)}) and test_labels.csv ({len(labels)}) "
+                         f"share only {len(df)} ids")
+    # -1 marks rows that were never scored; a row is either fully -1 or fully labeled.
+    unscored = df[list(KAGGLE_LABELS)].eq("-1")
+    all_unscored, any_unscored = unscored.all(axis=1), unscored.any(axis=1)
+    if (any_unscored != all_unscored).any():
+        raise ValueError("some test rows have -1 for only part of their labels")
+    return df[~all_unscored].reset_index(drop=True)
+
+
+def to_raw_frame(df):
+    """Competition rows -> the raw frame: ``id``, cleaned ``text``, six int8 labels."""
+    import pandas as pd
+
+    missing = {"id", "comment_text", *KAGGLE_LABELS} - set(df.columns)
+    if missing:
+        raise ValueError(f"missing columns: {sorted(missing)}")
+    out = pd.DataFrame({
+        "id": df["id"].astype("string"),
+        "text": df["comment_text"].map(clean_text).astype("string"),
+    })
+    for column, label in KAGGLE_LABELS.items():
+        values = df[column]
+        bad = ~values.isin(("0", "1"))
         if bad.any():
-            raise ValueError(f"label {name!r} has {int(bad.sum())} values that are not 0 or 1")
-        df[name] = values.astype("int8")
-    return df
+            raise ValueError(f"label {column!r} has {int(bad.sum())} values that are not 0 or 1")
+        out[label] = values.astype("int8")
+    return out
 
 
 def check_frame(df, expected_rows: int) -> dict[str, int]:
@@ -83,14 +133,14 @@ def file_sha256(path: str | Path) -> str:
     return digest.hexdigest()
 
 
-def build_data_manifest(files: Mapping[str, Mapping[str, Any]], tfds_name: str,
-                        code_commit: str | None = None) -> str:
-    """JSON manifest: per file its row count, empty-text count, and SHA-256.
+def build_data_manifest(files: Mapping[str | Path, Mapping[str, Any]],
+                        source: Mapping[str, Any], code_commit: str | None = None) -> str:
+    """JSON manifest: where the data came from, and per output file its stats and SHA-256.
 
     ``files`` maps each Parquet path to its ``check_frame`` result.
     """
     manifest = {
-        "tfds_name": tfds_name,
+        "source": dict(source),
         "code_commit": code_commit,
         "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "files": {
