@@ -1,0 +1,109 @@
+import math
+
+import numpy as np
+import pytest
+
+from src.teacher.config import LABELS
+from src.teacher.prompts import PromptBuilder
+from src.teacher.scoring import answer_token_ids, score_texts, yes_probability
+
+from .conftest import FakeTokenizer
+
+YES = {1, 2, 3}
+NO = {4, 5}
+
+
+def test_answer_token_ids_keeps_single_tokens_only():
+    tok = FakeTokenizer(multi_token=("YES", " NO"))
+    yes_ids, no_ids = answer_token_ids(tok)
+    assert len(yes_ids) == 5 and len(no_ids) == 5
+    assert tok.vocab["YES#1"] not in yes_ids
+    assert not yes_ids & no_ids
+
+
+def test_answer_token_ids_fails_without_variants():
+    tok = FakeTokenizer(multi_token=("no", "No", "NO", " no", " No", " NO"))
+    with pytest.raises(ValueError):
+        answer_token_ids(tok)
+
+
+def test_variants_are_summed_and_renormalised():
+    top = {1: math.log(0.3), 2: math.log(0.1), 4: math.log(0.2), 5: math.log(0.2),
+           99: math.log(0.15)}
+    p, coverage = yes_probability(top, YES, NO)
+    assert coverage == pytest.approx(0.8)
+    assert p == pytest.approx(0.4 / 0.8)
+
+
+def test_no_answer_tokens_gives_nan():
+    p, coverage = yes_probability({99: math.log(0.9)}, YES, NO)
+    assert coverage == 0 and math.isnan(p)
+
+
+def scripted(answers):
+    """A fake score_fn: ``answers(label, call_number)`` gives each prompt's (p, coverage)."""
+    calls = []
+
+    def score(prompts):
+        calls.append(len(prompts))
+        out = []
+        for prompt in prompts:
+            label = next(lab for lab in LABELS if f"definition of {lab}?" in prompt)
+            out.append(answers(label, len(calls)))
+        return out
+
+    return score, calls
+
+
+@pytest.fixture
+def builder(tokenizer):
+    return PromptBuilder(tokenizer, "p2", "zs")
+
+
+def test_ok_rows(builder):
+    score, calls = scripted(lambda label, call: (0.25, 0.95))
+    frame, info = score_texts(["a", "b"], ["first text", "second text"], builder, score)
+    assert list(frame["status"]) == ["ok", "ok"]
+    assert np.allclose(frame[[f"p_{lab}" for lab in LABELS]].to_numpy(), 0.25)
+    assert calls == [12]
+    assert info["failed_rows"] == 0 and info["retried_cells"] == 0
+
+
+def test_low_coverage_retried_once_then_ok(builder):
+    # threat has low coverage on the first call only.
+    score, calls = scripted(
+        lambda label, call: (0.9, 0.3) if (label == "threat" and call == 1) else (0.1, 0.9))
+    frame, info = score_texts(["a"], ["some text"], builder, score)
+    assert frame.loc[0, "status"] == "ok"
+    assert frame.loc[0, "p_threat"] == pytest.approx(0.1)
+    assert calls == [6, 1] and info["retried_cells"] == 1
+
+
+def test_low_coverage_after_retry_fails_whole_row(builder):
+    score, calls = scripted(
+        lambda label, call: (0.9, 0.3) if label == "threat" else (0.1, 0.9))
+    frame, info = score_texts(["a"], ["some text"], builder, score, max_retries=1)
+    assert frame.loc[0, "status"] == "failed"
+    assert frame[[f"p_{lab}" for lab in LABELS]].isna().all(axis=None)
+    assert calls == [6, 1] and info["failed_rows"] == 1
+
+
+def test_empty_text_fails_without_scoring(builder):
+    score, calls = scripted(lambda label, call: (0.5, 0.99))
+    frame, info = score_texts(["a", "b"], ["", "real text"], builder, score)
+    assert list(frame["status"]) == ["failed", "ok"]
+    assert calls == [6] and info["empty_rows"] == 1
+
+
+def test_output_types(builder):
+    score, _ = scripted(lambda label, call: (0.5, 0.99))
+    frame, _ = score_texts(["a"], ["text"], builder, score)
+    assert str(frame["id"].dtype) == "string" and str(frame["status"].dtype) == "string"
+    for label in LABELS:
+        assert frame[f"p_{label}"].dtype == np.float32
+
+
+def test_p1_not_supported(tokenizer):
+    score, _ = scripted(lambda label, call: (0.5, 0.99))
+    with pytest.raises(NotImplementedError):
+        score_texts(["a"], ["text"], PromptBuilder(tokenizer, "p1", "zs"), score)

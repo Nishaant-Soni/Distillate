@@ -1,0 +1,47 @@
+# Distillate teacher configuration.
+# Every tunable value for teacher labeling lives here; code must not hard-code any of these.
+# Prompt text is versioned in src/teacher/prompts.py, not here, because changing it
+# changes prompt_version (docs/teacher_prompts_and_shard_spec.md).
+
+seed: 42
+
+labels: [toxicity, severe_toxicity, obscene, threat, insult, identity_attack]
+
+model:
+  model_id: Qwen/Qwen3-4B-Instruct-2507
+  revision: cdbee75f17c01a7cc42f958dc650907174af0554   # pinned Oct 17, 2026
+  dtype: half                                          # T4 has no bf16
+  max_model_len: 3072
+
+data:
+  tfds_name: wikipedia_toxicity_subtypes/EnglishSubtypes:0.3.1
+  expected_rows: {train: 159571, test: 63978}
+  files: {train: wiki_train_raw.parquet, test: wiki_test_raw.parquet}
+  manifest: data_manifest.json
+  kaggle_dataset: distillate-wiki-raw-0-3-1
+
+prompt:
+  protocol: null            # p2 or p1; set by the decision memo
+  shots: null               # zs or fs; set by the decision memo
+  comment_max_tokens: 1024
+  fewshot_max_tokens: 60
+
+scoring:
+  logprobs: 20
+  min_coverage: 0.5
+  max_retries: 1
+
+sampling:
+  pilot_size: 2000
+  pilot_enrich: {threat: 150, identity_attack: 150, severe_toxicity: 150}
+  fewshot_per_label: 3      # spec allows 2 to 3
+  gate_subset_size: 20000
+
+labeling:
+  shard_size: 5000
+  stop_after_hours: 11
+
+storage:
+  backend: hf               # switch to gcs once the bucket exists (implementation plan, Part 1.1)
+  hf_repo: N-S-10/distillate-teacher-shards
+  gcs_bucket: null          # <team>-distillate-data, from Vaishnavi
