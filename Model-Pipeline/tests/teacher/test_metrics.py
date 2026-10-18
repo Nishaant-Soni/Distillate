@@ -82,3 +82,26 @@ def test_ranking_metrics_use_logits_when_present():
     assert tied.loc["toxicity", "auc"] < 1.0
     assert ranked.loc["toxicity", "auc"] == pytest.approx(1.0)
     assert ranked.loc["toxicity", "ece"] == pytest.approx(tied.loc["toxicity", "ece"])
+
+
+def test_paired_bootstrap():
+    from src.teacher.metrics import paired_bootstrap
+
+    rng = np.random.default_rng(0)
+    n = 1500
+    truth = pd.DataFrame({"id": [str(i) for i in range(n)]})
+    good, noisy = truth[["id"]].copy(), truth[["id"]].copy()
+    for label in LABELS:
+        signal = rng.normal(0, 1, n)
+        truth[label] = (signal + rng.normal(0, 0.5, n) > 1).astype("int8")
+        good[f"p_{label}"] = 1 / (1 + np.exp(-signal))
+        noisy[f"p_{label}"] = 1 / (1 + np.exp(-(signal + rng.normal(0, 2, n))))
+    truth.loc[:, "threat"] = 0                                   # one class: left out
+    weights = pd.DataFrame({"id": truth["id"], "weight": rng.uniform(1, 3, n)})
+    strata = pd.DataFrame({"id": truth["id"], "stratum": np.where(np.arange(n) < 300, "a", "b")})
+    out = paired_bootstrap({"good": good, "noisy": noisy}, truth, weights,
+                           [("good", "noisy"), ("good", "good")], strata=strata, n_boot=200)
+    gn, gg = out["good - noisy"], out["good - good"]
+    assert "threat" not in gn["labels"] and len(gn["labels"]) == 5
+    assert gn["mean_auc_diff"] > 0 and gn["mean_auc_ci95"][0] > 0 and gn["mean_auc_p_gt_0"] == 1
+    assert gg["mean_auc_diff"] == 0 and gg["mean_auc_ci95"] == [0, 0]

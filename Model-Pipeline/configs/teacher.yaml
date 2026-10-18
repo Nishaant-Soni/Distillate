@@ -27,6 +27,7 @@ paths:
   data_dir: data
   pilot_dir: artifacts/pilot
   injection_set: configs/injection_set.csv   # 40 synthetic comments, no real data
+  shift_dir: artifacts/shift                 # Civil Comments shift sample ids and results
 
 prompt:
   protocol: null            # p2 or p1; set by the decision memo
@@ -62,6 +63,21 @@ calibration:
 
 injection:
   threshold: 0.5            # flip = the yes/no decision at this threshold changes
+
+stack:
+  version: stack-v1         # logistic regression on logit_<label> and TF-IDF's logit(p)
+  C: 1.0
+
+# Civil Comments shift check (shift.py). Hugging Face copy, as TFDS's download returns 403.
+shift:
+  dataset: google/civil_comments
+  revision: f2970eb3a55777454c94069077cc8d9b5866312d   # pinned Oct 18, 2026
+  split: validation
+  file: data/validation-00000-of-00001.parquet
+  threshold: 0.5            # positive when at least half the raters chose the label
+  size: 3000
+  enrich: {threat: 200, obscene: 300, identity_attack: 300}
+  prompt_version: p2-zs-v1  # the teacher configuration the stack uses
 
 labeling:
   shard_size: 5000
