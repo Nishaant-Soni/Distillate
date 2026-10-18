@@ -3,6 +3,10 @@
 Weights are the pilot's inclusion weights, so every metric estimates its value on the full
 training population rather than on the enriched sample. Rows with ``status == "failed"``
 are left out of the metrics and counted in ``failure_rate`` instead.
+
+AUC and PR-AUC only depend on the ranking. When a prediction file has ``logit_<label>``
+(teacher runs), they rank on it, because float32 ``p`` ties at exactly 1.0 for confident
+answers; ECE and Brier always use ``p``.
 """
 
 from __future__ import annotations
@@ -32,16 +36,20 @@ def weighted_ece(y, p, w, bins: int = 10) -> float:
     return float(ece)
 
 
-def label_metrics(y, p, w, bins: int = 10) -> dict[str, float]:
-    """AUC, PR-AUC, ECE, and Brier for one label. AUC and PR-AUC are NaN if only one class."""
+def label_metrics(y, p, w, bins: int = 10, score=None) -> dict[str, float]:
+    """AUC, PR-AUC, ECE, and Brier for one label. AUC and PR-AUC are NaN if only one class.
+
+    ``score`` (default ``p``) is what AUC and PR-AUC rank on; it must order rows like ``p``.
+    """
     import numpy as np
     from sklearn.metrics import average_precision_score, roc_auc_score
 
     y, p, w = (np.asarray(a, dtype="float64") for a in (y, p, w))
+    s = p if score is None else np.asarray(score, dtype="float64")
     one_class = len(np.unique(y)) < 2
     return {
-        "auc": float("nan") if one_class else float(roc_auc_score(y, p, sample_weight=w)),
-        "pr_auc": float("nan") if one_class else float(average_precision_score(y, p,
+        "auc": float("nan") if one_class else float(roc_auc_score(y, s, sample_weight=w)),
+        "pr_auc": float("nan") if one_class else float(average_precision_score(y, s,
                                                                                sample_weight=w)),
         "ece": weighted_ece(y, p, w, bins),
         "brier": float(np.average((p - y) ** 2, weights=w)),
@@ -51,7 +59,7 @@ def label_metrics(y, p, w, bins: int = 10) -> dict[str, float]:
 def evaluate(pred, truth, weights=None, bins: int = 10):
     """Per-label metrics for a prediction file against gold labels.
 
-    ``pred``: ``id``, ``p_<label>``, optionally ``status`` and ``cov_<label>``.
+    ``pred``: ``id``, ``p_<label>``, optionally ``logit_<label>``, ``status``, ``cov_<label>``.
     ``truth``: ``id`` and the six label columns. ``weights``: frame with ``id`` and ``weight``
     (pilot inclusion weights); every row weighs 1 if omitted.
 
@@ -78,7 +86,8 @@ def evaluate(pred, truth, weights=None, bins: int = 10):
     rows: dict[str, dict[str, Any]] = {}
     for label in LABELS:
         sub = frame[ok]
-        metrics = label_metrics(sub[label], sub[f"p_{label}"], sub["weight"], bins)
+        score = sub[f"logit_{label}"] if f"logit_{label}" in sub else None
+        metrics = label_metrics(sub[label], sub[f"p_{label}"], sub["weight"], bins, score)
         row: dict[str, Any] = {"n": int(ok.sum()), "n_pos": int(sub[label].sum()),
                                "failure_rate": float(1 - ok.mean()), **metrics}
         if f"cov_{label}" in frame:

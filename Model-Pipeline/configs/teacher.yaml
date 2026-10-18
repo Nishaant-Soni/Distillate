@@ -26,6 +26,7 @@ data:
 paths:
   data_dir: data
   pilot_dir: artifacts/pilot
+  injection_set: configs/injection_set.csv   # 40 synthetic comments, no real data
 
 prompt:
   protocol: null            # p2 or p1; set by the decision memo
@@ -54,6 +55,13 @@ baseline:
 
 metrics:
   ece_bins: 10              # equal-width bins over [0, 1]
+
+calibration:
+  version: platt-v1         # weighted Platt scaling on logit_<label>, never on logit(p)
+  folds: 5                  # cross-fitting, for the ECE after calibration
+
+injection:
+  threshold: 0.5            # flip = the yes/no decision at this threshold changes
 
 labeling:
   shard_size: 5000

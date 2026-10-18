@@ -66,3 +66,19 @@ def test_evaluate_rejects_missing_predictions():
     truth, pred = frames()
     with pytest.raises(ValueError, match="no prediction"):
         evaluate(pred.iloc[1:], truth)
+
+
+def test_ranking_metrics_use_logits_when_present():
+    # Three positives and two negatives all have p == 1.0; only the logits rank them.
+    truth = pd.DataFrame({"id": list("abcdefgh")})
+    pred = pd.DataFrame({"id": list("abcdefgh")})
+    for label in LABELS:
+        truth[label] = np.array([1, 1, 1, 0, 0, 0, 0, 0], dtype="int8")
+        pred[f"p_{label}"] = np.array([1, 1, 1, 1, 1, 0.1, 0.1, 0.1], dtype="float32")
+    tied = evaluate(pred, truth)
+    for label in LABELS:
+        pred[f"logit_{label}"] = np.array([30, 29, 28, 20, 19, -2, -2, -2], dtype="float32")
+    ranked = evaluate(pred, truth)
+    assert tied.loc["toxicity", "auc"] < 1.0
+    assert ranked.loc["toxicity", "auc"] == pytest.approx(1.0)
+    assert ranked.loc["toxicity", "ece"] == pytest.approx(tied.loc["toxicity", "ece"])
