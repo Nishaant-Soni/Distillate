@@ -1,7 +1,13 @@
 """Teacher prompts, word for word from docs/teacher_prompts_and_shard_spec.md (v1).
 
-Changing any text in this file means bumping ``PROMPT_TEXT_VERSION``, because
-``prompt_version`` is recorded in every shard.
+Changing any text in this file means a new text version, because ``prompt_version`` is
+recorded in every shard.
+
+``P2_QUESTIONS`` holds the text versions after v1. Each replaces the P2 question for some
+labels and leaves the system message and every other label's prompt byte-identical to v1.
+The v2 candidates rephrase only the obscene question: on the pilot, v1 answered "no" to
+profane comments it called toxic, reading "obscene" as sexual content despite the
+definition in the system message.
 """
 
 from __future__ import annotations
@@ -13,7 +19,7 @@ from typing import Any
 
 from src.teacher.config import LABELS
 
-PROMPT_TEXT_VERSION = "v1"
+PROMPT_TEXT_VERSION = "v1"   # the default text version
 PROTOCOLS = ("p2", "p1")
 SHOTS = ("zs", "fs")
 
@@ -46,6 +52,19 @@ P2_USER_TEMPLATE = """\
 
 Does this comment match the definition of {label}? Answer yes or no."""
 
+# Text version -> {label: question replacing the v1 question for that label}. P2 only.
+P2_QUESTIONS: dict[str, dict[str, str]] = {
+    "v2a": {"obscene": "Does this comment match the definition of obscene (swear words, "
+                       "cursing, or other obscene or profane language, including sexually "
+                       "explicit language)? Answer yes or no."},
+    "v2b": {"obscene": "Does this comment contain swear words, cursing, or other profane "
+                       "language, or sexually explicit language? Answer yes or no."},
+    "v2c": {"obscene": "Does this comment match the definition of obscene? Swear words and "
+                       "cursing count as obscene even when the comment is not sexual. "
+                       "Answer yes or no."},
+}
+TEXT_VERSIONS = (PROMPT_TEXT_VERSION, *P2_QUESTIONS)
+
 P1_USER_TEMPLATE = (
     "<comment>\n{comment}\n</comment>\n\n"
     "For each label, answer yes or no. Reply with exactly these six lines and nothing else:\n"
@@ -66,13 +85,17 @@ class FewShotExample:
     labels: Mapping[str, int]
 
 
-def prompt_version(protocol: str, shots: str) -> str:
+def prompt_version(protocol: str, shots: str, text_version: str = PROMPT_TEXT_VERSION) -> str:
     """For example ``p2-zs-v1``."""
     if protocol not in PROTOCOLS:
         raise ValueError(f"protocol must be one of {PROTOCOLS}, got {protocol!r}")
     if shots not in SHOTS:
         raise ValueError(f"shots must be one of {SHOTS}, got {shots!r}")
-    return f"{protocol}-{shots}-{PROMPT_TEXT_VERSION}"
+    if text_version not in TEXT_VERSIONS:
+        raise ValueError(f"text_version must be one of {TEXT_VERSIONS}, got {text_version!r}")
+    if text_version in P2_QUESTIONS and protocol != "p2":
+        raise ValueError(f"text version {text_version} is defined for p2 only")
+    return f"{protocol}-{shots}-{text_version}"
 
 
 def escape_comment(text: str) -> str:
@@ -109,11 +132,12 @@ class PromptBuilder:
     def __init__(self, tokenizer: Any, protocol: str, shots: str,
                  fewshot_examples: Sequence[FewShotExample] | None = None,
                  comment_max_tokens: int = 1024, fewshot_max_tokens: int = 60,
-                 max_model_len: int | None = None):
+                 max_model_len: int | None = None, text_version: str = PROMPT_TEXT_VERSION):
         self.tokenizer = tokenizer
         self.protocol = protocol
         self.shots = shots
-        self.prompt_version = prompt_version(protocol, shots)
+        self.prompt_version = prompt_version(protocol, shots, text_version)
+        self.questions = P2_QUESTIONS.get(text_version, {})
         self.comment_max_tokens = comment_max_tokens
 
         if shots == "fs" and not fewshot_examples:
@@ -138,7 +162,8 @@ class PromptBuilder:
     @classmethod
     def from_config(cls, cfg: Mapping[str, Any], tokenizer: Any,
                     fewshot_examples: Sequence[FewShotExample] | None = None,
-                    protocol: str | None = None, shots: str | None = None) -> PromptBuilder:
+                    protocol: str | None = None, shots: str | None = None,
+                    text_version: str = PROMPT_TEXT_VERSION) -> PromptBuilder:
         """Build from teacher.yaml. ``protocol``/``shots`` override the config (pilot runs)."""
         protocol = protocol or cfg["prompt"]["protocol"]
         shots = shots or cfg["prompt"]["shots"]
@@ -147,7 +172,7 @@ class PromptBuilder:
         return cls(tokenizer, protocol, shots, fewshot_examples,
                    comment_max_tokens=cfg["prompt"]["comment_max_tokens"],
                    fewshot_max_tokens=cfg["prompt"]["fewshot_max_tokens"],
-                   max_model_len=cfg["model"]["max_model_len"])
+                   max_model_len=cfg["model"]["max_model_len"], text_version=text_version)
 
     def _check_budget(self, max_model_len: int) -> None:
         """Fail at start-up, not mid-run, if the longest possible prompt won't fit."""
@@ -172,7 +197,11 @@ class PromptBuilder:
 
     def _user_message(self, comment: str, label: str | None = None) -> str:
         if self.protocol == "p2":
-            return P2_USER_TEMPLATE.format(comment=comment, label=label)
+            message = P2_USER_TEMPLATE.format(comment=comment, label=label)
+            if label in self.questions:
+                head = message.rsplit("\n\n", 1)[0]   # the fenced comment, as in v1
+                message = f"{head}\n\n{self.questions[label]}"
+            return message
         return P1_USER_TEMPLATE.format(comment=comment)
 
     def _chat(self, user_message: str) -> str:

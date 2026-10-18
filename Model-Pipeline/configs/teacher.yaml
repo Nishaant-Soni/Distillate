@@ -28,6 +28,7 @@ paths:
   pilot_dir: artifacts/pilot
   injection_set: configs/injection_set.csv   # 40 synthetic comments, no real data
   shift_dir: artifacts/shift                 # Civil Comments shift sample ids and results
+  prompt_v2_dir: artifacts/prompt_v2         # obscene prompt follow-up (prompt_tuning.py)
 
 prompt:
   protocol: null            # p2 or p1; set by the decision memo
@@ -78,6 +79,12 @@ shift:
   size: 3000
   enrich: {threat: 200, obscene: 300, identity_attack: 300}
   prompt_version: p2-zs-v1  # the teacher configuration the stack uses
+
+# Obscene prompt follow-up (prompt_tuning.py). Rules fixed before scoring; see its docstring.
+prompt_tuning:
+  label: obscene
+  candidates: [v2a, v2b, v2c]   # text versions in prompts.P2_QUESTIONS
+  max_other_drop: 0.005         # rule 3c: largest allowed AUC drop for any other label
 
 labeling:
   shard_size: 5000

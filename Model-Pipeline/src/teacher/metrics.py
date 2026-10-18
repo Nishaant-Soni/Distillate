@@ -102,20 +102,20 @@ def evaluate(pred, truth, weights=None, bins: int = 10):
 
 
 def paired_bootstrap(preds, truth, weights, pairs, strata=None, n_boot: int = 1000,
-                     seed: int = 42) -> dict[str, dict[str, float]]:
+                     seed: int = 42, labels=LABELS) -> dict[str, dict[str, float]]:
     """Bootstrap intervals for differences in mean AUC and PR-AUC between models.
 
     ``preds``: prediction frames keyed by model name, all scoring the ``truth`` ids.
     ``pairs``: ``(a, b)`` names; each result is ``a - b``. Rows are resampled with
     replacement within ``strata`` (a frame with ``id`` and ``stratum``, e.g. the pilot's), so
     every replicate keeps the sample design; the inclusion weights ride along. Only rows
-    ``ok`` in every model are used, and only labels with both classes in the sample.
-    Means are over those labels, so pairs are compared on identical rows and labels.
+    ``ok`` in every model are used, and only labels (of ``labels``) with both classes in the
+    sample. Means are over those labels, so pairs are compared on identical rows and labels.
     """
     import numpy as np
     from sklearn.metrics import average_precision_score, roc_auc_score
 
-    frame = truth[["id", *LABELS]].merge(weights[["id", "weight"]], on="id",
+    frame = truth[["id", *labels]].merge(weights[["id", "weight"]], on="id",
                                          validate="one_to_one")
     ok = np.ones(len(frame), dtype=bool)
     scores: dict[str, dict[str, Any]] = {}
@@ -125,8 +125,8 @@ def paired_bootstrap(preds, truth, weights, pairs, strata=None, n_boot: int = 10
             ok &= (joined["status"] == "ok").to_numpy()
         scores[name] = {label: joined[f"logit_{label}" if f"logit_{label}" in joined
                                       else f"p_{label}"].to_numpy(dtype="float64")
-                        for label in LABELS}
-    labels = [label for label in LABELS if len(np.unique(frame.loc[ok, label])) == 2]
+                        for label in labels}
+    labels = [label for label in labels if len(np.unique(frame.loc[ok, label])) == 2]
     y = {label: frame[label].to_numpy()[ok] for label in labels}
     w = frame["weight"].to_numpy()[ok]
     s = {name: {label: v[label][ok] for label in labels} for name, v in scores.items()}

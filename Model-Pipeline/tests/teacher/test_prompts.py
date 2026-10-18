@@ -2,6 +2,7 @@ import pytest
 
 from src.teacher.config import LABELS
 from src.teacher.prompts import (
+    P2_QUESTIONS,
     SYSTEM_MESSAGE,
     FewShotExample,
     PromptBuilder,
@@ -102,3 +103,29 @@ def test_from_config_requires_protocol(tokenizer):
         PromptBuilder.from_config(cfg, tokenizer)
     builder = PromptBuilder.from_config(cfg, tokenizer, protocol="p2", shots="zs")
     assert builder.prompt_version == "p2-zs-v1"
+
+
+def test_v2_candidates_change_only_the_obscene_question(tokenizer):
+    v1, _ = PromptBuilder(tokenizer, "p2", "zs").build("you are a jerk\n\nreally")
+    for text_version, questions in P2_QUESTIONS.items():
+        assert set(questions) == {"obscene"}
+        builder = PromptBuilder(tokenizer, "p2", "zs", text_version=text_version,
+                                max_model_len=3072)
+        assert builder.prompt_version == f"p2-zs-{text_version}"
+        v2, _ = builder.build("you are a jerk\n\nreally")
+        for label, old, new in zip(LABELS, v1, v2, strict=True):
+            if label == "obscene":
+                assert new == old.replace(
+                    "Does this comment match the definition of obscene? Answer yes or no.",
+                    questions["obscene"])
+                assert new != old
+            else:
+                assert new == old                       # byte-identical to v1
+
+
+def test_text_version_checks():
+    assert prompt_version("p2", "zs", "v2b") == "p2-zs-v2b"
+    with pytest.raises(ValueError):
+        prompt_version("p2", "zs", "v9")
+    with pytest.raises(ValueError, match="p2 only"):
+        prompt_version("p1", "zs", "v2a")

@@ -105,3 +105,7 @@ def test_paired_bootstrap():
     assert "threat" not in gn["labels"] and len(gn["labels"]) == 5
     assert gn["mean_auc_diff"] > 0 and gn["mean_auc_ci95"][0] > 0 and gn["mean_auc_p_gt_0"] == 1
     assert gg["mean_auc_diff"] == 0 and gg["mean_auc_ci95"] == [0, 0]
+
+    only = paired_bootstrap({"good": good, "noisy": noisy}, truth, weights, [("good", "noisy")],
+                            n_boot=50, labels=["obscene"])["good - noisy"]
+    assert only["labels"] == ["obscene"]

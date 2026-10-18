@@ -15,6 +15,7 @@ is refitted on Civil.
 
     python -m src.teacher.shift sample     # writes artifacts/shift/civil_shift_ids.parquet
     python -m src.teacher.shift evaluate   # needs artifacts/shift/civil_<prompt_version>.parquet
+    python -m src.teacher.shift evaluate --prompt-version p2-zs-v2a --pilot-dir D --out-dir D
 """
 
 from __future__ import annotations
@@ -119,11 +120,17 @@ def _table(name: str, metrics) -> dict[str, Any]:
 
 
 def run_evaluate(cfg: Mapping[str, Any], teacher_path: str | Path | None = None,
-                 n_boot: int = 1000) -> dict[str, Any]:
+                 n_boot: int = 1000, prompt_version: str | None = None,
+                 pilot_pred_dir: str | Path | None = None,
+                 out_dir: str | Path | None = None) -> dict[str, Any]:
     """Score the shift sample with TF-IDF and the stack, evaluate all models on both domains.
 
-    Writes to ``paths.shift_dir``: ``civil_tfidf.parquet``, ``civil_stack.parquet``,
-    ``stack_<prompt_version>.json``, and ``shift_results.json``.
+    ``prompt_version`` defaults to ``shift.prompt_version``. The teacher's pilot predictions
+    and calibration (``pilot_<pv>.parquet``, ``calibration_<pv>.json``) are read from
+    ``pilot_pred_dir`` (default ``paths.pilot_dir``), its Civil predictions from
+    ``teacher_path`` (default ``<out_dir>/civil_<pv>.parquet``). Writes to ``out_dir``
+    (default ``paths.shift_dir``): ``civil_tfidf.parquet``, ``civil_stack_<pv>.parquet``,
+    ``stack_<pv>.json``, and ``shift_results_<pv>.json``.
     """
     import pandas as pd
 
@@ -134,9 +141,11 @@ def run_evaluate(cfg: Mapping[str, Any], teacher_path: str | Path | None = None,
     from src.teacher.stack import apply_stack, cross_fit_stack, fit_stack, save_stack
 
     s, bins = cfg["shift"], cfg["metrics"]["ece_bins"]
-    pv, tfidf_name = s["prompt_version"], cfg["baseline"]["model_version"]
+    pv, tfidf_name = prompt_version or s["prompt_version"], cfg["baseline"]["model_version"]
     data_dir, pilot_dir = Path(cfg["paths"]["data_dir"]), Path(cfg["paths"]["pilot_dir"])
-    out_dir = Path(cfg["paths"]["shift_dir"])
+    shift_dir = Path(cfg["paths"]["shift_dir"])
+    pred_dir = Path(pilot_pred_dir) if pilot_pred_dir else pilot_dir
+    out_dir = Path(out_dir) if out_dir else shift_dir
 
     # Wikipedia side: the pilot, with TF-IDF trained on train minus pilot and few-shot rows.
     train = pd.read_parquet(data_dir / cfg["data"]["files"]["train"])
@@ -144,12 +153,12 @@ def run_evaluate(cfg: Mapping[str, Any], teacher_path: str | Path | None = None,
     pilot = pilot_truth(train, pilot_ids)
     fewshot = json.loads((pilot_dir / "fewshot_ids.json").read_text())["ids"]
     held_out = set(pilot_ids["id"]) | {i for ids in fewshot.values() for i in ids}
-    wiki_teacher = pd.read_parquet(pilot_dir / f"pilot_{pv}.parquet")
+    wiki_teacher = pd.read_parquet(pred_dir / f"pilot_{pv}.parquet")
     wiki_tfidf = pd.read_parquet(pilot_dir / "pilot_tfidf.parquet")
-    calibration = load_calibration(pilot_dir / f"calibration_{pv}.json")
+    calibration = load_calibration(pred_dir / f"calibration_{pv}.json")
 
     # Civil side.
-    sample = pd.read_parquet(out_dir / "civil_shift_ids.parquet")
+    sample = pd.read_parquet(shift_dir / "civil_shift_ids.parquet")
     civil = load_civil(download_civil(cfg, data_dir / "civil"), s["split"], s["threshold"])
     civil_rows = shift_rows(civil, sample)
     civil_teacher = pd.read_parquet(teacher_path or out_dir / f"civil_{pv}.parquet")
@@ -207,9 +216,9 @@ def run_evaluate(cfg: Mapping[str, Any], teacher_path: str | Path | None = None,
 
     out_dir.mkdir(parents=True, exist_ok=True)
     civil_tfidf.to_parquet(out_dir / "civil_tfidf.parquet", index=False)
-    civil_stack.to_parquet(out_dir / "civil_stack.parquet", index=False)
+    civil_stack.to_parquet(out_dir / f"civil_stack_{pv}.parquet", index=False)
     save_stack(stack, out_dir / f"stack_{pv}.json")
-    (out_dir / "shift_results.json").write_text(json.dumps(results, indent=2) + "\n")
+    (out_dir / f"shift_results_{pv}.json").write_text(json.dumps(results, indent=2) + "\n")
     return results
 
 
@@ -218,12 +227,16 @@ def main() -> None:
     parser.add_argument("what", choices=["sample", "evaluate"])
     parser.add_argument("--config", default=None)
     parser.add_argument("--teacher", default=None, help="the teacher's Civil predictions")
+    parser.add_argument("--prompt-version", default=None)
+    parser.add_argument("--pilot-dir", default=None, help="teacher pilot predictions")
+    parser.add_argument("--out-dir", default=None)
     args = parser.parse_args()
     cfg = load_config(args.config)
     if args.what == "sample":
         print(json.dumps(run_sample(cfg), indent=2))
     else:
-        results = run_evaluate(cfg, args.teacher)
+        results = run_evaluate(cfg, args.teacher, prompt_version=args.prompt_version,
+                               pilot_pred_dir=args.pilot_dir, out_dir=args.out_dir)
         for domain, r in results["domains"].items():
             print(domain)
             print(json.dumps({t["model"]: (t["mean_auc"], t["mean_pr_auc"], t["ece"])
