@@ -129,3 +129,18 @@ def test_text_version_checks():
         prompt_version("p2", "zs", "v9")
     with pytest.raises(ValueError, match="p2 only"):
         prompt_version("p1", "zs", "v2a")
+
+
+def test_from_config_text_version(tokenizer):
+    cfg = {"prompt": {"protocol": "p2", "shots": "zs", "text_version": "v2b",
+                      "comment_max_tokens": 1024, "fewshot_max_tokens": 60},
+           "model": {"max_model_len": 3072}}
+    assert PromptBuilder.from_config(cfg, tokenizer).prompt_version == "p2-zs-v2b"
+    assert PromptBuilder.from_config(cfg, tokenizer, text_version="v1").prompt_version == \
+        "p2-zs-v1"
+
+
+def test_committed_config_builds_the_accepted_prompt(tokenizer):
+    from src.teacher.config import load_config
+
+    assert PromptBuilder.from_config(load_config(), tokenizer).prompt_version == "p2-zs-v2b"

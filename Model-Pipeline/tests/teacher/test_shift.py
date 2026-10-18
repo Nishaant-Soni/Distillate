@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from src.teacher.config import LABELS, load_config
+from src.teacher.prompts import prompt_version
 from src.teacher.sampling import enriched_sample
 from src.teacher.shift import load_civil, shift_rows, summary
 
@@ -70,5 +71,7 @@ def test_config_has_shift_settings():
     cfg = load_config()
     s = cfg["shift"]
     assert len(s["revision"]) == 40 and s["split"] in s["file"]
-    assert s["prompt_version"] == "p2-zs-v1" and cfg["stack"]["version"] == "stack-v1"
+    p = cfg["prompt"]
+    assert s["prompt_version"] == prompt_version(p["protocol"], p["shots"], p["text_version"])
+    assert cfg["stack"]["version"] == "stack-v1"
     assert sum(s["enrich"].values()) < s["size"]

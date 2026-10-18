@@ -126,7 +126,7 @@ def run_evaluate(cfg: Mapping[str, Any], n_boot: int = 1000) -> dict[str, Any]:
     from src.teacher.shift import run_evaluate as shift_evaluate
 
     t, s = cfg["prompt_tuning"], cfg["shift"]
-    label, v1_pv = t["label"], s["prompt_version"]
+    label, v1_pv = t["label"], t["baseline"]
     v2_dir = Path(cfg["paths"]["prompt_v2_dir"])
     pilot_dir, shift_dir = Path(cfg["paths"]["pilot_dir"]), Path(cfg["paths"]["shift_dir"])
     data_dir = Path(cfg["paths"]["data_dir"])

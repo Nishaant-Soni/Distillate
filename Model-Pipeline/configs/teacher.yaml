@@ -31,8 +31,9 @@ paths:
   prompt_v2_dir: artifacts/prompt_v2         # obscene prompt follow-up (prompt_tuning.py)
 
 prompt:
-  protocol: null            # p2 or p1; set by the decision memo
-  shots: null               # zs or fs; set by the decision memo
+  protocol: p2              # decision memo: P2 zero-shot (the stack and its fallback use it)
+  shots: zs
+  text_version: v2b         # obscene question from the v2 follow-up (prompts.P2_QUESTIONS)
   comment_max_tokens: 1024
   fewshot_max_tokens: 60
 
@@ -78,12 +79,13 @@ shift:
   threshold: 0.5            # positive when at least half the raters chose the label
   size: 3000
   enrich: {threat: 200, obscene: 300, identity_attack: 300}
-  prompt_version: p2-zs-v1  # the teacher configuration the stack uses
+  prompt_version: p2-zs-v2b # the teacher configuration the stack uses; equals prompt.*
 
 # Obscene prompt follow-up (prompt_tuning.py). Rules fixed before scoring; see its docstring.
 prompt_tuning:
   label: obscene
-  candidates: [v2a, v2b, v2c]   # text versions in prompts.P2_QUESTIONS
+  candidates: [v2a, v2b, v2c]   # text versions in prompts.P2_QUESTIONS; v2b was accepted
+  baseline: p2-zs-v1            # the version the candidates were compared against
   max_other_drop: 0.005         # rule 3c: largest allowed AUC drop for any other label
 
 labeling:

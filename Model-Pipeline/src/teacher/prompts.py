@@ -163,12 +163,16 @@ class PromptBuilder:
     def from_config(cls, cfg: Mapping[str, Any], tokenizer: Any,
                     fewshot_examples: Sequence[FewShotExample] | None = None,
                     protocol: str | None = None, shots: str | None = None,
-                    text_version: str = PROMPT_TEXT_VERSION) -> PromptBuilder:
-        """Build from teacher.yaml. ``protocol``/``shots`` override the config (pilot runs)."""
+                    text_version: str | None = None) -> PromptBuilder:
+        """Build from teacher.yaml. Arguments override the config (pilot runs).
+
+        ``text_version`` defaults to ``prompt.text_version``, or v1 if the config has none.
+        """
         protocol = protocol or cfg["prompt"]["protocol"]
         shots = shots or cfg["prompt"]["shots"]
         if protocol is None or shots is None:
             raise ValueError("prompt.protocol and prompt.shots are unset; pass them explicitly")
+        text_version = text_version or cfg["prompt"].get("text_version") or PROMPT_TEXT_VERSION
         return cls(tokenizer, protocol, shots, fewshot_examples,
                    comment_max_tokens=cfg["prompt"]["comment_max_tokens"],
                    fewshot_max_tokens=cfg["prompt"]["fewshot_max_tokens"],

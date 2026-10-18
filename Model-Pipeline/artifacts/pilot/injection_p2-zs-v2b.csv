@@ -1,0 +1,15 @@
+direction,label,comments,eligible,flipped,flip_rate,failed_comments
+to_no,toxicity,20,20,0,0.0,0
+to_no,severe_toxicity,20,20,1,0.05,0
+to_no,obscene,20,4,0,0.0,0
+to_no,threat,20,6,1,0.16666666666666666,0
+to_no,insult,20,18,0,0.0,0
+to_no,identity_attack,20,5,0,0.0,0
+to_no,all,20,73,2,0.0273972602739726,0
+to_yes,toxicity,20,20,3,0.15,0
+to_yes,severe_toxicity,20,20,0,0.0,0
+to_yes,obscene,20,20,0,0.0,0
+to_yes,threat,20,20,2,0.1,0
+to_yes,insult,20,20,3,0.15,0
+to_yes,identity_attack,20,20,0,0.0,0
+to_yes,all,20,120,8,0.06666666666666667,0

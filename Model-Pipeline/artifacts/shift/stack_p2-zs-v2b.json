@@ -1,0 +1,57 @@
+{
+  "stack_version": "stack-v1",
+  "method": "weighted logistic regression",
+  "inputs": [
+    "teacher logit_<label>",
+    "baseline logit(p_<label>)"
+  ],
+  "formula": "p = sigmoid(w_teacher * logit_<label> + w_baseline * logit(clip(p_baseline, 1e-07)) + intercept)",
+  "C": 1.0,
+  "prompt_version": "p2-zs-v2b",
+  "model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+  "baseline_version": "tfidf-lr-v1",
+  "labels": {
+    "toxicity": {
+      "w_teacher": 0.05379874569501796,
+      "w_baseline": 0.8424993070012624,
+      "intercept": -0.266808384310889,
+      "n": 2000,
+      "n_pos": 575
+    },
+    "severe_toxicity": {
+      "w_teacher": 0.0982569520470514,
+      "w_baseline": 0.608975337606531,
+      "intercept": -1.8650065361859383,
+      "n": 2000,
+      "n_pos": 231
+    },
+    "obscene": {
+      "w_teacher": 0.05099362520577178,
+      "w_baseline": 0.9294811288441323,
+      "intercept": 0.39005224831474644,
+      "n": 2000,
+      "n_pos": 419
+    },
+    "threat": {
+      "w_teacher": 0.10820826341676434,
+      "w_baseline": 0.795203961097009,
+      "intercept": -0.12457446067889669,
+      "n": 2000,
+      "n_pos": 152
+    },
+    "insult": {
+      "w_teacher": 0.07961030144637575,
+      "w_baseline": 0.7049070368297156,
+      "intercept": -0.7595195427266601,
+      "n": 2000,
+      "n_pos": 420
+    },
+    "identity_attack": {
+      "w_teacher": 0.10974880188726113,
+      "w_baseline": 0.7488642549807184,
+      "intercept": -0.7515539997272103,
+      "n": 2000,
+      "n_pos": 177
+    }
+  }
+}

@@ -1,0 +1,163 @@
+{
+  "prompt_version": "p2-zs-v2a",
+  "info": {
+    "rows": 2000,
+    "failed_rows": 0,
+    "empty_rows": 0,
+    "truncated_rows": 16,
+    "prompts_scored": 12000,
+    "retried_cells": 0,
+    "censored_cells": 9,
+    "seconds": 321.8,
+    "code_commit": "5770d53b7fc05b301f1ff7a81db740b67ed6616f"
+  },
+  "saturation": {
+    "share_p_eq_1": 0.1022,
+    "share_p_eq_0": 0.0008,
+    "share_p_eq_1_per_label": {
+      "toxicity": 0.2225,
+      "severe_toxicity": 0.1385,
+      "obscene": 0.0455,
+      "threat": 0.055,
+      "insult": 0.119,
+      "identity_attack": 0.033
+    }
+  },
+  "raw": {
+    "toxicity": {
+      "n": 2000,
+      "n_pos": 575.0,
+      "failure_rate": 0.0,
+      "auc": 0.94538,
+      "pr_auc": 0.68296,
+      "ece": 0.14508,
+      "brier": 0.14283,
+      "coverage": 1.0
+    },
+    "severe_toxicity": {
+      "n": 2000,
+      "n_pos": 231.0,
+      "failure_rate": 0.0,
+      "auc": 0.9743,
+      "pr_auc": 0.26638,
+      "ece": 0.11113,
+      "brier": 0.10918,
+      "coverage": 1.0
+    },
+    "obscene": {
+      "n": 2000,
+      "n_pos": 419.0,
+      "failure_rate": 0.0,
+      "auc": 0.95931,
+      "pr_auc": 0.73991,
+      "ece": 0.02999,
+      "brier": 0.02962,
+      "coverage": 1.0
+    },
+    "threat": {
+      "n": 2000,
+      "n_pos": 152.0,
+      "failure_rate": 0.0,
+      "auc": 0.99177,
+      "pr_auc": 0.5077,
+      "ece": 0.02216,
+      "brier": 0.02189,
+      "coverage": 1.0
+    },
+    "insult": {
+      "n": 2000,
+      "n_pos": 420.0,
+      "failure_rate": 0.0,
+      "auc": 0.95664,
+      "pr_auc": 0.57,
+      "ece": 0.14376,
+      "brier": 0.13974,
+      "coverage": 1.0
+    },
+    "identity_attack": {
+      "n": 2000,
+      "n_pos": 177.0,
+      "failure_rate": 0.0,
+      "auc": 0.98395,
+      "pr_auc": 0.37457,
+      "ece": 0.04156,
+      "brier": 0.04131,
+      "coverage": 1.0
+    },
+    "mean": {
+      "n": 2000,
+      "n_pos": null,
+      "failure_rate": 0.0,
+      "auc": 0.96856,
+      "pr_auc": 0.52359,
+      "ece": 0.08228,
+      "brier": 0.08076,
+      "coverage": 1.0
+    }
+  },
+  "calibrated_cross_fitted": {
+    "toxicity": {
+      "n": 2000,
+      "n_pos": 575.0,
+      "failure_rate": 0.0,
+      "auc": 0.94146,
+      "pr_auc": 0.68066,
+      "ece": 0.0182,
+      "brier": 0.05068
+    },
+    "severe_toxicity": {
+      "n": 2000,
+      "n_pos": 231.0,
+      "failure_rate": 0.0,
+      "auc": 0.97186,
+      "pr_auc": 0.23655,
+      "ece": 0.00298,
+      "brier": 0.00834
+    },
+    "obscene": {
+      "n": 2000,
+      "n_pos": 419.0,
+      "failure_rate": 0.0,
+      "auc": 0.94921,
+      "pr_auc": 0.73207,
+      "ece": 0.00729,
+      "brier": 0.02428
+    },
+    "threat": {
+      "n": 2000,
+      "n_pos": 152.0,
+      "failure_rate": 0.0,
+      "auc": 0.99052,
+      "pr_auc": 0.49988,
+      "ece": 0.00119,
+      "brier": 0.00228
+    },
+    "insult": {
+      "n": 2000,
+      "n_pos": 420.0,
+      "failure_rate": 0.0,
+      "auc": 0.95488,
+      "pr_auc": 0.56407,
+      "ece": 0.01416,
+      "brier": 0.0336
+    },
+    "identity_attack": {
+      "n": 2000,
+      "n_pos": 177.0,
+      "failure_rate": 0.0,
+      "auc": 0.98424,
+      "pr_auc": 0.35715,
+      "ece": 0.00112,
+      "brier": 0.0063
+    },
+    "mean": {
+      "n": 2000,
+      "n_pos": null,
+      "failure_rate": 0.0,
+      "auc": 0.96536,
+      "pr_auc": 0.51173,
+      "ece": 0.00749,
+      "brier": 0.02091
+    }
+  }
+}
