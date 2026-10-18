@@ -107,3 +107,33 @@ def test_p1_not_supported(tokenizer):
     score, _ = scripted(lambda label, call: (0.5, 0.99))
     with pytest.raises(NotImplementedError):
         score_texts(["a"], ["text"], PromptBuilder(tokenizer, "p1", "zs"), score)
+
+
+def test_vllm_output_parsing(monkeypatch):
+    """vllm_score_fn reads the first generated token's top logprobs, in prompt order."""
+    import sys
+    import types
+    from types import SimpleNamespace as NS
+
+    fake_vllm = types.ModuleType("vllm")
+    fake_vllm.SamplingParams = lambda **kw: kw
+    monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
+    from src.teacher.scoring import vllm_score_fn
+
+    tables = {"a": {1: math.log(0.6), 4: math.log(0.2), 99: math.log(0.1)},
+              "b": {5: math.log(0.9)}}
+    seen = {}
+
+    def request_output(prompt):
+        first_token = {tid: NS(logprob=lp) for tid, lp in tables[prompt].items()}
+        return NS(outputs=[NS(logprobs=[first_token])])
+
+    class FakeLLM:
+        def generate(self, prompts, params, use_tqdm):
+            seen["params"] = params
+            return [request_output(p) for p in prompts]
+
+    results = vllm_score_fn(FakeLLM(), YES, NO, logprobs=20)(["a", "b"])
+    assert seen["params"] == {"temperature": 0.0, "max_tokens": 1, "logprobs": 20}
+    assert results[0] == pytest.approx((0.75, 0.8))
+    assert results[1] == pytest.approx((0.0, 0.9))

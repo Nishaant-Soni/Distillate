@@ -38,6 +38,10 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
         cfg = yaml.safe_load(f) or {}
     if tuple(cfg.get("labels", ())) != LABELS:
         raise ValueError(f"config labels {cfg.get('labels')} must equal {list(LABELS)}")
+    # Relative paths resolve against Model-Pipeline/, so the CLI behaves the same from anywhere.
+    for key, value in cfg.get("paths", {}).items():
+        p = Path(value)
+        cfg["paths"][key] = str(p if p.is_absolute() else PIPELINE_ROOT / p)
     return cfg
 
 

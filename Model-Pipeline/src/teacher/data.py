@@ -62,6 +62,14 @@ def find_competition_dir(root: str | Path) -> Path:
     return matches[0]
 
 
+def find_file(root: str | Path, name: str) -> Path:
+    """The single file called ``name`` under ``root``, e.g. a 00_prepare_data output."""
+    matches = sorted(Path(root).rglob(name))
+    if len(matches) != 1:
+        raise FileNotFoundError(f"expected one {name} under {root}, found {matches}")
+    return matches[0]
+
+
 def _read_csv(path: Path):
     import pandas as pd
 

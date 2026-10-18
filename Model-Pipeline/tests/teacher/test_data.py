@@ -10,6 +10,7 @@ from src.teacher.data import (
     check_frame,
     clean_text,
     find_competition_dir,
+    find_file,
     read_competition_split,
     to_raw_frame,
 )
@@ -83,6 +84,15 @@ def test_find_competition_dir(tmp_path):
     assert find_competition_dir(tmp_path / "input") == folder
     with pytest.raises(FileNotFoundError):
         find_competition_dir(tmp_path / "input" / "missing")
+
+
+def test_find_file(tmp_path):
+    (tmp_path / "nb-output" / "wiki").mkdir(parents=True)
+    target = tmp_path / "nb-output" / "wiki" / "wiki_train_raw.parquet"
+    target.write_bytes(b"")
+    assert find_file(tmp_path, "wiki_train_raw.parquet") == target
+    with pytest.raises(FileNotFoundError):
+        find_file(tmp_path, "missing.parquet")
 
 
 def test_check_frame():
