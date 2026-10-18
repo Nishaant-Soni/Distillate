@@ -60,7 +60,20 @@ Outputs: `data/processed/civil/{h2_eval,canary_civil,bias_eval}.parquet` and `da
 Run on its own: `python -m scripts.subsets --config config/pipeline.yaml`. The summary in `reports/summaries/subsets.json` records counts, the drift date range, toxicity rates before and after sampling, and the `bias_eval` and `h2_eval` overlap.
 
 ### 5.3 Obfuscation set (`scripts/obfuscate.py`)
-<!-- Owner: Sai. -->
+
+Tests whether the model can be fooled by the tricks people use to slip past moderation. It takes 3,000 toxic comments from the gate set (`splits.obfuscation_size`) and rewrites each with one of three tricks, chosen per comment:
+
+| Trick | Example | What it simulates |
+|---|---|---|
+| Substitution | `idiot` becomes `1d10t` | Digits and symbols in place of letters |
+| Spacing | `idiot` becomes `i d i o t` | Letters split apart to break up words |
+| Homoglyph | `idiot` looks unchanged | Latin letters swapped for identical-looking Cyrillic ones |
+
+Labels are unchanged, since the comment is still toxic. Ids become `<original_id>_obf`, and the derived columns (`char_len`, `has_identity_term`, `has_obfuscation`) are recomputed on the new text. Every choice is seeded per comment id, so the output is identical on every run regardless of row order.
+
+Output: `data/processed/obfuscation.parquet`, with the same columns as the Wikipedia files.
+
+Run on its own: `python -m scripts.obfuscate --config config/pipeline.yaml`. The summary in `reports/summaries/obfuscate.json` records how many comments used each trick and the share flagged as `has_obfuscation`.
 
 ### 5.4 Schema and statistics (`scripts/schema_stats.py`)
 <!-- Owner: Sai. TFDV schema inference, curation, and validation. -->
