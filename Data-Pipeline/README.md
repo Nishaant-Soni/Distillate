@@ -75,7 +75,7 @@ are exactly `None`, and they are kept as text.
 | Civil labels | rater fraction kept as `<label>_frac`; `<label>` = fraction ≥ 0.5 | standard convention, fraction kept for later use |
 | `sexual_explicit` | dropped | not one of our six labels |
 | `created_date` | parsed to UTC with `format="mixed"` | 3 dates have no fractional seconds |
-| Text | HTML entities → Unicode NFKC → whitespace collapsed | removes web noise |
+| Text | Unicode NFKC → HTML entities → whitespace collapsed | removes web noise; same order as the teacher lane |
 | Not done | no lowercasing, punctuation removal or spelling fixes | CAPS, "!!!" and "1d10t" are toxicity signals |
 | Derived columns | `char_len`, `has_identity_term`, `has_obfuscation` | used by validation, bias slicing and drift monitoring |
 

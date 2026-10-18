@@ -56,7 +56,7 @@ def civil_rows(texts, dates, **extra):
     "raw, expected",
     [
         ("a &amp; b", "a & b"),
-        ("a &amp;amp; b", "a & b"),
+        ("a &amp;amp; b", "a &amp; b"),  # decoded once, same as the teacher lane,
         ("  lots   of\n\tspace ", "lots of space"),
         ("ｆｕｌｌｗｉｄｔｈ", "fullwidth"),
         ("you 1d10t!!!", "you 1d10t!!!"),

@@ -58,16 +58,16 @@ CIVIL_SPLITS = ["train", "validation", "test", "identities_test"]
 
 
 def clean_text(value: Any) -> str:
-    """Light text cleaning, shared with the teacher lane and, later, serving.
+    """Light text cleaning, the same as the teacher lane (Model-Pipeline/src/teacher/data.py).
 
-    Order: HTML entities first (twice, for double-encoded text like "&amp;amp;"),
-    then Unicode NFKC, so characters created by the decoding also get normalized,
-    then whitespace is collapsed. Keep this function pure: same input, same output.
+    Order: Unicode NFKC, then HTML entities, then whitespace collapsed, so the teacher
+    and the student see identically cleaned text. Keep this function pure: same input,
+    same output.
     """
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
-    text = html.unescape(html.unescape(str(value)))
-    text = unicodedata.normalize("NFKC", text)
+    text = unicodedata.normalize("NFKC", str(value))
+    text = html.unescape(text)
     return _WHITESPACE.sub(" ", text).strip()
 
 
