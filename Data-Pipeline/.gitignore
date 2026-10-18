@@ -8,3 +8,10 @@ data/processed/
 .ruff_cache/
 __pycache__/
 *.tmp
+
+
+
+.venv/
+data/kaggle/
+.env
+kaggle.json
