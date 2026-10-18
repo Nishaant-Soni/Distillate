@@ -43,12 +43,13 @@ def test_padding_does_not_change_probabilities(tiny_model, setup):
     batched = hf_score_fn(tiny_model, tok, yes_ids, no_ids, batch_size=2)([long, short])[1]
     assert batched[0] == pytest.approx(alone[0], abs=1e-5)
     assert batched[1] == pytest.approx(alone[1], abs=1e-5)
+    assert batched[2] == pytest.approx(alone[2], abs=1e-4)
 
 
 def test_matches_manual_softmax(tiny_model, setup):
     tok, yes_ids, no_ids = setup
     prompt = "score this comment please"
-    p, coverage = hf_score_fn(tiny_model, tok, yes_ids, no_ids)([prompt])[0]
+    p, coverage, logit, _ = hf_score_fn(tiny_model, tok, yes_ids, no_ids)([prompt])[0]
     ids = torch.tensor([tok.encode(prompt)])
     with torch.no_grad():
         probs = torch.softmax(tiny_model(input_ids=ids).logits[0, -1].float(), dim=-1)
@@ -56,6 +57,7 @@ def test_matches_manual_softmax(tiny_model, setup):
     p_no = float(probs[sorted(no_ids)].sum())
     assert coverage == pytest.approx(p_yes + p_no, rel=1e-5)
     assert p == pytest.approx(p_yes / (p_yes + p_no), rel=1e-5)
+    assert logit == pytest.approx(math.log(p_yes / p_no), abs=1e-4)
     assert 0 < coverage < 1 and not math.isnan(p)
 
 

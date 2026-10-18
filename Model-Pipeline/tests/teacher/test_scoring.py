@@ -5,7 +5,7 @@ import pytest
 
 from src.teacher.config import LABELS
 from src.teacher.prompts import PromptBuilder
-from src.teacher.scoring import answer_token_ids, score_texts, yes_probability
+from src.teacher.scoring import Score, answer_token_ids, score_texts, yes_probability
 
 from .conftest import FakeTokenizer
 
@@ -30,14 +30,33 @@ def test_answer_token_ids_fails_without_variants():
 def test_variants_are_summed_and_renormalised():
     top = {1: math.log(0.3), 2: math.log(0.1), 4: math.log(0.2), 5: math.log(0.2),
            99: math.log(0.15)}
-    p, coverage = yes_probability(top, YES, NO)
+    p, coverage, logit, censored = yes_probability(top, YES, NO)
     assert coverage == pytest.approx(0.8)
     assert p == pytest.approx(0.4 / 0.8)
+    assert logit == pytest.approx(math.log(0.4 / 0.4)) and not censored
+
+
+def test_logit_does_not_saturate():
+    # P(no) = 1e-12: p rounds to exactly 1.0 in float32, the logit keeps the information.
+    top = {1: math.log(1 - 1e-12), 4: math.log(1e-12)}
+    weaker = {1: math.log(1 - 1e-9), 4: math.log(1e-9)}
+    a, b = yes_probability(top, YES, NO), yes_probability(weaker, YES, NO)
+    assert np.float32(a.p) == np.float32(b.p) == 1.0
+    assert a.logit == pytest.approx(math.log((1 - 1e-12) / 1e-12))
+    assert a.logit > b.logit > 20
+
+
+def test_absent_side_gives_finite_bound():
+    # No "no" token in the list: its mass is at most len(NO) * the lowest listed probability.
+    top = {1: math.log(0.99), 99: math.log(1e-6), 98: math.log(1e-9)}
+    p, coverage, logit, censored = yes_probability(top, YES, NO)
+    assert p == 1.0 and censored
+    assert logit == pytest.approx(math.log(0.99) - math.log(len(NO) * 1e-9))
 
 
 def test_no_answer_tokens_gives_nan():
-    p, coverage = yes_probability({99: math.log(0.9)}, YES, NO)
-    assert coverage == 0 and math.isnan(p)
+    p, coverage, logit, censored = yes_probability({99: math.log(0.9)}, YES, NO)
+    assert coverage == 0 and math.isnan(p) and math.isnan(logit)
 
 
 def scripted(answers):
@@ -49,7 +68,8 @@ def scripted(answers):
         out = []
         for prompt in prompts:
             label = next(lab for lab in LABELS if f"definition of {lab}?" in prompt)
-            out.append(answers(label, len(calls)))
+            p, coverage = answers(label, len(calls))
+            out.append(Score(p, coverage, math.log(p / (1 - p))))
         return out
 
     return score, calls
@@ -65,8 +85,10 @@ def test_ok_rows(builder):
     frame, info = score_texts(["a", "b"], ["first text", "second text"], builder, score)
     assert list(frame["status"]) == ["ok", "ok"]
     assert np.allclose(frame[[f"p_{lab}" for lab in LABELS]].to_numpy(), 0.25)
+    assert np.allclose(frame[[f"logit_{lab}" for lab in LABELS]].to_numpy(), math.log(1 / 3))
     assert calls == [12]
     assert info["failed_rows"] == 0 and info["retried_cells"] == 0
+    assert info["censored_cells"] == 0
 
 
 def test_low_coverage_retried_once_then_ok(builder):
@@ -85,6 +107,7 @@ def test_low_coverage_after_retry_fails_whole_row(builder):
     frame, info = score_texts(["a"], ["some text"], builder, score, max_retries=1)
     assert frame.loc[0, "status"] == "failed"
     assert frame[[f"p_{lab}" for lab in LABELS]].isna().all(axis=None)
+    assert frame[[f"logit_{lab}" for lab in LABELS]].isna().all(axis=None)
     assert calls == [6, 1] and info["failed_rows"] == 1
 
 
@@ -101,6 +124,7 @@ def test_output_types(builder):
     assert str(frame["id"].dtype) == "string" and str(frame["status"].dtype) == "string"
     for label in LABELS:
         assert frame[f"p_{label}"].dtype == np.float32
+        assert frame[f"logit_{label}"].dtype == np.float32
 
 
 def test_p1_not_supported(tokenizer):
@@ -121,7 +145,7 @@ def test_vllm_output_parsing(monkeypatch):
     from src.teacher.scoring import vllm_score_fn
 
     tables = {"a": {1: math.log(0.6), 4: math.log(0.2), 99: math.log(0.1)},
-              "b": {5: math.log(0.9)}}
+              "b": {5: math.log(0.9), 99: math.log(1e-3), 98: math.log(1e-7)}}
     seen = {}
 
     def request_output(prompt):
@@ -135,5 +159,7 @@ def test_vllm_output_parsing(monkeypatch):
 
     results = vllm_score_fn(FakeLLM(), YES, NO, logprobs=20)(["a", "b"])
     assert seen["params"] == {"temperature": 0.0, "max_tokens": 1, "logprobs": 20}
-    assert results[0] == pytest.approx((0.75, 0.8))
-    assert results[1] == pytest.approx((0.0, 0.9))
+    assert results[0][:3] == pytest.approx((0.75, 0.8, math.log(0.6 / 0.2)))
+    assert not results[0].censored
+    assert results[1][:2] == pytest.approx((0.0, 0.9)) and results[1].censored
+    assert results[1].logit == pytest.approx(math.log(len(YES) * 1e-7) - math.log(0.9))

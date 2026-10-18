@@ -5,7 +5,13 @@ P(yes) is the summed probability of every single-token "yes" variant, P(no) like
 ``min_coverage`` is retried; if any label of a row still fails, the row is ``failed``
 and all six probabilities are NaN.
 
-Two backends produce the same per-prompt ``(p, coverage)`` pairs:
+``logit = log P(yes) - log P(no)`` carries the same information as ``p`` without saturating:
+a confident answer gives ``p == 1.0`` exactly in float32 once P(no) < ~6e-8, which ties
+rankings and makes logit(p), the input to Platt scaling, infinite. When one side has no
+token in the top-k list, its mass is bounded by ``len(ids) * exp(lowest top-k logprob)``,
+so the logit is a conservative finite bound; such cells are counted as ``censored``.
+
+Two backends produce the same per-prompt ``Score``:
 * vLLM, reading the top-``logprobs`` entries of the first generated token (labeling);
 * Hugging Face, an exact softmax at the last prompt position (smoke-test cross-check).
 """
@@ -14,15 +20,24 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Collection, Mapping, Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 from src.teacher.config import LABELS
 
 YES_VARIANTS = ("yes", "Yes", "YES", " yes", " Yes", " YES")
 NO_VARIANTS = ("no", "No", "NO", " no", " No", " NO")
 
-# Takes prompt strings, returns one (p, coverage) per prompt, in order.
-ScoreFn = Callable[[Sequence[str]], list[tuple[float, float]]]
+
+
+class Score(NamedTuple):
+    p: float
+    coverage: float
+    logit: float
+    censored: bool = False   # one answer side was absent from the top-k list
+
+
+# Takes prompt strings, returns one Score per prompt, in order.
+ScoreFn = Callable[[Sequence[str]], list[Score]]
 
 
 def answer_token_ids(tokenizer: Any) -> tuple[frozenset[int], frozenset[int]]:
@@ -40,22 +55,34 @@ def answer_token_ids(tokenizer: Any) -> tuple[frozenset[int], frozenset[int]]:
     return yes_ids, no_ids
 
 
+def _logsumexp(values: Sequence[float]) -> float:
+    top = max(values)
+    return top + math.log(sum(math.exp(v - top) for v in values))
+
+
 def yes_probability(top_logprobs: Mapping[int, float], yes_ids: Collection[int],
-                    no_ids: Collection[int]) -> tuple[float, float]:
-    """``(p, coverage)`` from a token-id -> logprob map. ``p`` is NaN when coverage is 0."""
-    p_yes = sum(math.exp(lp) for tid, lp in top_logprobs.items() if tid in yes_ids)
-    p_no = sum(math.exp(lp) for tid, lp in top_logprobs.items() if tid in no_ids)
+                    no_ids: Collection[int]) -> Score:
+    """``Score`` from a token-id -> logprob map. ``p`` and ``logit`` are NaN when coverage is 0."""
+    yes_lps = [lp for tid, lp in top_logprobs.items() if tid in yes_ids]
+    no_lps = [lp for tid, lp in top_logprobs.items() if tid in no_ids]
+    p_yes, p_no = sum(map(math.exp, yes_lps)), sum(map(math.exp, no_lps))
     coverage = p_yes + p_no
-    return (p_yes / coverage if coverage > 0 else math.nan), coverage
+    if not yes_lps and not no_lps:
+        return Score(math.nan, coverage, math.nan)
+    # An absent token's logprob is at most the lowest one listed.
+    floor = min(top_logprobs.values())
+    log_yes = _logsumexp(yes_lps) if yes_lps else math.log(len(yes_ids)) + floor
+    log_no = _logsumexp(no_lps) if no_lps else math.log(len(no_ids)) + floor
+    return Score(p_yes / coverage, coverage, log_yes - log_no, not (yes_lps and no_lps))
 
 
 def score_texts(ids: Sequence[str], texts: Sequence[str], builder: Any, score_fn: ScoreFn,
                 min_coverage: float = 0.5, max_retries: int = 1):
     """Score cleaned texts with P2 and return ``(frame, info)``.
 
-    ``frame`` has ``id``, ``p_<label>`` (float32, raw), ``cov_<label>`` (float32),
-    ``coverage`` (the row's lowest label coverage), and ``status`` (``ok``/``failed``).
-    Empty texts are ``failed`` without being scored.
+    ``frame`` has ``id``, ``p_<label>`` (float32, raw), ``logit_<label>`` (float32),
+    ``cov_<label>`` (float32), ``coverage`` (the row's lowest label coverage), and ``status``
+    (``ok``/``failed``). Empty texts are ``failed`` without being scored.
     """
     import numpy as np
     import pandas as pd
@@ -68,7 +95,9 @@ def score_texts(ids: Sequence[str], texts: Sequence[str], builder: Any, score_fn
 
     n, k = len(texts), len(LABELS)
     p = np.full((n, k), np.nan)
+    logit = np.full((n, k), np.nan)
     cov = np.zeros((n, k))
+    censored = np.zeros((n, k), dtype=bool)
     prompts: dict[int, list[str]] = {}
     truncated = 0
     for i, text in enumerate(texts):
@@ -80,8 +109,8 @@ def score_texts(ids: Sequence[str], texts: Sequence[str], builder: Any, score_fn
         results = score_fn([prompts[i][j] for i, j in cells])
         if len(results) != len(cells):
             raise RuntimeError(f"score_fn returned {len(results)} results for {len(cells)}")
-        for (i, j), (p_ij, cov_ij) in zip(cells, results, strict=True):
-            p[i, j], cov[i, j] = p_ij, cov_ij
+        for (i, j), score in zip(cells, results, strict=True):
+            p[i, j], cov[i, j], logit[i, j], censored[i, j] = score
 
     cells = [(i, j) for i in prompts for j in range(k)]
     if cells:
@@ -95,11 +124,13 @@ def score_texts(ids: Sequence[str], texts: Sequence[str], builder: Any, score_fn
         run(low)
 
     failed = ~(cov >= min_coverage).all(axis=1)
-    p[failed] = np.nan
+    p[failed] = logit[failed] = np.nan
 
     frame = pd.DataFrame({"id": pd.Series(list(ids), dtype="string")})
     for j, label in enumerate(LABELS):
         frame[f"p_{label}"] = p[:, j].astype("float32")
+    for j, label in enumerate(LABELS):
+        frame[f"logit_{label}"] = logit[:, j].astype("float32")
     for j, label in enumerate(LABELS):
         frame[f"cov_{label}"] = cov[:, j].astype("float32")
     frame["coverage"] = cov.min(axis=1).astype("float32")
@@ -112,6 +143,7 @@ def score_texts(ids: Sequence[str], texts: Sequence[str], builder: Any, score_fn
         "truncated_rows": int(truncated),
         "prompts_scored": len(cells) + retried,
         "retried_cells": retried,
+        "censored_cells": int(censored[~failed].sum()),
     }
     return frame, info
 
@@ -123,7 +155,7 @@ def vllm_score_fn(llm: Any, yes_ids: Collection[int], no_ids: Collection[int],
 
     params = SamplingParams(temperature=0.0, max_tokens=1, logprobs=logprobs)
 
-    def score(prompts: Sequence[str]) -> list[tuple[float, float]]:
+    def score(prompts: Sequence[str]) -> list[Score]:
         outputs = llm.generate(list(prompts), params, use_tqdm=False)
         results = []
         for out in outputs:
@@ -160,19 +192,21 @@ def hf_score_fn(model: Any, tokenizer: Any, yes_ids: Collection[int],
         return input_ids, mask
 
     @torch.inference_mode()
-    def score(prompts: Sequence[str]) -> list[tuple[float, float]]:
-        results: list[tuple[float, float]] = []
+    def score(prompts: Sequence[str]) -> list[Score]:
+        results: list[Score] = []
         for start in range(0, len(prompts), batch_size):
             input_ids, mask = encode_batch(prompts[start:start + batch_size])
             input_ids, mask = input_ids.to(model.device), mask.to(model.device)
             positions = (mask.cumsum(-1) - 1).clamp(min=0)
             logits = model(input_ids=input_ids, attention_mask=mask, position_ids=positions,
                            logits_to_keep=1).logits[:, -1, :].float()
-            probs = torch.softmax(logits, dim=-1).cpu()
-            p_yes, p_no = probs[:, yes].sum(-1), probs[:, no].sum(-1)
-            for y, n in zip(p_yes.tolist(), p_no.tolist(), strict=True):
+            logp = torch.log_softmax(logits, dim=-1).cpu()
+            log_yes, log_no = logp[:, yes].logsumexp(-1), logp[:, no].logsumexp(-1)
+            for ly, ln in zip(log_yes.tolist(), log_no.tolist(), strict=True):
+                y, n = math.exp(ly), math.exp(ln)
                 coverage = y + n
-                results.append((y / coverage if coverage > 0 else math.nan, coverage))
+                results.append(Score(y / coverage if coverage > 0 else math.nan, coverage,
+                                     ly - ln))
         return results
 
     return score
