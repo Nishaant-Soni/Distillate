@@ -1,0 +1,46 @@
+{
+  "calibration_version": "platt-v1",
+  "method": "weighted Platt scaling",
+  "input": "logit",
+  "formula": "p = sigmoid(slope * logit_<label> + intercept)",
+  "prompt_version": "p2-fs-v1",
+  "model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+  "labels": {
+    "toxicity": {
+      "slope": 0.19611498952995893,
+      "intercept": -3.141101736582087,
+      "n": 2000,
+      "n_pos": 575
+    },
+    "severe_toxicity": {
+      "slope": 0.20312891028864732,
+      "intercept": -3.931865247083641,
+      "n": 2000,
+      "n_pos": 231
+    },
+    "obscene": {
+      "slope": 0.184033513336274,
+      "intercept": -0.028069931229846676,
+      "n": 2000,
+      "n_pos": 419
+    },
+    "threat": {
+      "slope": 0.22568037566824733,
+      "intercept": -4.546543120628306,
+      "n": 2000,
+      "n_pos": 152
+    },
+    "insult": {
+      "slope": 0.20451616290163258,
+      "intercept": -3.2354537775564562,
+      "n": 2000,
+      "n_pos": 420
+    },
+    "identity_attack": {
+      "slope": 0.21385098484613246,
+      "intercept": -3.8699544091208398,
+      "n": 2000,
+      "n_pos": 177
+    }
+  }
+}
