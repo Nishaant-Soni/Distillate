@@ -13,21 +13,29 @@ paths:
   summaries_dir: reports/summaries
   identity_terms: config/identity_terms.txt
   tfds_data_dir: /opt/airflow/tfds   # mounted volume in docker compose
+  kaggle_dir: data/kaggle           # Kaggle downloads (git-ignored, not versioned)
 
 datasets:
   wikipedia:
-    tfds_name: wikipedia_toxicity_subtypes/EnglishSubtypes:0.3.1
+    kaggle_competition: jigsaw-toxic-comment-classification-challenge
+    kaggle_files: {train: train.csv.zip, test: test.csv.zip, test_labels: test_labels.csv.zip}
     splits: [train, test]
     expected_rows: {train: 159571, test: 63978}
   civil_comments:
-    tfds_name: civil_comments/CivilComments:1.2.4
+    kaggle_competition: jigsaw-unintended-bias-in-toxicity-classification
+    kaggle_files:
+      train: train.csv
+      validation: test_public_expanded.csv
+      test: test_private_expanded.csv
     splits: [train, validation, test]
     expected_rows: {train: 1804874, validation: 97320, test: 97320}
-    dropped_columns: [parent_text]
   civil_identities:
-    tfds_name: civil_comments/CivilCommentsIdentities:1.2.4
+    # Built from civil_comments test: rows with identity_annotator_count > 0.
     splits: [test]
     expected_rows: {test: 21577}
+
+acquire:
+  csv_chunksize: 200000             # rows per chunk when reading the big Civil CSVs
 
 labels:
   names: [toxicity, severe_toxicity, obscene, threat, insult, identity_attack]
@@ -37,6 +45,8 @@ labels:
 preprocess:
   max_char_len_flag: 5000
   obfuscation_nonalpha_share: 0.3   # TODO(Praniti): confirm during EDA
+  batch_size: 200000                # rows per chunk when cleaning Civil train
+  max_drop_rate_warn: 0.01          # warn if preprocess drops more than 1% of a file
 
 dedupe:
   jaccard_threshold: 0.9
