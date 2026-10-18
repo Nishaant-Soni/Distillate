@@ -170,3 +170,10 @@ def test_civil_frame_identity_columns_only_in_identities_file():
     assert list(with_ids.columns) == CIVIL_CLEAN_COLUMNS + CIVIL_IDENTITY_EXTRA_COLUMNS
     assert plain["text"].tolist() == ["NA", "hi"]
     assert dropped["missing_created_date_kept"] == 0
+
+
+def test_missing_text_dropped():
+    df = pd.DataFrame({"id": ["a", "b"], "text": [None, "hello"]})
+    out, dropped = clean_texts(df)
+    assert out["id"].tolist() == ["b"]
+    assert dropped["empty_in_source"] == 1

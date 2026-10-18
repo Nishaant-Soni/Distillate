@@ -3,3 +3,7 @@
 pyyaml
 pytest
 ruff
+
+pandas
+pyarrow
+datasketch==2.0.0
