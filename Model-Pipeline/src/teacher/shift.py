@@ -14,7 +14,7 @@ for the pilot, the teacher's pilot calibration, and the stack fitted on the pilo
 is refitted on Civil.
 
     python -m src.teacher.shift sample     # writes artifacts/shift/civil_shift_ids.parquet
-    python -m src.teacher.shift evaluate   # needs data/shift/civil_<prompt_version>.parquet
+    python -m src.teacher.shift evaluate   # needs artifacts/shift/civil_<prompt_version>.parquet
 """
 
 from __future__ import annotations
@@ -152,7 +152,7 @@ def run_evaluate(cfg: Mapping[str, Any], teacher_path: str | Path | None = None,
     sample = pd.read_parquet(out_dir / "civil_shift_ids.parquet")
     civil = load_civil(download_civil(cfg, data_dir / "civil"), s["split"], s["threshold"])
     civil_rows = shift_rows(civil, sample)
-    civil_teacher = pd.read_parquet(teacher_path or data_dir / "shift" / f"civil_{pv}.parquet")
+    civil_teacher = pd.read_parquet(teacher_path or out_dir / f"civil_{pv}.parquet")
     if set(civil_teacher["id"]) != set(sample["id"]):
         raise ValueError("the teacher's Civil predictions do not cover the shift sample")
 
