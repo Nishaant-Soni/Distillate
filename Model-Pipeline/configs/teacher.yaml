@@ -29,6 +29,7 @@ paths:
   injection_set: configs/injection_set.csv   # 40 synthetic comments, no real data
   shift_dir: artifacts/shift                 # Civil Comments shift sample ids and results
   prompt_v2_dir: artifacts/prompt_v2         # obscene prompt follow-up (prompt_tuning.py)
+  shard_plan: artifacts/teacher_shards.json  # training-set shard plan (shards.py), committed
 
 prompt:
   protocol: p2              # decision memo: P2 zero-shot (the stack and its fallback use it)
