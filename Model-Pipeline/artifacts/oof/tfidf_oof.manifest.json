@@ -1,0 +1,13 @@
+{
+  "file": "tfidf_oof.parquet",
+  "hf_dataset": "N-S-10/distillate-teacher-shards",
+  "hf_path": "tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet",
+  "bytes": 8566181,
+  "sha256": "86160b7e62c08a45f8c6236447b07d4ec69cd0c97af97e7bc264ba88870f86dd",
+  "row_count": 159571,
+  "ids_sha256": "7aa5df9b8b23164bdb96a82e914cd321cc2f143730a80dc1235632669cb95829",
+  "folds": 5,
+  "seed": 42,
+  "baseline_version": "tfidf-lr-v1",
+  "regenerate": "python -m src.teacher.tfidf_oof"
+}

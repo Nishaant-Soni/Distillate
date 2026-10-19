@@ -30,6 +30,7 @@ paths:
   shift_dir: artifacts/shift                 # Civil Comments shift sample ids and results
   prompt_v2_dir: artifacts/prompt_v2         # obscene prompt follow-up (prompt_tuning.py)
   shard_plan: artifacts/teacher_shards.json  # training-set shard plan (shards.py), committed
+  oof_dir: artifacts/oof                     # out-of-fold TF-IDF scores and stack check
 
 prompt:
   protocol: p2              # decision memo: P2 zero-shot (the stack and its fallback use it)
@@ -70,6 +71,10 @@ injection:
 stack:
   version: stack-v1         # logistic regression on logit_<label> and TF-IDF's logit(p)
   C: 1.0
+
+# Out-of-fold TF-IDF scores for the training set (tfidf_oof.py): the stack's TF-IDF input.
+oof:
+  folds: 5
 
 # Civil Comments shift check (shift.py). Hugging Face copy, as TFDS's download returns 403.
 shift:

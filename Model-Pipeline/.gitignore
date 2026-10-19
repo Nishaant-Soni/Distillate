@@ -1,2 +1,5 @@
 # Local copy of 00_prepare_data's output: comment text stays out of git.
 data/
+
+# Out-of-fold TF-IDF scores (8.6 MB): stored in the HF shard dataset, see artifacts/oof/tfidf_oof.manifest.json.
+artifacts/oof/tfidf_oof.parquet
