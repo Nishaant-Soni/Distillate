@@ -174,6 +174,8 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None,
                         help="first N sorted source ids only (dry runs)")
     parser.add_argument("--prompt-version", default=None)
+    parser.add_argument("--model-version", default=None,
+                        help="default: the teacher's; soft-label shards name their stack")
     parser.add_argument("--local-root", default=None, help="local folder instead of the store")
     parser.add_argument("--partial", action="store_true", help="skip the coverage check")
     parser.add_argument("--config", default=None)
@@ -193,7 +195,8 @@ def main() -> None:
         frames, manifests, schemas, errors = load_run(storage, args.prefix, Path(tmp))
         errors += check_run(frames, manifests, schemas, source,
                             args.shard_size or cfg["labeling"]["shard_size"], expected_prompt,
-                            model_version(cfg), partial=args.partial, plan_record=plan_record)
+                            args.model_version or model_version(cfg), partial=args.partial,
+                            plan_record=plan_record)
     summary = {"prefix": args.prefix, "shards": len(set(frames) & set(manifests)),
                "rows": sum(len(f) for f in frames.values()), "errors": len(errors)}
     print(json.dumps(summary))
