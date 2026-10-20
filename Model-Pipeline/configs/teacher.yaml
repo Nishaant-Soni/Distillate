@@ -30,6 +30,7 @@ paths:
   shift_dir: artifacts/shift                 # Civil Comments shift sample ids and results
   prompt_v2_dir: artifacts/prompt_v2         # obscene prompt follow-up (prompt_tuning.py)
   shard_plan: artifacts/teacher_shards.json  # training-set shard plan (shards.py), committed
+  gate_ids: artifacts/gate_subset_ids.parquet   # gate subset with weights (sampling.py gate)
   oof_dir: artifacts/oof                     # out-of-fold TF-IDF scores and stack check
 
 prompt:
@@ -50,6 +51,9 @@ sampling:
   fewshot_per_label: 2      # spec allows 2 to 3; 3 nearly fills max_model_len
                             # examples must fit prompt.fewshot_max_tokens, so none is cut
   gate_subset_size: 20000
+  # From wiki_test_raw, as for the pilot. Uniform, threat would get ~63 positives; its
+  # stratum has 211 rows and severe_toxicity's 204.
+  gate_enrich: {threat: 150, identity_attack: 300, severe_toxicity: 150}
 
 baseline:
   model_version: tfidf-lr-v1

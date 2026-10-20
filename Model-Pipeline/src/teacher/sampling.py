@@ -1,4 +1,4 @@
-"""Pilot sample, few-shot examples, and (later) the gate subset, with inclusion weights.
+"""Pilot sample, few-shot examples, and the gate subset, with inclusion weights.
 
 Enriched sampling: rare labels get a fixed number of positives, then a uniform random fill
 tops the sample up. To keep inclusion probabilities exact, every row belongs to one stratum:
@@ -16,6 +16,7 @@ Rows are sorted by id before drawing, so the same seed gives the same sample wha
 order the input file is in.
 
     python -m src.teacher.sampling pilot   # writes pilot_ids.parquet and fewshot_ids.json
+    python -m src.teacher.sampling gate    # writes gate_subset_ids.parquet (from wiki_test_raw)
 """
 
 from __future__ import annotations
@@ -114,7 +115,7 @@ def pick_fewshot(df, exclude_ids: Collection[str], per_label: int, max_tokens: i
 
 
 def pilot_summary(train, pilot) -> dict[str, Any]:
-    """Positives per label in the pilot, and weighted vs. true prevalence."""
+    """Positives per label in a sample (pilot or gate subset), and weighted vs. true prevalence."""
     import numpy as np
 
     rows = train.set_index("id").loc[pilot["id"]]
@@ -169,13 +170,37 @@ def run_pilot(cfg: Mapping[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def run_gate(cfg: Mapping[str, Any]) -> dict[str, Any]:
+    """Draw and save the gate subset from the test split. Raises if a label has < 100 positives."""
+    import pandas as pd
+
+    test = pd.read_parquet(Path(cfg["paths"]["data_dir"]) / cfg["data"]["files"]["test"])
+    test["id"] = test["id"].astype(str)
+    s = cfg["sampling"]
+    gate = enriched_sample(test, s["gate_subset_size"], s["gate_enrich"], cfg["seed"])
+    summary = pilot_summary(test, gate)
+    too_few = {k: v["positives"] for k, v in summary["labels"].items() if v["positives"] < 100}
+    if too_few:
+        raise ValueError(f"gate subset has fewer than 100 positives for {too_few}")
+
+    out = Path(cfg["paths"]["gate_ids"])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    gate.to_parquet(out, index=False)
+    out.with_name("gate_subset_summary.json").write_text(json.dumps(
+        {"seed": cfg["seed"], "source": cfg["data"]["files"]["test"],
+         "enrich": dict(s["gate_enrich"]), **summary}, indent=2) + "\n")
+    logger.info("gate subset: %s rows, positives %s", len(gate),
+                {k: v["positives"] for k, v in summary["labels"].items()})
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Teacher sampling.")
-    parser.add_argument("what", choices=["pilot"])
+    parser.add_argument("what", choices=["pilot", "gate"])
     parser.add_argument("--config", default=None)
     args = parser.parse_args()
-    if args.what == "pilot":
-        print(json.dumps(run_pilot(load_config(args.config)), indent=2))
+    run = {"pilot": run_pilot, "gate": run_gate}[args.what]
+    print(json.dumps(run(load_config(args.config)), indent=2))
 
 
 if __name__ == "__main__":

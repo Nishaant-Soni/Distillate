@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from src.teacher.config import LABELS
-from src.teacher.sampling import assign_strata, enriched_sample, pick_fewshot
+from src.teacher.sampling import assign_strata, enriched_sample, pick_fewshot, run_gate
 
 ENRICH = {"threat": 30, "identity_attack": 30, "severe_toxicity": 30}
 
@@ -76,6 +76,31 @@ def test_weights_reproduce_prevalence(train):
 def test_too_small_stratum_rejected(train):
     with pytest.raises(ValueError, match="threat"):
         enriched_sample(train, 15_000, {"threat": 10_000}, seed=42)
+
+
+def gate_cfg(tmp_path, enrich):
+    return {"seed": 42, "data": {"files": {"test": "test.parquet"}},
+            "paths": {"data_dir": str(tmp_path), "gate_ids": str(tmp_path / "a" / "gate.parquet")},
+            "sampling": {"gate_subset_size": 5000, "gate_enrich": enrich}}
+
+
+def test_gate_subset(tmp_path):
+    test = synthetic(n=40000, seed=1)
+    test.to_parquet(tmp_path / "test.parquet")
+    enrich = {"threat": 100, "identity_attack": 200, "severe_toxicity": 150}
+    summary = run_gate(gate_cfg(tmp_path, enrich))
+    gate = pd.read_parquet(tmp_path / "a" / "gate.parquet")
+    assert len(gate) == 5000 and gate["id"].is_unique and set(gate["id"]) <= set(test["id"])
+    pd.testing.assert_frame_equal(gate, enriched_sample(test, 5000, enrich, seed=42))
+    assert min(v["positives"] for v in summary["labels"].values()) >= 100
+    saved = (tmp_path / "a" / "gate_subset_summary.json").read_text()
+    assert '"enrich"' in saved and '"source": "test.parquet"' in saved
+
+
+def test_gate_subset_needs_enough_positives(tmp_path):
+    synthetic(n=40000, seed=1).to_parquet(tmp_path / "test.parquet")
+    with pytest.raises(ValueError, match="fewer than 100 positives"):
+        run_gate(gate_cfg(tmp_path, {}))      # uniform: about 20 threat positives
 
 
 def word_counts(texts):
