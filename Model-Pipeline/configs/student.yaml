@@ -1,0 +1,82 @@
+# Distillate student configuration.
+# Every tunable value for student training lives here; code must not hard-code any of these.
+# Override any value from the CLI: python -m src.student.train --set loss.alpha=0.5 train.epochs=1
+
+seed: 42
+
+labels: [toxicity, severe_toxicity, obscene, threat, insult, identity_attack]
+
+# Short name for this configuration; it goes into run names and model_version.
+run_name: distilbert-gold
+
+model:
+  name: distilbert          # a key of `models` below
+  max_length: 128           # 256 is checked once token_lengths.py shows the truncation share
+
+# Hugging Face model ids. `tiny` is built offline from a config, for tests and smoke runs.
+models:
+  distilbert: distilbert-base-uncased
+  minilm: microsoft/MiniLM-L12-H384-uncased
+  modernbert: answerdotai/ModernBERT-base
+  tiny: null
+
+# alpha * BCE(sigmoid(z_s), y) + (1 - alpha) * T^2 * BCE(sigmoid(z_s / T), sigmoid(z_t / T))
+# alpha = 1 is gold-only and never reads the soft labels.
+loss:
+  alpha: 1.0
+  temperature: 1.0
+
+train:
+  epochs: 3
+  batch_size: 32
+  eval_batch_size: 128
+  lr: 5.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.06
+  grad_clip: 1.0
+  fp16: true                # used on CUDA only (T4 has no bf16)
+  max_steps: null           # stop after this many optimizer steps (smoke runs)
+  patience: 1               # epochs without a validation mean-AUC gain before stopping
+  device: auto              # auto = cuda, then mps, then cpu
+  num_workers: 2
+  log_every: 100            # steps between train-loss logs
+
+data:
+  # temp: seeded split of raw train, until the data pipeline's official splits merge.
+  # official: the pipeline's train.parquet and val.parquet (CONTRACTS.md §2.2).
+  source: temp
+  val_fraction: 0.15
+  limit: null               # keep only N training rows (quick runs); validation is kept whole
+
+# The student's targets (docs/teacher_prompts_and_shard_spec.md §7). The run checks that every
+# shard names these versions and that each manifest's stack_sha256 equals the committed stack.
+soft_labels:
+  prefix: soft_labels/stack-v1/p2-zs-v2b/
+  prompt_version: p2-zs-v2b
+  model_version: stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554+tfidf-lr-v1
+  teacher_version: stack-v1
+  teacher_model_version: Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554
+  shard_size: 5000
+  max_failure: 0.01
+  local_root: null          # a local copy of the store instead of Hugging Face (tests, offline)
+
+storage:
+  backend: hf
+  hf_repo: distillate-team/distillate-teacher-shards
+
+mlflow:
+  enabled: true
+  experiment: distillate-student
+  log_model: false          # model weights stay in the run folder in Phase 1
+
+# Relative to Model-Pipeline/.
+paths:
+  raw_train: data/wiki_train_raw.parquet       # 00_prepare_data output (id, text, six labels)
+  official_dir: ../Data-Pipeline/data/processed/wikipedia
+  gate_ids: artifacts/gate_subset_ids.parquet  # no training or validation row may be a gate row
+  stack_file: artifacts/stack/stack_p2-zs-v2b.json
+  out_dir: outputs/student                     # one folder per run; gitignored
+  cache_dir: outputs/cache                     # downloaded soft-label shards
+  mlflow_db: mlruns/mlflow.db                  # local SQLite store until the VM's server exists
+  mlflow_artifacts: mlruns/artifacts
+  reports_dir: reports/summaries

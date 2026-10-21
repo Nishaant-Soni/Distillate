@@ -1,0 +1,74 @@
+# Smoke run: a tiny offline model on synthetic data, in seconds on CPU.
+# Make the data first:  python -m src.student.synthetic --out outputs/synthetic
+# Then:                 python -m src.student.train --config configs/smoke.yaml
+# Phase 2 CI runs this file as its training smoke test.
+
+seed: 42
+
+labels: [toxicity, severe_toxicity, obscene, threat, insult, identity_attack]
+
+run_name: smoke
+
+model:
+  name: tiny
+  max_length: 32
+
+models:
+  distilbert: distilbert-base-uncased
+  minilm: microsoft/MiniLM-L12-H384-uncased
+  modernbert: answerdotai/ModernBERT-base
+  tiny: null
+
+loss:
+  alpha: 0.5
+  temperature: 2.0
+
+train:
+  epochs: 4
+  batch_size: 16
+  eval_batch_size: 64
+  lr: 3.0e-3
+  weight_decay: 0.0
+  warmup_ratio: 0.0
+  grad_clip: 1.0
+  fp16: false
+  max_steps: 100
+  patience: 4
+  device: cpu
+  num_workers: 0
+  log_every: 20
+
+data:
+  source: temp
+  val_fraction: 0.15
+  limit: null
+
+soft_labels:
+  prefix: soft_labels/stack-v1/p2-zs-v2b/
+  prompt_version: p2-zs-v2b
+  model_version: stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554+tfidf-lr-v1
+  teacher_version: stack-v1
+  teacher_model_version: Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554
+  shard_size: 5000
+  max_failure: 0.01
+  local_root: outputs/synthetic/store
+
+storage:
+  backend: hf
+  hf_repo: distillate-team/distillate-teacher-shards
+
+mlflow:
+  enabled: true
+  experiment: distillate-student-smoke
+  log_model: false
+
+paths:
+  raw_train: outputs/synthetic/wiki_train_raw.parquet
+  official_dir: ../Data-Pipeline/data/processed/wikipedia
+  gate_ids: artifacts/gate_subset_ids.parquet
+  stack_file: artifacts/stack/stack_p2-zs-v2b.json
+  out_dir: outputs/student
+  cache_dir: outputs/cache                     # downloaded soft-label shards
+  mlflow_db: mlruns/mlflow.db
+  mlflow_artifacts: mlruns/artifacts
+  reports_dir: reports/summaries

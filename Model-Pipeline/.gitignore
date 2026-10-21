@@ -3,3 +3,8 @@ data/
 
 # Out-of-fold TF-IDF scores (8.6 MB): stored in the HF shard dataset, see artifacts/oof/tfidf_oof.manifest.json.
 artifacts/oof/tfidf_oof.parquet
+
+# Student runs, downloaded shards, synthetic data, and the local MLflow store.
+outputs/
+mlruns/
+reports/
