@@ -13,9 +13,17 @@ Everything is scored by models fitted on Wikipedia only: TF-IDF trained on the s
 for the pilot, the teacher's pilot calibration, and the stack fitted on the pilot. Nothing
 is refitted on Civil.
 
+The sampled rows informed decisions (the v2b prompt and the stack), so the data lane
+excludes them from its Civil subsets. Its ids are Kaggle's (Jigsaw Unintended Bias,
+``test_public_expanded.csv`` = Civil ``validation``), so ``map`` matches each sampled row to
+Kaggle ids on raw text plus toxicity. Exact duplicates (same text and toxicity) can't be told
+apart, so every candidate id is listed: for an exclusion list, an extra copy of a comment the
+teacher already saw is excluded correctly.
+
     python -m src.teacher.shift sample     # writes artifacts/shift/civil_shift_ids.parquet
     python -m src.teacher.shift evaluate   # needs artifacts/shift/civil_<prompt_version>.parquet
     python -m src.teacher.shift evaluate --prompt-version p2-zs-v2a --pilot-dir D --out-dir D
+    python -m src.teacher.shift map --kaggle data/test_public_expanded.csv   # Kaggle ids
 """
 
 from __future__ import annotations
@@ -222,9 +230,66 @@ def run_evaluate(cfg: Mapping[str, Any], teacher_path: str | Path | None = None,
     return results
 
 
+def kaggle_matches(raw, kaggle, sample, decimals: int = 5):
+    """Kaggle ids for each sampled row, matched on raw text and toxicity.
+
+    ``raw``: the Hugging Face split file as read (``text``, ``toxicity``, file order).
+    ``kaggle``: ``id``, ``comment_text``, ``toxicity``. ``sample``: ``id`` of the sampled rows
+    (``civil-<split>-<row>``). Toxicity is compared rounded to ``decimals`` (the two files store
+    it as float32 and float64). Returns ``id``, ``row``, ``n_candidates``, ``kaggle_ids``
+    (sorted, ``;``-separated). Raises if a row has no match.
+    """
+    from collections import defaultdict
+
+    import pandas as pd
+
+    index: dict[tuple[str, float], list[int]] = defaultdict(list)
+    for i, text, tox in zip(kaggle["id"], kaggle["comment_text"], kaggle["toxicity"],
+                            strict=True):
+        index[(str(text), round(float(tox), decimals))].append(int(i))
+    rows = sample["id"].astype(str).str.rsplit("-", n=1).str[1].astype(int)
+    out = []
+    for sid, r in zip(sample["id"].astype(str), rows, strict=True):
+        found = sorted(index.get((str(raw["text"].iat[r]),
+                                  round(float(raw["toxicity"].iat[r]), decimals)), []))
+        out.append({"id": sid, "row": int(r), "n_candidates": len(found),
+                    "kaggle_ids": ";".join(map(str, found))})
+    frame = pd.DataFrame(out)
+    unmatched = frame.loc[frame["n_candidates"] == 0, "id"].tolist()
+    if unmatched:
+        raise ValueError(f"{len(unmatched)} sampled rows match no Kaggle row, e.g. {unmatched[0]}")
+    return frame
+
+
+def run_map(cfg: Mapping[str, Any], kaggle_csv: str | Path) -> dict[str, Any]:
+    """Write the Kaggle-id mapping and the exclusion list for the data lane."""
+    import pandas as pd
+
+    s, shift_dir = cfg["shift"], Path(cfg["paths"]["shift_dir"])
+    raw = pd.read_parquet(download_civil(cfg, Path(cfg["paths"]["data_dir"]) / "civil"),
+                          columns=["text", "toxicity"])
+    kaggle = pd.read_csv(kaggle_csv, usecols=["id", "comment_text", "toxicity"],
+                         keep_default_na=False)
+    if len(kaggle) != len(raw):
+        raise ValueError(f"{kaggle_csv} has {len(kaggle)} rows, the {s['split']} split "
+                         f"{len(raw)}; is it the right file?")
+    sample = pd.read_parquet(shift_dir / "civil_shift_ids.parquet")
+    matches = kaggle_matches(raw, kaggle, sample)
+    ids = sorted({int(i) for c in matches["kaggle_ids"] for i in c.split(";")})
+    matches.to_csv(shift_dir / "civil_shift_kaggle_ids.csv", index=False)
+    (shift_dir / "civil_teacher_shift_ids.txt").write_text("".join(f"{i}\n" for i in ids))
+    counts = matches["n_candidates"].value_counts().sort_index()
+    return {"sampled_rows": len(matches), "candidates_per_row": {int(k): int(v)
+                                                                 for k, v in counts.items()},
+            "rows_with_duplicates": int((matches["n_candidates"] > 1).sum()),
+            "exclusion_ids": len(ids)}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Civil Comments shift check.")
-    parser.add_argument("what", choices=["sample", "evaluate"])
+    parser.add_argument("what", choices=["sample", "evaluate", "map"])
+    parser.add_argument("--kaggle", default="data/test_public_expanded.csv",
+                        help="for map: Kaggle's test_public_expanded.csv")
     parser.add_argument("--config", default=None)
     parser.add_argument("--teacher", default=None, help="the teacher's Civil predictions")
     parser.add_argument("--prompt-version", default=None)
@@ -234,6 +299,8 @@ def main() -> None:
     cfg = load_config(args.config)
     if args.what == "sample":
         print(json.dumps(run_sample(cfg), indent=2))
+    elif args.what == "map":
+        print(json.dumps(run_map(cfg, args.kaggle), indent=2))
     else:
         results = run_evaluate(cfg, args.teacher, prompt_version=args.prompt_version,
                                pilot_pred_dir=args.pilot_dir, out_dir=args.out_dir)

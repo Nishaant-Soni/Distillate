@@ -5,7 +5,7 @@ import pytest
 from src.teacher.config import LABELS, load_config
 from src.teacher.prompts import prompt_version
 from src.teacher.sampling import enriched_sample
-from src.teacher.shift import load_civil, shift_rows, summary
+from src.teacher.shift import kaggle_matches, load_civil, shift_rows, summary
 
 
 def civil_file(tmp_path, n=12):
@@ -75,3 +75,23 @@ def test_config_has_shift_settings():
     assert s["prompt_version"] == prompt_version(p["protocol"], p["shots"], p["text_version"])
     assert cfg["stack"]["version"] == "stack-v1"
     assert sum(s["enrich"].values()) < s["size"]
+
+
+def test_kaggle_matches_unique_duplicates_and_float_precision():
+    raw = pd.DataFrame({"text": ["a", "Yes.", "b", "Yes."],
+                        "toxicity": np.array([0.2, 0.0, 0.1, 0.0], dtype="float32")})
+    kaggle = pd.DataFrame({"id": [7000000, 7000001, 7000002, 7000003, 7000004],
+                           "comment_text": ["a", "Yes.", "b", "Yes.", "b"],
+                           "toxicity": [0.2, 0.0, 0.1, 0.0, 0.5]})   # last: same text, other tox
+    sample = pd.DataFrame({"id": ["civil-validation-0", "civil-validation-1",
+                                  "civil-validation-2"]})
+    m = kaggle_matches(raw, kaggle, sample)
+    assert m["n_candidates"].tolist() == [1, 2, 1]                   # float32 0.2 still matches
+    assert m["kaggle_ids"].tolist() == ["7000000", "7000001;7000003", "7000002"]
+
+
+def test_kaggle_matches_raises_on_unmatched():
+    raw = pd.DataFrame({"text": ["a"], "toxicity": [0.2]})
+    kaggle = pd.DataFrame({"id": [1], "comment_text": ["a "], "toxicity": [0.2]})
+    with pytest.raises(ValueError, match="match no Kaggle row"):
+        kaggle_matches(raw, kaggle, pd.DataFrame({"id": ["civil-validation-0"]}))
