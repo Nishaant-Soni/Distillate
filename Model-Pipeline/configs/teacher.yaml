@@ -107,5 +107,5 @@ labeling:
 
 storage:
   backend: hf               # switch to gcs once the bucket exists (implementation plan, Part 1.1)
-  hf_repo: N-S-10/distillate-teacher-shards
+  hf_repo: distillate-team/distillate-teacher-shards   # organization MLOps-Distillate-Project
   gcs_bucket: null          # <team>-distillate-data, from Vaishnavi

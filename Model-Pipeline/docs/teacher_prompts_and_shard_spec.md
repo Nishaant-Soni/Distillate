@@ -231,7 +231,10 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 
 ## 8. Where everything lives
 
-**Shard store:** the private Hugging Face dataset `N-S-10/distillate-teacher-shards`, until the GCS bucket exists (then the same paths under `gs://<team>-distillate-data/`). Teammates need read access; see implementation plan Part 1.4.
+**Shard store:** the private Hugging Face dataset `distillate-team/distillate-teacher-shards`, in the organization MLOps-Distillate-Project, until the GCS bucket exists (then the same paths under `gs://<team>-distillate-data/`). To read it you need:
+1. a Hugging Face account that is a member of the organization (ask Nishaant for an invite; the read role is enough);
+2. an access token that can read the organization's repos: either a **Read** token, or a **fine-grained** token with "Read access to contents of all repos" under the organization's permissions (a fine-grained token without that sees a 404, as if the dataset didn't exist);
+3. that token on your machine: `hf auth login` (or the `HF_TOKEN` environment variable; on Kaggle or Colab, a secret named `HF_TOKEN`). Never paste it into code or a notebook cell.
 
 | Path in the store | What | Shards | Rows |
 |---|---|---|---|
