@@ -35,6 +35,7 @@ def cfg(tmp_path):
     cfg = load_config()
     for key in ("processed_dir", "splits_dir", "summaries_dir"):
         cfg["paths"][key] = str(tmp_path / key)
+    cfg["paths"]["civil_exclude_ids"] = str(tmp_path / "exclude_ids.txt")  # absent by default
     cfg["splits"]["civil"].update(
         {"h2_size": H2, "canary_size": CANARY, "drift_total": DRIFT_TOTAL,
          "drift_batches": BATCHES}
@@ -98,20 +99,20 @@ def test_drift_is_drawn_across_the_whole_train_period(cfg):
 
 def test_same_seed_gives_the_same_subsets(cfg):
     subsets.run(cfg)
-    first = (Path(cfg["paths"]["splits_dir"]) / "drift_manifest.csv").read_text()
+    first = (Path(cfg["paths"]["splits_dir"]) / "civil_drift_ids.csv").read_text()
     h2 = _read(cfg, "h2_eval")["id"].tolist()
     subsets.run(cfg)
-    assert (Path(cfg["paths"]["splits_dir"]) / "drift_manifest.csv").read_text() == first
+    assert (Path(cfg["paths"]["splits_dir"]) / "civil_drift_ids.csv").read_text() == first
     assert _read(cfg, "h2_eval")["id"].tolist() == h2
 
 
 def test_input_row_order_does_not_change_the_subsets(cfg):
     subsets.run(cfg)
-    first = (Path(cfg["paths"]["splits_dir"]) / "drift_manifest.csv").read_text()
+    first = (Path(cfg["paths"]["splits_dir"]) / "civil_drift_ids.csv").read_text()
     _write_inputs(cfg, train=civil_frame(N_ROWS, 42, "civil_train").sample(frac=1,
                                                                            random_state=5))
     subsets.run(cfg)
-    assert (Path(cfg["paths"]["splits_dir"]) / "drift_manifest.csv").read_text() == first
+    assert (Path(cfg["paths"]["splits_dir"]) / "civil_drift_ids.csv").read_text() == first
 
 
 def test_toxicity_rate_is_preserved_by_stratification(cfg):
@@ -136,7 +137,8 @@ def test_manifests_match_the_parquet_files(cfg):
     splits = Path(cfg["paths"]["splits_dir"])
     for name in ("h2_eval", "canary_civil", "bias_eval"):
         assert (splits / f"{name}_ids.txt").read_text().split() == _read(cfg, name)["id"].tolist()
-    manifest = pd.read_csv(splits / "drift_manifest.csv")
+    manifest = pd.read_csv(splits / "civil_drift_ids.csv")
+    assert list(manifest.columns) == ["id", "batch", "created_date"]
     assert manifest["batch"].tolist() == [b for b in range(BATCHES)
                                           for _ in range(DRIFT_TOTAL // BATCHES)]
     assert manifest["id"].tolist() == pd.concat(_batches(cfg))["id"].tolist()
@@ -168,3 +170,23 @@ def test_missing_created_date_is_rejected(cfg):
         civil / "test_clean.parquet", index=False)
     with pytest.raises(ValueError, match="created_date"):
         subsets.run(cfg)
+
+
+def test_excluded_ids_never_reach_the_canary_or_drift(cfg):
+    validation = civil_frame(N_ROWS, 42, "civil_validation")
+    train = civil_frame(N_ROWS, 42, "civil_train")
+    excluded = set(validation["id"].head(300)) | set(train["id"].head(50))
+    Path(cfg["paths"]["civil_exclude_ids"]).write_text(
+        "# teacher shift-check rows\n" + "\n".join(sorted(excluded)) + "\n", encoding="utf-8")
+    summary = subsets.run(cfg)
+    assert not set(_read(cfg, "canary_civil")["id"]) & excluded
+    assert not set(pd.concat(_batches(cfg))["id"]) & excluded
+    assert summary["excluded"] == {"ids_listed": 350,
+                                   "removed": {"validation": 300, "train": 50}}
+    assert summary["dropped"]["teacher_shift_rows"] == 350
+
+
+def test_missing_exclusion_file_excludes_nothing(cfg):
+    summary = subsets.run(cfg)
+    assert summary["excluded"] == {"ids_listed": 0, "removed": {"validation": 0, "train": 0}}
+    assert "teacher_shift_rows" not in summary["dropped"]
