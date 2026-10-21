@@ -3,6 +3,7 @@
 Inputs (CONTRACTS.md section 2, written by the preprocess stage):
     data/processed/civil/{train,validation,test}_clean.parquet
     data/processed/civil/identities_test_clean.parquet
+    config/civil_teacher_shift_ids.txt (paths.civil_exclude_ids; optional)
 
 Outputs:
     data/processed/civil/h2_eval.parquet       10,000 from test, stratified on toxicity
@@ -11,12 +12,18 @@ Outputs:
     data/processed/civil/drift/batch_00..19.parquet
                                                40,000 from train, stratified on toxicity,
                                                sorted by created_date, cut into 20 batches
-    data/splits/{h2_eval,canary_civil,bias_eval}_ids.txt and drift_manifest.csv
+    data/splits/{h2_eval,canary_civil,bias_eval}_ids.txt
+    data/splits/civil_drift_ids.csv (id, batch, created_date)
 
 Each subset comes from a different Civil split, so they never share a comment,
 except that the Identities test split is an annotated subset of Civil test: some
 bias_eval rows can also appear in h2_eval. That overlap is expected and is
 reported in the summary rather than removed.
+
+Comments the teacher lane used to choose its prompt (its shift check on Civil
+validation) are listed in paths.civil_exclude_ids. They are removed before
+sampling, so they never reach the canary or the drift stream. If the file does
+not exist yet, nothing is excluded and the stage logs a warning.
 
     python -m scripts.subsets --config config/pipeline.yaml
 """
@@ -59,6 +66,15 @@ def _read(path: Path, labels: list[str]) -> pd.DataFrame:
     if duplicates:
         raise ValueError(f"{path.name} has {duplicates} duplicate ids")
     return _by_id(df)
+
+
+def _load_excluded(path: Path) -> set[str]:
+    """Ids to keep out of every subset; empty (with a warning) if the file is missing."""
+    if not path.exists():
+        logger.warning("Exclusion list %s not found; no rows excluded", path.as_posix())
+        return set()
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return {line.strip() for line in lines if line.strip() and not line.startswith("#")}
 
 
 def _sample(df: pd.DataFrame, n: int, seed: int, name: str) -> pd.DataFrame:
@@ -113,6 +129,18 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
         summary["rows_in"] = {"train": len(train), "validation": len(validation),
                               "test": len(test), "identities_test": len(identities)}
 
+        # Teacher prompt-selection rows stay out of the canary and the drift
+        # stream. They come from Civil validation; train is filtered too for safety.
+        excluded = _load_excluded(Path(cfg["paths"]["civil_exclude_ids"]))
+        kept_validation = validation[~validation["id"].isin(excluded)].reset_index(drop=True)
+        kept_train = train[~train["id"].isin(excluded)].reset_index(drop=True)
+        removed = {"validation": len(validation) - len(kept_validation),
+                   "train": len(train) - len(kept_train)}
+        summary["excluded"] = {"ids_listed": len(excluded), "removed": removed}
+        if sum(removed.values()):
+            summary["dropped"]["teacher_shift_rows"] = sum(removed.values())
+        validation, train = kept_validation, kept_train
+
         subsets = {
             "h2_eval": _sample(test, sizes["h2_size"], seed, "h2_eval"),
             "canary_civil": _sample(validation, sizes["canary_size"], seed, "canary_civil"),
@@ -125,10 +153,12 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
             _write_ids(df["id"], splits_dir / f"{name}_ids.txt")
         for b, df in enumerate(drift):
             _write_parquet(df, civil_out / "drift" / f"batch_{b:02d}.parquet")
-        manifest = pd.concat(
-            [pd.DataFrame({"batch": b, "id": df["id"]}) for b, df in enumerate(drift)]
-        )
-        atomic_write(splits_dir / "drift_manifest.csv", manifest.to_csv(index=False))
+        manifest = pd.concat([
+            pd.DataFrame({"id": df["id"], "batch": b,
+                          "created_date": df["created_date"].map(lambda t: t.isoformat())})
+            for b, df in enumerate(drift)
+        ])
+        atomic_write(splits_dir / "civil_drift_ids.csv", manifest.to_csv(index=False))
 
         summary["files"] = {name: len(df) for name, df in subsets.items()}
         summary["files"].update({f"drift/batch_{b:02d}": len(df) for b, df in enumerate(drift)})
