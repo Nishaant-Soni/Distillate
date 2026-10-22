@@ -58,7 +58,8 @@ checksums. A rerun verifies the files against the manifest and skips the downloa
 |---|---|
 | `wikipedia/train.parquet` | 159,571 |
 | `wikipedia/test.parquet` (unscored `-1` rows removed) | 63,978 |
-| `civil/train.parquet` | 1,804,874 |
+  | `civil/train.parquet` (in `data/cache/`, not DVC-tracked) | 1,804,874 |
+  The full Civil train split is too large to version, so its raw and clean files live in the untracked `data/cache/` folder. It can be rebuilt from the pinned Kaggle source; only the sampled subsets are versioned with DVC.
 | `civil/validation.parquet` | 97,320 |
 | `civil/test.parquet` | 97,320 |
 | `civil/identities_test.parquet` (test rows with `identity_annotator_count > 0`) | 21,577 |
@@ -115,12 +116,13 @@ identical on every run.
 | Corrupted zip | the zip is deleted and `FileCorruptionError` raised, so the retry downloads it again |
 | Wrong row count or changed file | `ManifestMismatchError` naming the file and both numbers |
 | Missing or invalid label | `LabelError` with example ids |
-| More than 1% of a file dropped, or unparseable dates | warning alert through `send_alert` |
+  | More than 0.1% of a file dropped (`validation.max_missing_fraction`) | `DataQualityError`: the stage fails and the file is not written |
+  | Fewer rows dropped, or unparseable dates | warning alert through `send_alert`; rows dropped (dates kept) |`send_alert` |
 | Identity lexicon missing or empty | warning alert; `has_identity_term` is then False |
 
 ### 4.7 Tests
 
-47 unit tests (`tests/test_acquire.py`, `tests/test_preprocess.py`, `tests/test_dedupe.py`)
+51 unit tests (`tests/test_acquire.py`, `tests/test_preprocess.py`, `tests/test_dedupe.py`)
 use tiny made-up data and never touch the network. They cover the "None" comment trap,
 label edge cases (0.5 vs 0.4999), missing labels, both date formats, HTML and Unicode
 cleanup, empty and missing text, exact and near duplicates, gate protection, corrupted
