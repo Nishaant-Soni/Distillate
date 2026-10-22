@@ -58,7 +58,7 @@ def test_acquisition_retries_twice_with_a_two_minute_delay():
 
 
 def test_only_tensorflow_stages_use_the_tfenv_interpreter():
-    assert {t.task_id for t in graph.TASKS if t.env == graph.TFENV} == {"acquire", "schema_stats"}
+    assert {t.task_id for t in graph.TASKS if t.env == graph.TFENV} == {"schema_stats"}
 
 
 def test_optimized_graph_actually_parallelises():
