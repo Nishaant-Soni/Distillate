@@ -1,9 +1,13 @@
 """Stage ``preprocess``: turn raw text and labels into clean, typed files.
 
 Inputs:  data/raw/wikipedia/{train,test}.parquet
-         data/raw/civil/{train,validation,test,identities_test}.parquet
+         data/raw/civil/{validation,test,identities_test}.parquet
+         data/cache/civil/train.parquet
 Outputs: data/processed/wikipedia/{train,test}_clean.parquet
-         data/processed/civil/{train,validation,test,identities_test}_clean.parquet
+         data/processed/civil/{validation,test,identities_test}_clean.parquet
+         data/cache/civil/train_clean.parquet
+The full 1.8M-row Civil train split stays in the untracked cache (data/cache, not in DVC);
+it can be rebuilt from the pinned Kaggle source, and only the sampled subsets are versioned.
 
 What it does, in order:
     1. Labels. Wikipedia: must be 0 or 1, become int8. Civil: the rater fraction is
@@ -14,7 +18,9 @@ What it does, in order:
     3. Text: light cleaning only (HTML entities, Unicode NFKC, whitespace). We do NOT
        lowercase, strip punctuation or fix spellings: CAPS, "!!!" and tricks like
        "1d10t" are signals we want to keep.
-    4. Empty comments are dropped and counted. "NA" and "null" are real comments and stay.
+    4. Empty comments are dropped and counted. Words like "None" or "NA" are real comments
+       and stay. Team rule (validation.max_missing_fraction): if more than that share of a
+       file is dropped, the stage fails; otherwise it warns and drops.
     5. Derived columns: char_len, has_identity_term, has_obfuscation.
     6. Identity columns are kept only in the identities file (CONTRACTS.md 2.2).
 
@@ -43,7 +49,7 @@ from scripts.columns import (
     LABELS,
     WIKI_CLEAN_COLUMNS,
 )
-from scripts.errors import LabelError
+from scripts.errors import DataQualityError, LabelError
 from scripts.parquet_io import write_chunks, write_frame
 from scripts.utils import get_logger, load_config, timed
 
@@ -219,16 +225,58 @@ def _merge_counts(total: dict[str, int], part: dict[str, int]) -> None:
         total[key] = total.get(key, 0) + value
 
 
+def check_drop_rate(
+    name: str, rows_in: int, rows_out: int, limit: float, dropped: dict[str, int]
+) -> str:
+    """Team rule for dropped rows: fail above ``limit``, otherwise warn and drop.
+
+    ``limit`` is validation.max_missing_fraction. Returns "ok" when nothing was dropped
+    and "warn" when some rows were dropped within the limit; raises DataQualityError above it.
+    """
+    removed = rows_in - rows_out
+    rate = removed / rows_in if rows_in else 0.0
+    if rate > limit:
+        raise DataQualityError(
+            f"{name}: {removed:,} of {rows_in:,} rows dropped ({rate:.3%}), above the "
+            f"{limit:.3%} limit (validation.max_missing_fraction). Reasons: {dropped}"
+        )
+    if removed:
+        send_alert("warn", f"preprocess dropped {removed} rows of {name}", dict(dropped))
+        return "warn"
+    return "ok"
+
+
+def civil_paths(cfg: dict[str, Any], split: str) -> tuple[Path, Path]:
+    """Raw input and clean output for one Civil split.
+
+    The full train split lives in the untracked cache (too large for DVC); the other
+    splits live in data/raw and data/processed.
+    """
+    if split == "train":
+        cache = Path(cfg["paths"]["cache_dir"]) / "civil"
+        return cache / "train.parquet", cache / "train_clean.parquet"
+    return (
+        Path(cfg["paths"]["raw_dir"]) / "civil" / f"{split}.parquet",
+        Path(cfg["paths"]["processed_dir"]) / "civil" / f"{split}_clean.parquet",
+    )
+
+
 def _civil_chunks(
     source: Path,
+    name: str,
     counts: dict[str, Any],
     batch_size: int,
     pattern: re.Pattern[str] | None,
     obf_threshold: float,
     labels_cfg: dict[str, Any],
     with_identities: bool,
+    max_missing: float,
 ) -> Iterator[pd.DataFrame]:
-    """Yield cleaned chunks of one raw Civil file, updating counts as it goes."""
+    """Yield cleaned chunks of one raw Civil file, updating counts as it goes.
+
+    The drop-rate rule is checked after the last chunk, while the output is still being
+    written to a temporary file, so a failing file is never saved.
+    """
     for batch in pq.ParquetFile(source).iter_batches(batch_size=batch_size):
         raw = batch.to_pandas()
         clean, dropped = process_civil_frame(
@@ -238,15 +286,13 @@ def _civil_chunks(
         counts["rows_out"] += len(clean)
         _merge_counts(counts["dropped"], dropped)
         yield clean
+    drops = {k: v for k, v in counts["dropped"].items() if k != "missing_created_date_kept"}
+    check_drop_rate(name, counts["rows_in"], counts["rows_out"], max_missing, drops)
 
 
-def _send_drop_alerts(files: dict[str, dict[str, Any]], max_drop_rate: float) -> None:
-    """Warn when a file loses unusually many rows or has unparseable dates."""
+def _send_date_alerts(files: dict[str, dict[str, Any]]) -> None:
+    """Warn when a file has unparseable dates (those rows are kept, not dropped)."""
     for name, info in files.items():
-        rows_dropped = info["rows_in"] - info["rows_out"]
-        rate = rows_dropped / info["rows_in"] if info["rows_in"] else 0.0
-        if rate > max_drop_rate:
-            send_alert("warn", f"preprocess dropped {rate:.2%} of {name}", info["dropped"])
         missing_dates = info["dropped"].get("missing_created_date_kept", 0)
         if missing_dates:
             send_alert(
@@ -268,37 +314,44 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
         settings = cfg["preprocess"]
         labels_cfg = cfg["labels"]
         obf = settings["obfuscation_nonalpha_share"]
+        max_missing = cfg["validation"]["max_missing_fraction"]
         pattern = load_identity_pattern(Path(cfg["paths"]["identity_terms"]))
 
         for split in WIKI_SPLITS:
+            name = f"wikipedia/{split}_clean.parquet"
             raw = pd.read_parquet(raw_dir / "wikipedia" / f"{split}.parquet")
             clean, dropped = process_wiki_frame(raw, pattern, obf)
+            check_drop_rate(name, len(raw), len(clean), max_missing, dropped)
             write_frame(clean, processed_dir / "wikipedia" / f"{split}_clean.parquet")
-            summary["files"][f"wikipedia/{split}_clean.parquet"] = {
+            summary["files"][name] = {
                 "rows_in": len(raw),
                 "rows_out": len(clean),
                 "dropped": dropped,
             }
 
         for split in CIVIL_SPLITS:
+            name = f"civil/{split}_clean.parquet"
+            source, target = civil_paths(cfg, split)
             counts: dict[str, Any] = {"rows_in": 0, "rows_out": 0, "dropped": {}}
             chunks = _civil_chunks(
-                raw_dir / "civil" / f"{split}.parquet",
+                source,
+                name,
                 counts,
                 settings["batch_size"],
                 pattern,
                 obf,
                 labels_cfg,
                 with_identities=(split == "identities_test"),
+                max_missing=max_missing,
             )
-            write_chunks(chunks, processed_dir / "civil" / f"{split}_clean.parquet")
-            summary["files"][f"civil/{split}_clean.parquet"] = counts
+            write_chunks(chunks, target)
+            summary["files"][name] = counts
 
         for info in summary["files"].values():
             _merge_counts(summary["dropped"], info["dropped"])
         summary["rows_in"] = sum(info["rows_in"] for info in summary["files"].values())
         summary["rows_out"] = sum(info["rows_out"] for info in summary["files"].values())
-        _send_drop_alerts(summary["files"], settings["max_drop_rate_warn"])
+        _send_date_alerts(summary["files"])
     return summary
 
 

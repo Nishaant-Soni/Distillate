@@ -15,3 +15,5 @@ __pycache__/
 data/kaggle/
 .env
 kaggle.json
+
+data/cache/

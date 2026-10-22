@@ -19,3 +19,7 @@ class ManifestMismatchError(RuntimeError):
 
 class LabelError(ValueError):
     """Labels are missing, non-numeric, or outside their allowed range."""
+
+
+class DataQualityError(RuntimeError):
+    """Too many rows were dropped or invalid for the pipeline to continue."""

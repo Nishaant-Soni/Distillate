@@ -14,6 +14,7 @@ paths:
   identity_terms: config/identity_terms.txt
   tfds_data_dir: /opt/airflow/tfds   # mounted volume in docker compose
   kaggle_dir: data/kaggle           # Kaggle downloads (git-ignored, not versioned)
+  cache_dir: data/cache             # full Civil train (1.8M rows): untracked, not in DVC
 
 datasets:
   wikipedia:
@@ -46,7 +47,6 @@ preprocess:
   max_char_len_flag: 5000
   obfuscation_nonalpha_share: 0.3   # confirmed in EDA: flags 1.9% of Wikipedia train
   batch_size: 200000                # rows per chunk when cleaning Civil train
-  max_drop_rate_warn: 0.01          # warn if preprocess drops more than 1% of a file
 
 dedupe:
   jaccard_threshold: 0.9

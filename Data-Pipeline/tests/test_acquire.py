@@ -17,6 +17,7 @@ from scripts.acquire import (
     extract_zip,
     extract_zips,
     fetch_competition,
+    raw_location,
     read_csv_as_text,
 )
 from scripts.columns import CIVIL_RAW_COLUMNS, IDENTITY_COLUMNS, LABELS, WIKI_RAW_COLUMNS
@@ -163,3 +164,12 @@ def test_expected_rows_read_from_config():
 def test_column_lists_have_expected_sizes():
     assert len(LABELS) == 6
     assert len(IDENTITY_COLUMNS) == 24
+
+
+def test_full_civil_train_goes_to_cache_others_to_raw():
+    cfg = {"paths": {"raw_dir": "/data/raw", "cache_dir": "/data/cache"}}
+    assert raw_location(cfg, "civil/train.parquet").as_posix() == "/data/cache/civil/train.parquet"
+    assert raw_location(cfg, "civil/test.parquet").as_posix() == "/data/raw/civil/test.parquet"
+    assert raw_location(cfg, "wikipedia/train.parquet").as_posix() == (
+        "/data/raw/wikipedia/train.parquet"
+    )

@@ -10,9 +10,11 @@ from scripts.columns import (
     LABELS,
     WIKI_CLEAN_COLUMNS,
 )
-from scripts.errors import LabelError
+from scripts.errors import DataQualityError, LabelError
 from scripts.preprocess import (
     add_text_features,
+    check_drop_rate,
+    civil_paths,
     clean_text,
     clean_texts,
     load_identity_pattern,
@@ -56,7 +58,7 @@ def civil_rows(texts, dates, **extra):
     "raw, expected",
     [
         ("a &amp; b", "a & b"),
-        ("a &amp;amp; b", "a &amp; b"),  # decoded once, same as the teacher lane,
+        ("a &amp;amp; b", "a &amp; b"),  # decoded once, same as the teacher lane
         ("  lots   of\n\tspace ", "lots of space"),
         ("ｆｕｌｌｗｉｄｔｈ", "fullwidth"),
         ("you 1d10t!!!", "you 1d10t!!!"),
@@ -177,3 +179,30 @@ def test_missing_text_dropped():
     out, dropped = clean_texts(df)
     assert out["id"].tolist() == ["b"]
     assert dropped["empty_in_source"] == 1
+
+
+# ---- drop-rate rule and file locations
+
+
+def test_drop_rate_above_limit_fails():
+    with pytest.raises(DataQualityError):
+        check_drop_rate("x", rows_in=1000, rows_out=998, limit=0.001, dropped={"empty": 2})
+
+
+def test_drop_rate_within_limit_warns_and_none_is_ok():
+    assert check_drop_rate("x", 1000, 999, 0.001, {"empty": 1}) == "warn"
+    assert check_drop_rate("x", 1000, 1000, 0.001, {}) == "ok"
+
+
+def test_full_civil_train_is_read_and_written_in_cache():
+    cfg = {"paths": {"raw_dir": "/r", "processed_dir": "/p", "cache_dir": "/c"}}
+    source, target = civil_paths(cfg, "train")
+    assert (source.as_posix(), target.as_posix()) == (
+        "/c/civil/train.parquet",
+        "/c/civil/train_clean.parquet",
+    )
+    source, target = civil_paths(cfg, "test")
+    assert (source.as_posix(), target.as_posix()) == (
+        "/r/civil/test.parquet",
+        "/p/civil/test_clean.parquet",
+    )

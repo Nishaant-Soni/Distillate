@@ -5,10 +5,12 @@ Kaggle competition files they were built from (same ids, same row counts):
     Wikipedia Toxicity -> jigsaw-toxic-comment-classification-challenge
     Civil Comments     -> jigsaw-unintended-bias-in-toxicity-classification
 
-Raw layout (the same paths the placeholder in scripts/stubs.py writes):
+Raw layout:
     data/raw/wikipedia/train.parquet, test.parquet
-    data/raw/civil/train.parquet, validation.parquet, test.parquet, identities_test.parquet
+    data/raw/civil/validation.parquet, test.parquet, identities_test.parquet
     data/raw/manifest.json
+    data/cache/civil/train.parquet   full 1.8M-row Civil train: untracked cache, not in DVC;
+                                     rebuilt from the pinned Kaggle source when missing
 
 What this stage does and doesn't do:
     - Renames Kaggle columns to ours, joins Wikipedia test text with its labels, drops
@@ -55,6 +57,15 @@ logger = get_logger(__name__)
 
 # Name of the toxicity column in each Civil Comments file ("target" in train only).
 CIVIL_TOXICITY_COLUMN = {"train": "target", "validation": "toxicity", "test": "toxicity"}
+
+# Raw files too large to version: kept in the untracked cache instead of data/raw.
+CACHED_FILES = {"civil/train.parquet"}
+
+
+def raw_location(cfg: dict[str, Any], name: str) -> Path:
+    """Where a raw file lives: the untracked cache for CACHED_FILES, data/raw otherwise."""
+    base = cfg["paths"]["cache_dir"] if name in CACHED_FILES else cfg["paths"]["raw_dir"]
+    return Path(base) / name
 
 
 # ---------------------------------------------------------------- reading CSVs
@@ -253,14 +264,15 @@ def check_rows(name: str, rows: int, expected: int) -> None:
         raise ManifestMismatchError(f"{name}: expected {expected:,} rows, got {rows:,}")
 
 
-def verify_existing(raw_dir: Path, manifest: dict[str, Any]) -> bool:
+def verify_existing(cfg: dict[str, Any], manifest: dict[str, Any]) -> bool:
     """True if every file in the manifest exists and still matches it.
 
-    Returns False if a file is missing (so the stage rebuilds the raw data).
+    Returns False if a file is missing, so the stage rebuilds the raw data (for example
+    on a fresh clone, where the cached Civil train file doesn't exist yet).
     Raises if a file exists but has changed or can't be read.
     """
     for name, info in manifest["files"].items():
-        path = raw_dir / name
+        path = raw_location(cfg, name)
         if not path.exists():
             logger.info("%s missing; rebuilding raw data", name)
             return False
@@ -270,13 +282,13 @@ def verify_existing(raw_dir: Path, manifest: dict[str, Any]) -> bool:
             raise FileCorruptionError(f"{path} can't be read; delete it and rerun") from err
         if rows != info["rows"] or sha256_file(path) != info["sha256"]:
             raise ManifestMismatchError(
-                f"{path} differs from manifest.json. If that is intended, delete "
-                f"{raw_dir} and rerun to rebuild it."
+                f"{path} differs from manifest.json. If that is intended, delete it "
+                "and rerun to rebuild it."
             )
     return True
 
 
-def build_raw_files(cfg: dict[str, Any], raw_dir: Path, kaggle_dir: Path) -> dict[str, Any]:
+def build_raw_files(cfg: dict[str, Any], kaggle_dir: Path) -> dict[str, Any]:
     """Download whatever is missing and write all six raw files. Returns the manifest."""
     datasets = cfg["datasets"]
     wiki, civil = datasets["wikipedia"], datasets["civil_comments"]
@@ -291,20 +303,19 @@ def build_raw_files(cfg: dict[str, Any], raw_dir: Path, kaggle_dir: Path) -> dic
 
     rows: dict[str, int] = {}
     rows["wikipedia/train.parquet"] = write_frame(
-        build_wiki_train(wiki_csv["train"]), raw_dir / "wikipedia" / "train.parquet"
+        build_wiki_train(wiki_csv["train"]), raw_location(cfg, "wikipedia/train.parquet")
     )
     rows["wikipedia/test.parquet"] = write_frame(
         build_wiki_test(wiki_csv["test"], wiki_csv["test_labels"]),
-        raw_dir / "wikipedia" / "test.parquet",
+        raw_location(cfg, "wikipedia/test.parquet"),
     )
     for split in ("train", "validation", "test"):
-        logger.info("Writing civil/%s.parquet from %s", split, civil_csv[split].name)
-        rows[f"civil/{split}.parquet"] = write_civil_split(
-            civil_csv[split], raw_dir / "civil" / f"{split}.parquet", split, chunksize
-        )
+        name = f"civil/{split}.parquet"
+        logger.info("Writing %s from %s", raw_location(cfg, name), civil_csv[split].name)
+        rows[name] = write_civil_split(civil_csv[split], raw_location(cfg, name), split, chunksize)
     rows["civil/identities_test.parquet"] = write_frame(
-        build_identities_test(raw_dir / "civil" / "test.parquet"),
-        raw_dir / "civil" / "identities_test.parquet",
+        build_identities_test(raw_location(cfg, "civil/test.parquet")),
+        raw_location(cfg, "civil/identities_test.parquet"),
     )
 
     expected = expected_rows(cfg)
@@ -324,7 +335,11 @@ def build_raw_files(cfg: dict[str, Any], raw_dir: Path, kaggle_dir: Path) -> dic
     return {
         "sources": sources,
         "files": {
-            name: {"rows": count, "sha256": sha256_file(raw_dir / name)}
+            name: {
+                "rows": count,
+                "sha256": sha256_file(raw_location(cfg, name)),
+                "location": "cache" if name in CACHED_FILES else "raw",
+            }
             for name, count in rows.items()
         },
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -338,19 +353,18 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
     """Download, reshape and save all raw files. Returns the stage summary."""
     summary: dict[str, Any] = {"task": "acquire", "dropped": {}}
     with timed(summary):
-        raw_dir = Path(cfg["paths"]["raw_dir"])
         kaggle_dir = Path(cfg["paths"]["kaggle_dir"])
-        manifest_path = raw_dir / "manifest.json"
+        manifest_path = Path(cfg["paths"]["raw_dir"]) / "manifest.json"
 
         manifest = None
         if manifest_path.exists():
             existing = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if verify_existing(raw_dir, existing):
+            if verify_existing(cfg, existing):
                 logger.info("Raw data present and matches manifest; skipping download")
                 manifest = existing
                 summary["skipped"] = True
         if manifest is None:
-            manifest = build_raw_files(cfg, raw_dir, kaggle_dir)
+            manifest = build_raw_files(cfg, kaggle_dir)
             atomic_write(manifest_path, json.dumps(manifest, indent=2))
             summary["skipped"] = False
 
