@@ -86,9 +86,12 @@ def test_a_cycle_is_detected(monkeypatch):
 @pytest.fixture(scope="module")
 def dagbag():
     pytest.importorskip("airflow", reason="Airflow is only installed in the Docker image")
-    from airflow.models.dagbag import DagBag
+    try:
+        from airflow.dag_processing.dagbag import DagBag
+    except ImportError:  # older Airflow
+        from airflow.models.dagbag import DagBag
 
-    bag = DagBag(dag_folder="dags", include_examples=False)
+    bag = DagBag(dag_folder="dags")
     assert not bag.import_errors, bag.import_errors
     return bag
 
