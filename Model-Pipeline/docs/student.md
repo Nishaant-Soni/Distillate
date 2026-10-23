@@ -95,9 +95,36 @@ instead, which will be the team VM in Phase 2. To browse the local store:
 
 ## Phase 1 results
 
-Filled in after the Kaggle runs. Validation numbers are on the temporary split and unweighted.
+Kaggle, one T4, fp16, `kaggle/10_student_baseline.ipynb`. Numbers are on the validation half
+of the temporary split (23,936 rows), unweighted. They are development numbers only. Reported
+numbers come from the Phase 2 rerun on the official splits, scored by the eval harness.
 
-| Run | Model | alpha / T | Mean AUC | Mean PR-AUC | Epochs | Minutes (T4) |
+| Run | Model | alpha / T | Mean AUC | Mean PR-AUC | Best epoch (of 3) | Minutes |
 |---|---|---|---|---|---|---|
-| Gold-only baseline | DistilBERT, max length 128 | 1 / – | | | | |
-| Mixed | DistilBERT, max length 128 | 0.5 / 2 | | | | |
+| Gold-only baseline | DistilBERT, max length 128 | 1 / – | 0.9882 | 0.7340 | 1 | 25.3 |
+| Mixed | DistilBERT, max length 128 | 0.5 / 2 | not run yet | | | |
+
+Per-label AUC for the gold-only baseline:
+
+| Label | toxicity | severe_toxicity | obscene | threat | insult | identity_attack |
+|---|---|---|---|---|---|---|
+| AUC | 0.9870 | 0.9899 | 0.9921 | 0.9860 | 0.9893 | 0.9852 |
+
+Validation mean AUC by epoch: 0.9878, 0.9882, 0.9880. It peaks at epoch 1, so 2 epochs are
+enough at this learning rate. Full record: `artifacts/student/phase1_gold_baseline.json`.
+
+The teacher lane reports TF-IDF at 0.986 and the stack at 0.990 mean AUC on the training rows
+(out-of-fold; spec §7). Those are different rows, so this is a rough sanity check, not a
+comparison.
+
+**Truncation** (DistilBERT tokenizer, all 159,571 raw train rows;
+`artifacts/student/token_lengths_distilbert.json`):
+
+| Max length | 64 | 128 | 256 | 512 |
+|---|---|---|---|---|
+| Comments longer than this | 41.4% | 19.3% | 6.9% | 2.2% |
+
+The median comment is 52 tokens and the 95th percentile is 311. At 128 tokens, about one in
+five comments is cut. Phase 2 compares 128 with 256
+(`--set model.max_length=256 run_name=distilbert-gold-256`) and weighs any AUC gain against
+serving latency (the 50 ms target).
