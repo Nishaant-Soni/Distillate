@@ -32,6 +32,7 @@ from typing import Any
 
 import pandas as pd
 
+from scripts.acquire import raw_location
 from scripts.alerts import send_alert
 from scripts.utils import get_logger, load_config, timed, write_summary
 
@@ -41,8 +42,9 @@ TASK_ID = "anomalies"
 WIKIPEDIA_SETS = ("train", "val", "gate", "canary_wikipedia")
 CIVIL_SETS = ("h2_eval", "canary_civil", "bias_eval")
 # Pairs of sets that may share ids. Identities test is an annotated subset of
-# Civil test, so bias_eval can contain h2_eval comments. The work plan mentions
-# a second allowed exception; add it here once confirmed.
+# Civil test, so bias_eval can contain h2_eval comments. The work plan's second
+# allowed exception is obfuscation against gate; it needs no entry here because
+# obfuscate rewrites every id as "<original_id>_obf", so the sets cannot collide.
 ALLOWED_OVERLAPS = frozenset({frozenset({"h2_eval", "bias_eval"})})
 # Raw files acquire writes, keyed to config datasets.<name>.expected_rows.<split>.
 RAW_FILES = {
@@ -101,10 +103,11 @@ def check_raw_counts(cfg: dict[str, Any], checks: Checks) -> None:
         checks.record("raw_row_counts", "data/raw", "warn", True,
                       "skipped: acquire is still a stub, so counts are placeholders")
         return
-    raw = Path(cfg["paths"]["raw_dir"])
     for (dataset, split), rel in RAW_FILES.items():
         expected = cfg["datasets"][dataset]["expected_rows"][split]
-        path = raw / rel
+        # Not always under raw_dir: acquire keeps the 1.8M-row Civil train in the
+        # untracked cache instead. raw_location owns that rule.
+        path = raw_location(cfg, rel)
         if not path.exists():
             checks.record("raw_row_counts", rel, "fail", False, "file missing")
             continue

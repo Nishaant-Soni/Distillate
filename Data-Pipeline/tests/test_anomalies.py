@@ -50,14 +50,16 @@ def _write(cfg, rel, df):
 @pytest.fixture
 def cfg(tmp_path):
     cfg = load_config()
-    for key in ("raw_dir", "processed_dir", "summaries_dir"):
+    # cache_dir included: acquire keeps the 1.8M-row Civil train there, not in raw.
+    for key in ("raw_dir", "processed_dir", "summaries_dir", "cache_dir"):
         cfg["paths"][key] = str(tmp_path / key)
     for dataset in cfg["datasets"].values():
         dataset["expected_rows"] = {split: RAW_ROWS for split in dataset["expected_rows"]}
-    raw = Path(cfg["paths"]["raw_dir"])
     for rel in anomalies.RAW_FILES.values():
-        (raw / rel).parent.mkdir(parents=True, exist_ok=True)
-        _wiki("raw", RAW_ROWS).to_parquet(raw / rel, index=False)
+        # raw_location, not raw_dir, so the fixture lands files where acquire does.
+        path = anomalies.raw_location(cfg, rel)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _wiki("raw", RAW_ROWS).to_parquet(path, index=False)
     for rel, df in _clean_sets().items():
         _write(cfg, rel, df)
     return cfg
@@ -214,3 +216,18 @@ def test_every_check_runs_even_after_a_failure(cfg):
     checks = {r["check"] for r in summary["results"]}
     assert {"raw_row_counts", "id_overlap", "missing_text_or_labels", "label_domain",
             "duplicate_ids", "long_text", "prevalence_gap", "created_date"} <= checks
+
+
+def test_civil_train_is_read_from_the_cache_not_raw(cfg):
+    """acquire writes the 1.8M-row Civil train to cache_dir; the check must follow it.
+
+    Regression: looking under raw_dir made this report "file missing" at fail
+    severity, which turned the whole DAG red on the first real run.
+    """
+    cached = Path(cfg["paths"]["cache_dir"]) / "civil/train.parquet"
+    assert cached.exists(), "fixture should place Civil train in the cache"
+    assert not (Path(cfg["paths"]["raw_dir"]) / "civil/train.parquet").exists()
+
+    summary = anomalies.run(cfg)
+    result = _result(summary, "raw_row_counts", "civil/train.parquet")[0]
+    assert result["passed"], result["detail"]

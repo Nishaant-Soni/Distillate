@@ -38,7 +38,7 @@ class Task:
 
 TASKS: tuple[Task, ...] = (
     Task("acquire", "Praniti", MAIN, 120,
-         "Download both TFDS datasets to Parquet with a checksum manifest.",
+         "Download both Kaggle competition datasets to Parquet with a checksum manifest.",
          # Acquisition is the one task that reaches the network, so it is the
          # one task worth retrying patiently (work plan, task defaults).
          retries=2, retry_delay_minutes=2, tags=("network",)),

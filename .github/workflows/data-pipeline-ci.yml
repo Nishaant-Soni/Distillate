@@ -75,7 +75,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-tf.txt pytest
 
-            - name: TFDV tests (pytest)
+      - name: TFDV tests (pytest)
         run: |
           if [ -f tests/test_schema_stats.py ]; then
             pytest -q tests/test_schema_stats.py

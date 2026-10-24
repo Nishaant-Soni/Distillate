@@ -20,7 +20,7 @@ import random
 from pathlib import Path
 from typing import Any
 
-from scripts.utils import atomic_path, get_logger, timed, write_summary
+from scripts.utils import atomic_path, get_logger, timed
 
 logger = get_logger(__name__)
 
@@ -199,5 +199,7 @@ def run(cfg: dict[str, Any], stage: str) -> dict[str, Any]:
     summary["rows_out"] = sum(summary.get("files", {}).values())
     logger.warning("STUB %s wrote %s file(s) of placeholder data",
                    stage, len(summary.get("files", {})))
-    write_summary(stage, summary, cfg)
+    # No write_summary here on purpose. One stage can have several stub parts
+    # (acquire -> wikipedia + civil), and only the stage is a task. The caller
+    # writes one summary per task with these nested under "parts".
     return summary
