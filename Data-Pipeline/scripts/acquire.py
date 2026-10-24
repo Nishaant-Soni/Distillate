@@ -112,12 +112,17 @@ def csv_name_of(file_name: str) -> str:
 def kaggle_download(competition: str, file_name: str, folder: Path) -> None:
     """Download one competition file into folder (Kaggle may deliver it zipped)."""
     try:
-        # Imported here, not at the top: importing kaggle needs credentials,
-        # and the tests must be able to import this module without them.
-        from kaggle.api.kaggle_api_extended import KaggleApi
+        # Imported here, not at the top: importing kaggle authenticates straight
+        # away, and the tests must be able to import this module without
+        # credentials.
+        #
+        # Use the client that import already built and authenticated. Building our
+        # own and calling authenticate() again does not work: the first
+        # authentication consumes KAGGLE_API_TOKEN and deletes it from the
+        # environment, so every later attempt falls through to the legacy
+        # username/key pair and returns 401.
+        from kaggle import api
 
-        api = KaggleApi()
-        api.authenticate()
         api.competition_download_file(competition, file_name, path=str(folder), quiet=True)
     except Exception as err:  # the Kaggle client raises many different error types
         raise DataUnavailableError(
