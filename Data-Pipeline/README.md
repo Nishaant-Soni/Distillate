@@ -81,7 +81,22 @@ Run on its own: `python -m scripts.obfuscate --config config/pipeline.yaml`. The
 <!-- Owner: Sai. TFDV schema inference, curation, and validation. -->
 
 ### 5.5 Anomaly checks (`scripts/anomalies.py`)
-<!-- Owner: Sai. Every check with its fail/warn severity. -->
+
+Runs after every data stage and checks all of their outputs. Fail-level checks stop the pipeline; warn-level checks post one Slack alert and let it continue. Every check runs even after one fails, so a single run reports everything.
+
+| Check | Severity | What it catches |
+|---|---|---|
+| Raw row counts | Fail | Raw files whose row counts differ from `datasets.*.expected_rows` (skipped while `acquire` is still a stub) |
+| Id overlap | Fail | The same comment in two sets, e.g. gate comments leaking into train. Allowed: `bias_eval` and `h2_eval`, since Identities test is a subset of Civil test |
+| Missing text or labels | Fail above 0.1%, warn below | Empty text or missing labels (`validation.max_missing_fraction`) |
+| Label domain | Fail | A label outside {0, 1}, or a `*_frac` value outside [0, 1] |
+| Duplicate ids | Fail | An id repeated within one file |
+| Long text | Warn | Comments over 5,000 characters (`preprocess.max_char_len_flag`) |
+| Prevalence gap | Warn | Train and validation label rates differing by more than 1 point (`validation.prevalence_tolerance_pts`) |
+| `created_date` | Fail | Missing or unparseable dates in Civil files. Parsed with `format="mixed"`, since some Kaggle timestamps have no fractional seconds |
+| Expected file present | Fail | An output file an upstream stage should have written |
+
+Run on its own: `python -m scripts.anomalies --config config/pipeline.yaml`. Every result, with its severity and a detail message, is recorded in `reports/summaries/anomalies.json`.
 
 ## 6. Bias detection and mitigation
 <!-- Owner: Ruchita. Slices, findings, mitigation, link to reports/bias/bias_report.md. -->
