@@ -75,6 +75,15 @@ assert {f.name for f in schema.feature} == {"text", "toxicity"}, schema
 print("TFDV generate_statistics + infer_schema OK")
 PY
 
+# ---------------------------------------------------------------------------
+# 4. Test tooling, deliberately last: the five DAG tests need Airflow, which
+#    cannot be installed on a host Python, so they can only run in here. Kept
+#    after the TensorFlow layer so editing requirements-dev.txt never triggers
+#    a rebuild of /opt/tfenv.
+# ---------------------------------------------------------------------------
+COPY --chown=airflow:0 requirements-dev.txt /tmp/requirements-dev.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-dev.txt
+
 ENV TFENV_PYTHON=/opt/tfenv/bin/python \
     PYTHONPATH=/opt/airflow/pipeline \
     TFDS_DATA_DIR=/opt/airflow/tfds

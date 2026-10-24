@@ -13,7 +13,6 @@ paths:
   summaries_dir: reports/summaries
   identity_terms: config/identity_terms.txt
   civil_exclude_ids: config/civil_teacher_shift_ids.txt   # teacher prompt-selection rows
-  tfds_data_dir: /opt/airflow/tfds   # mounted volume in docker compose
   kaggle_dir: data/kaggle           # Kaggle downloads (git-ignored, not versioned)
   cache_dir: data/cache             # full Civil train (1.8M rows): untracked, not in DVC
 

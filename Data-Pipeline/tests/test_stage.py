@@ -85,12 +85,23 @@ def test_every_stage_has_a_working_stub(cfg, stubs_only):
         assert "duration_s" in summary, name
 
 
-def test_stub_writes_one_summary_per_task(cfg, stubs_only):
+def test_stub_writes_exactly_one_summary_per_task(cfg, stubs_only):
+    """A stage with several stub parts must still report as one task.
+
+    Regression: the parts wrote their own summaries too, so a run reported 17
+    tasks instead of 10 and listed acquire, acquire_civil and acquire_wikipedia
+    as three separate stubbed stages in run_summary.json.
+    """
     pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
+    from pathlib import Path
+
+    summaries = Path(cfg["paths"]["summaries_dir"])
     stage.dispatch("preprocess", cfg)
-    written = json.loads((__import__("pathlib").Path(cfg["paths"]["summaries_dir"])
-                          / "preprocess.json").read_text())
+    assert [f.name for f in summaries.glob("*.json")] == ["preprocess.json"], (
+        "stub parts must stay nested, not become tasks of their own"
+    )
+    written = json.loads((summaries / "preprocess.json").read_text())
     assert written["mode"] == "stub"
     assert set(written["parts"]) == {"preprocess_wikipedia", "preprocess_civil"}
 

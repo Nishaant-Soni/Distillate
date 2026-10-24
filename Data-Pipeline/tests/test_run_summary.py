@@ -73,3 +73,16 @@ def test_a_fully_real_run_is_announced_as_success(cfg, monkeypatch):
     run_summary.run(cfg)
     assert sent["level"] == "ok"
     assert "stubbed" not in sent["title"]
+
+
+def test_slack_result_is_recorded_in_the_file_on_disk(cfg, monkeypatch):
+    """The report must say whether Slack received it, not just return it.
+
+    Regression: the JSON was written before the alert was sent, so slack_posted
+    never reached run_summary.json.
+    """
+    monkeypatch.setattr(run_summary, "send_alert", lambda level, title, details: True)
+    _summary(cfg, "split", {"mode": "real", "rows_out": 1})
+    run_summary.run(cfg)
+    on_disk = json.loads((Path(cfg["paths"]["reports_dir"]) / "run_summary.json").read_text())
+    assert on_disk["slack_posted"] is True
