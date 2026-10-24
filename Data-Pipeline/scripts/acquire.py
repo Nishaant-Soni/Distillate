@@ -123,9 +123,9 @@ def kaggle_download(competition: str, file_name: str, folder: Path) -> None:
         raise DataUnavailableError(
             f"Could not download {file_name!r} from Kaggle competition {competition!r}: "
             f"{err}. Check that you accepted the competition rules on kaggle.com, and "
-            "that credentials are set: KAGGLE_USERNAME and KAGGLE_KEY (both are in the "
-            "kaggle.json that Settings -> API -> Create New Token downloads), or "
-            "~/.kaggle/kaggle.json, or an OAuth token in KAGGLE_API_TOKEN."
+            "that credentials are set: KAGGLE_API_TOKEN (the access token from "
+            "kaggle.com/settings/api), or the legacy KAGGLE_USERNAME and KAGGLE_KEY "
+            "from that page's \"Create Legacy API Key\" button."
         ) from err
 
 
