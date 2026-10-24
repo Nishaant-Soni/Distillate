@@ -1,0 +1,84 @@
+# Data-Pipeline CI: lint and tests on every PR and every push to main.
+# Owner: Ruchita. Location: .github/workflows/data-pipeline-ci.yml
+name: data-pipeline-ci
+
+on:
+  pull_request:
+    paths:
+      - "Data-Pipeline/**"
+      - ".github/workflows/**"
+  push:
+    branches: [main]
+    paths:
+      - "Data-Pipeline/**"
+      - ".github/workflows/**"
+
+concurrency:
+  group: data-pipeline-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: Data-Pipeline
+
+env:
+  PYTHONPATH: ${{ github.workspace }}/Data-Pipeline
+  AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+  AIRFLOW_VERSION: "3.3.2"
+
+jobs:
+  lint-test:
+    name: lint-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: Data-Pipeline/requirements.txt
+
+      # Same constraints as the Dockerfile, so CI resolves the same versions as the image.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt \
+            --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-3.12.txt"
+          pip install ruff pytest
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Tests (pytest)
+        run: pytest -q
+
+  # Optional: not a required check in branch protection, but failures stay visible.
+  # TFDV 1.16.1 has wheels only up to Python 3.11, and this environment lacks the
+  # main-environment packages, so it runs only the TFDV tests.
+  tf-tests:
+    name: tf-tests (optional)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: Data-Pipeline/requirements-tf.txt
+
+      - name: Install TFDV environment
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-tf.txt pytest
+
+            - name: TFDV tests (pytest)
+        run: |
+          if [ -f tests/test_schema_stats.py ]; then
+            pytest -q tests/test_schema_stats.py
+          else
+            echo "tests/test_schema_stats.py not on this branch yet; skipping."
+          fi
