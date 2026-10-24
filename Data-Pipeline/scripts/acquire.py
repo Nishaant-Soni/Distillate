@@ -122,8 +122,10 @@ def kaggle_download(competition: str, file_name: str, folder: Path) -> None:
     except Exception as err:  # the Kaggle client raises many different error types
         raise DataUnavailableError(
             f"Could not download {file_name!r} from Kaggle competition {competition!r}: "
-            f"{err}. Check that you accepted the competition rules on kaggle.com and that "
-            "your token is set (~/.kaggle/access_token or the KAGGLE_API_TOKEN variable)."
+            f"{err}. Check that you accepted the competition rules on kaggle.com, and "
+            "that credentials are set: KAGGLE_USERNAME and KAGGLE_KEY (both are in the "
+            "kaggle.json that Settings -> API -> Create New Token downloads), or "
+            "~/.kaggle/kaggle.json, or an OAuth token in KAGGLE_API_TOKEN."
         ) from err
 
 
