@@ -134,6 +134,9 @@ def run(cfg: dict[str, Any], stage: str) -> dict[str, Any]:
             for split in ("train", "validation", "test"):
                 _write(civil_frame(n, seed, f"civil_{split}"),
                        civil_out / f"{split}_clean.parquet", summary)
+            # subsets.py builds bias_eval from the cleaned Identities test split.
+            _write(civil_frame(n, seed, "civil_identities", with_identities=True),
+                   civil_out / "identities_test_clean.parquet", summary)
         elif stage == "dedupe_wikipedia":
             _write(wikipedia_frame(n, seed, "wiki_train"),
                    wiki_out / "train_dedup.parquet", summary)
