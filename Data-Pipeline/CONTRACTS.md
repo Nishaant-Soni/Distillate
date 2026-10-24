@@ -20,7 +20,7 @@ distillate/
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | string | TFDS id, unique |
+| `id` | string | Kaggle id (same ids as the TFDS copies), unique |
 | `text` | string | cleaned (NFKC, HTML entities, whitespace) |
 | `toxicity`, `severe_toxicity`, `obscene`, `threat`, `insult`, `identity_attack` | int8 | 0 or 1 |
 | `char_len` | int32 | |
