@@ -55,6 +55,11 @@ x-airflow-common:
     TFDS_DATA_DIR: /opt/airflow/tfds
     TFENV_PYTHON: /opt/tfenv/bin/python
     # Passed through from .env; all have safe defaults so a fresh clone runs.
+    # acquire downloads from Kaggle; without a token it fails with a message
+    # telling you to set one and accept both competitions' rules.
+    KAGGLE_API_TOKEN: ${KAGGLE_API_TOKEN:-}
+    KAGGLE_USERNAME: ${KAGGLE_USERNAME:-}
+    KAGGLE_KEY: ${KAGGLE_KEY:-}
     SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     ALERT_EMAIL: ${ALERT_EMAIL:-}
     DVC_PUSH: ${DVC_PUSH:-false}
