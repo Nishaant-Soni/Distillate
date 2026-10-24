@@ -22,6 +22,12 @@ def cfg(tmp_path):
     return cfg
 
 
+@pytest.fixture
+def stubs_only(monkeypatch):
+    """Force stub mode, so these tests keep checking the stubs after real modules merge."""
+    monkeypatch.setattr(stage, "_real_run", lambda name: None)
+
+
 def _install_fake(monkeypatch, name, run):
     module = types.ModuleType(name)
     if run is not None:
@@ -70,7 +76,7 @@ def test_a_broken_import_inside_a_real_module_is_not_hidden(cfg, monkeypatch):
         stage.dispatch("dedupe", cfg)
 
 
-def test_every_stage_has_a_working_stub(cfg):
+def test_every_stage_has_a_working_stub(cfg, stubs_only):
     pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     for name in stage.STAGE_MODULES:
@@ -79,7 +85,7 @@ def test_every_stage_has_a_working_stub(cfg):
         assert "duration_s" in summary, name
 
 
-def test_stub_writes_one_summary_per_task(cfg):
+def test_stub_writes_one_summary_per_task(cfg, stubs_only):
     pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     stage.dispatch("preprocess", cfg)
@@ -89,7 +95,7 @@ def test_stub_writes_one_summary_per_task(cfg):
     assert set(written["parts"]) == {"preprocess_wikipedia", "preprocess_civil"}
 
 
-def test_stub_output_matches_the_contract_columns(cfg):
+def test_stub_output_matches_the_contract_columns(cfg, stubs_only):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     from pathlib import Path
@@ -105,7 +111,7 @@ def test_stub_output_matches_the_contract_columns(cfg):
     assert train["id"].is_unique
 
 
-def test_civil_stub_is_sorted_by_created_date(cfg):
+def test_civil_stub_is_sorted_by_created_date(cfg, stubs_only):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     from pathlib import Path
@@ -121,7 +127,7 @@ def test_civil_stub_is_sorted_by_created_date(cfg):
     assert str(batch["created_date"].dt.tz) == "UTC"
 
 
-def test_stub_never_overwrites_real_output(cfg):
+def test_stub_never_overwrites_real_output(cfg, stubs_only):
     pd = pytest.importorskip("pandas")
     pytest.importorskip("pyarrow")
     from pathlib import Path
