@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -24,16 +25,37 @@ DEFAULT_CONFIG = PIPELINE_ROOT / "config" / "pipeline.yaml"
 LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 
 
+class _BelowLevel(logging.Filter):
+    """Pass only records below ``level``, so each stream carries one severity band."""
+
+    def __init__(self, level: int) -> None:
+        super().__init__()
+        self.level = level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno < self.level
+
+
 def get_logger(name: str) -> logging.Logger:
     """Return a logger with the pipeline's standard format.
 
-    Airflow captures stdout/stderr into task logs, so a stream handler is enough.
+    Airflow captures stdout and stderr separately and marks every stderr line as
+    an error in the task log. A bare StreamHandler writes to stderr, which made
+    routine progress lines show up red and, worse, made a real failure look no
+    different from them. So INFO and below go to stdout, WARNING and above to
+    stderr, and the task log reflects the severity the code actually used.
     """
     logger = logging.getLogger(name)
     if not logger.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter(LOG_FORMAT))
-        logger.addHandler(handler)
+        formatter = logging.Formatter(LOG_FORMAT)
+        to_stdout = logging.StreamHandler(sys.stdout)
+        to_stdout.setFormatter(formatter)
+        to_stdout.addFilter(_BelowLevel(logging.WARNING))
+        to_stderr = logging.StreamHandler(sys.stderr)
+        to_stderr.setFormatter(formatter)
+        to_stderr.setLevel(logging.WARNING)
+        logger.addHandler(to_stdout)
+        logger.addHandler(to_stderr)
         logger.setLevel(os.environ.get("DISTILLATE_LOG_LEVEL", "INFO"))
         logger.propagate = False
     return logger

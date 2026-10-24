@@ -1,8 +1,47 @@
 import json
+import logging
 
 import pytest
 
 from scripts import utils
+
+
+def test_info_goes_to_stdout_and_warnings_to_stderr(capsys):
+    """Airflow marks every stderr line as an error in the task log.
+
+    Regression: a bare StreamHandler sent INFO to stderr too, so routine
+    progress showed up red and a real failure looked no different from it.
+    """
+    logger = utils.get_logger("test_stream_split")
+    logger.info("routine progress")
+    logger.warning("something worth noticing")
+    logger.error("a real failure")
+
+    captured = capsys.readouterr()
+    assert "routine progress" in captured.out
+    assert "routine progress" not in captured.err
+    for message in ("something worth noticing", "a real failure"):
+        assert message in captured.err
+        assert message not in captured.out
+
+
+def test_logger_is_configured_once(capsys):
+    """Repeat calls must not stack handlers and duplicate every line."""
+    first = utils.get_logger("test_no_duplicate_handlers")
+    second = utils.get_logger("test_no_duplicate_handlers")
+    assert first is second
+    assert len(first.handlers) == 2  # one stdout, one stderr
+
+    first.info("said once")
+    assert capsys.readouterr().out.count("said once") == 1
+
+
+def test_log_level_follows_the_environment(monkeypatch, capsys):
+    monkeypatch.setenv("DISTILLATE_LOG_LEVEL", "WARNING")
+    logger = utils.get_logger("test_env_level")
+    assert logger.level == logging.WARNING
+    logger.info("filtered out")
+    assert "filtered out" not in capsys.readouterr().out
 
 
 def test_load_config_resolves_paths_against_pipeline_root():
