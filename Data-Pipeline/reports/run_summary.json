@@ -1,0 +1,902 @@
+{
+  "duration_s": 218.064,
+  "finished_at": "2026-10-25T22:18:01+00:00",
+  "rows_out": 4943337,
+  "slack_posted": false,
+  "stages_real": [
+    "acquire",
+    "anomalies",
+    "dedupe",
+    "dvc_version",
+    "obfuscate",
+    "preprocess",
+    "split",
+    "subsets"
+  ],
+  "stages_stubbed": [
+    "bias",
+    "schema_stats"
+  ],
+  "tasks": {
+    "acquire": {
+      "dropped": {},
+      "duration_s": 1.304,
+      "files": {
+        "civil/identities_test.parquet": 21577,
+        "civil/test.parquet": 97320,
+        "civil/train.parquet": 1804874,
+        "civil/validation.parquet": 97320,
+        "wikipedia/test.parquet": 63978,
+        "wikipedia/train.parquet": 159571
+      },
+      "mode": "real",
+      "rows_out": 2244640,
+      "skipped": true,
+      "task": "acquire"
+    },
+    "anomalies": {
+      "checks": {
+        "fail": 0,
+        "run": 83,
+        "warn": 1
+      },
+      "dropped": {},
+      "duration_s": 0.883,
+      "mode": "real",
+      "results": [
+        {
+          "check": "raw_row_counts",
+          "detail": "159,571 rows, expected 159,571",
+          "passed": true,
+          "severity": "fail",
+          "target": "wikipedia/train.parquet"
+        },
+        {
+          "check": "raw_row_counts",
+          "detail": "63,978 rows, expected 63,978",
+          "passed": true,
+          "severity": "fail",
+          "target": "wikipedia/test.parquet"
+        },
+        {
+          "check": "raw_row_counts",
+          "detail": "1,804,874 rows, expected 1,804,874",
+          "passed": true,
+          "severity": "fail",
+          "target": "civil/train.parquet"
+        },
+        {
+          "check": "raw_row_counts",
+          "detail": "97,320 rows, expected 97,320",
+          "passed": true,
+          "severity": "fail",
+          "target": "civil/validation.parquet"
+        },
+        {
+          "check": "raw_row_counts",
+          "detail": "97,320 rows, expected 97,320",
+          "passed": true,
+          "severity": "fail",
+          "target": "civil/test.parquet"
+        },
+        {
+          "check": "raw_row_counts",
+          "detail": "21,577 rows, expected 21,577",
+          "passed": true,
+          "severity": "fail",
+          "target": "civil/identities_test.parquet"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval & canary_civil"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval & canary_wikipedia"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval & drift"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval & gate"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "2,286 shared ids (allowed)",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval & h2_eval"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval & obfuscation"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval & train"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval & val"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil & canary_wikipedia"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil & drift"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil & gate"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil & h2_eval"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil & obfuscation"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil & train"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil & val"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_wikipedia & drift"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_wikipedia & gate"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_wikipedia & h2_eval"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_wikipedia & obfuscation"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_wikipedia & train"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_wikipedia & val"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "drift & gate"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "drift & h2_eval"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "drift & obfuscation"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "drift & train"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "drift & val"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "gate & h2_eval"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "gate & obfuscation"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "gate & train"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "gate & val"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "h2_eval & obfuscation"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "h2_eval & train"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "h2_eval & val"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "obfuscation & train"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "obfuscation & val"
+        },
+        {
+          "check": "id_overlap",
+          "detail": "0 shared ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "train & val"
+        },
+        {
+          "check": "missing_text_or_labels",
+          "detail": "0 rows (0.000%), limit 0.1%",
+          "passed": true,
+          "severity": "warn",
+          "target": "train"
+        },
+        {
+          "check": "label_domain",
+          "detail": "all in range",
+          "passed": true,
+          "severity": "fail",
+          "target": "train"
+        },
+        {
+          "check": "duplicate_ids",
+          "detail": "0 duplicate ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "train"
+        },
+        {
+          "check": "long_text",
+          "detail": "0 comments over 5,000 characters",
+          "passed": true,
+          "severity": "warn",
+          "target": "train"
+        },
+        {
+          "check": "missing_text_or_labels",
+          "detail": "0 rows (0.000%), limit 0.1%",
+          "passed": true,
+          "severity": "warn",
+          "target": "val"
+        },
+        {
+          "check": "label_domain",
+          "detail": "all in range",
+          "passed": true,
+          "severity": "fail",
+          "target": "val"
+        },
+        {
+          "check": "duplicate_ids",
+          "detail": "0 duplicate ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "val"
+        },
+        {
+          "check": "long_text",
+          "detail": "0 comments over 5,000 characters",
+          "passed": true,
+          "severity": "warn",
+          "target": "val"
+        },
+        {
+          "check": "missing_text_or_labels",
+          "detail": "0 rows (0.000%), limit 0.1%",
+          "passed": true,
+          "severity": "warn",
+          "target": "gate"
+        },
+        {
+          "check": "label_domain",
+          "detail": "all in range",
+          "passed": true,
+          "severity": "fail",
+          "target": "gate"
+        },
+        {
+          "check": "duplicate_ids",
+          "detail": "0 duplicate ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "gate"
+        },
+        {
+          "check": "long_text",
+          "detail": "0 comments over 5,000 characters",
+          "passed": true,
+          "severity": "warn",
+          "target": "gate"
+        },
+        {
+          "check": "missing_text_or_labels",
+          "detail": "0 rows (0.000%), limit 0.1%",
+          "passed": true,
+          "severity": "warn",
+          "target": "canary_wikipedia"
+        },
+        {
+          "check": "label_domain",
+          "detail": "all in range",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_wikipedia"
+        },
+        {
+          "check": "duplicate_ids",
+          "detail": "0 duplicate ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_wikipedia"
+        },
+        {
+          "check": "long_text",
+          "detail": "0 comments over 5,000 characters",
+          "passed": true,
+          "severity": "warn",
+          "target": "canary_wikipedia"
+        },
+        {
+          "check": "missing_text_or_labels",
+          "detail": "0 rows (0.000%), limit 0.1%",
+          "passed": true,
+          "severity": "warn",
+          "target": "obfuscation"
+        },
+        {
+          "check": "label_domain",
+          "detail": "all in range",
+          "passed": true,
+          "severity": "fail",
+          "target": "obfuscation"
+        },
+        {
+          "check": "duplicate_ids",
+          "detail": "0 duplicate ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "obfuscation"
+        },
+        {
+          "check": "long_text",
+          "detail": "7 comments over 5,000 characters",
+          "passed": false,
+          "severity": "warn",
+          "target": "obfuscation"
+        },
+        {
+          "check": "missing_text_or_labels",
+          "detail": "0 rows (0.000%), limit 0.1%",
+          "passed": true,
+          "severity": "warn",
+          "target": "h2_eval"
+        },
+        {
+          "check": "label_domain",
+          "detail": "all in range",
+          "passed": true,
+          "severity": "fail",
+          "target": "h2_eval"
+        },
+        {
+          "check": "duplicate_ids",
+          "detail": "0 duplicate ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "h2_eval"
+        },
+        {
+          "check": "long_text",
+          "detail": "0 comments over 5,000 characters",
+          "passed": true,
+          "severity": "warn",
+          "target": "h2_eval"
+        },
+        {
+          "check": "missing_text_or_labels",
+          "detail": "0 rows (0.000%), limit 0.1%",
+          "passed": true,
+          "severity": "warn",
+          "target": "canary_civil"
+        },
+        {
+          "check": "label_domain",
+          "detail": "all in range",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil"
+        },
+        {
+          "check": "duplicate_ids",
+          "detail": "0 duplicate ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil"
+        },
+        {
+          "check": "long_text",
+          "detail": "0 comments over 5,000 characters",
+          "passed": true,
+          "severity": "warn",
+          "target": "canary_civil"
+        },
+        {
+          "check": "missing_text_or_labels",
+          "detail": "0 rows (0.000%), limit 0.1%",
+          "passed": true,
+          "severity": "warn",
+          "target": "bias_eval"
+        },
+        {
+          "check": "label_domain",
+          "detail": "all in range",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval"
+        },
+        {
+          "check": "duplicate_ids",
+          "detail": "0 duplicate ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval"
+        },
+        {
+          "check": "long_text",
+          "detail": "0 comments over 5,000 characters",
+          "passed": true,
+          "severity": "warn",
+          "target": "bias_eval"
+        },
+        {
+          "check": "missing_text_or_labels",
+          "detail": "0 rows (0.000%), limit 0.1%",
+          "passed": true,
+          "severity": "warn",
+          "target": "drift"
+        },
+        {
+          "check": "label_domain",
+          "detail": "all in range",
+          "passed": true,
+          "severity": "fail",
+          "target": "drift"
+        },
+        {
+          "check": "duplicate_ids",
+          "detail": "0 duplicate ids",
+          "passed": true,
+          "severity": "fail",
+          "target": "drift"
+        },
+        {
+          "check": "long_text",
+          "detail": "0 comments over 5,000 characters",
+          "passed": true,
+          "severity": "warn",
+          "target": "drift"
+        },
+        {
+          "check": "prevalence_gap",
+          "detail": "largest gap 0.00 pts (insult), tolerance 1.0 pts",
+          "passed": true,
+          "severity": "warn",
+          "target": "train vs val"
+        },
+        {
+          "check": "created_date",
+          "detail": "0 missing or unparseable",
+          "passed": true,
+          "severity": "fail",
+          "target": "h2_eval"
+        },
+        {
+          "check": "created_date",
+          "detail": "0 missing or unparseable",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil"
+        },
+        {
+          "check": "created_date",
+          "detail": "0 missing or unparseable",
+          "passed": true,
+          "severity": "fail",
+          "target": "bias_eval"
+        },
+        {
+          "check": "created_date",
+          "detail": "0 missing or unparseable",
+          "passed": true,
+          "severity": "fail",
+          "target": "drift"
+        }
+      ],
+      "rows_checked": {
+        "bias_eval": 21577,
+        "canary_civil": 4000,
+        "canary_wikipedia": 2000,
+        "drift": 40000,
+        "gate": 63978,
+        "h2_eval": 10000,
+        "obfuscation": 3000,
+        "train": 132388,
+        "val": 21363
+      },
+      "rows_out": 0,
+      "task": "anomalies"
+    },
+    "bias": {
+      "duration_s": 0.244,
+      "mode": "stub",
+      "parts": {
+        "bias": {
+          "dropped": {},
+          "duration_s": 0.244,
+          "mode": "stub",
+          "rows_out": 0,
+          "sample_weight_rows": 132388,
+          "task": "bias"
+        }
+      },
+      "rows_out": 0,
+      "task": "bias"
+    },
+    "dedupe": {
+      "dropped": {
+        "exact_duplicate": 664,
+        "gate_overlap": 1874,
+        "near_duplicate": 1282
+      },
+      "duration_s": 60.476,
+      "gate_rows": 63978,
+      "label_conflicts": 81,
+      "mode": "real",
+      "removed_by_reason": {
+        "exact_vs_gate": 388,
+        "exact_within_train": 664,
+        "near_vs_gate": 1486,
+        "near_within_train": 1282
+      },
+      "rows_in": 159571,
+      "rows_out": 155751,
+      "task": "dedupe"
+    },
+    "dvc_version": {
+      "mode": "real",
+      "pushed": false,
+      "skipped": "no .dvc directory; run `dvc init` at the repo root",
+      "task": "dvc_version",
+      "tracked": []
+    },
+    "obfuscate": {
+      "dropped": {},
+      "duration_s": 0.74,
+      "has_obfuscation_share": 0.2247,
+      "mode": "real",
+      "rows_in": {
+        "gate": 63978,
+        "gate_toxic": 6090
+      },
+      "rows_out": 3000,
+      "task": "obfuscate",
+      "techniques": {
+        "homoglyph": 1009,
+        "spacing": 996,
+        "substitution": 995
+      }
+    },
+    "preprocess": {
+      "dropped": {
+        "empty_after_clean": 0,
+        "empty_in_source": 0,
+        "missing_created_date_kept": 0
+      },
+      "duration_s": 147.026,
+      "files": {
+        "civil/identities_test_clean.parquet": {
+          "dropped": {
+            "empty_after_clean": 0,
+            "empty_in_source": 0,
+            "missing_created_date_kept": 0
+          },
+          "rows_in": 21577,
+          "rows_out": 21577
+        },
+        "civil/test_clean.parquet": {
+          "dropped": {
+            "empty_after_clean": 0,
+            "empty_in_source": 0,
+            "missing_created_date_kept": 0
+          },
+          "rows_in": 97320,
+          "rows_out": 97320
+        },
+        "civil/train_clean.parquet": {
+          "dropped": {
+            "empty_after_clean": 0,
+            "empty_in_source": 0,
+            "missing_created_date_kept": 0
+          },
+          "rows_in": 1804874,
+          "rows_out": 1804874
+        },
+        "civil/validation_clean.parquet": {
+          "dropped": {
+            "empty_after_clean": 0,
+            "empty_in_source": 0,
+            "missing_created_date_kept": 0
+          },
+          "rows_in": 97320,
+          "rows_out": 97320
+        },
+        "wikipedia/test_clean.parquet": {
+          "dropped": {
+            "empty_after_clean": 0,
+            "empty_in_source": 0
+          },
+          "rows_in": 63978,
+          "rows_out": 63978
+        },
+        "wikipedia/train_clean.parquet": {
+          "dropped": {
+            "empty_after_clean": 0,
+            "empty_in_source": 0
+          },
+          "rows_in": 159571,
+          "rows_out": 159571
+        }
+      },
+      "mode": "real",
+      "rows_in": 2244640,
+      "rows_out": 2244640,
+      "task": "preprocess"
+    },
+    "schema_stats": {
+      "duration_s": 0.0,
+      "mode": "stub",
+      "parts": {
+        "schema_stats": {
+          "dropped": {},
+          "duration_s": 0.0,
+          "mode": "stub",
+          "note": "no schema written by the stub; run scripts.schema_stats --infer",
+          "rows_out": 0,
+          "task": "schema_stats"
+        }
+      },
+      "rows_out": 0,
+      "task": "schema_stats"
+    },
+    "split": {
+      "dropped": {},
+      "duration_s": 1.541,
+      "files": {
+        "canary_wikipedia": 2000,
+        "gate": 63978,
+        "train": 132388,
+        "val": 21363
+      },
+      "fraction_of_train_dedup": {
+        "canary_wikipedia": 0.0128,
+        "train": 0.85,
+        "val": 0.1372
+      },
+      "mode": "real",
+      "prevalence_pts": {
+        "canary_wikipedia": {
+          "identity_attack": 0.9,
+          "insult": 4.95,
+          "obscene": 5.3,
+          "severe_toxicity": 1.0,
+          "threat": 0.3,
+          "toxicity": 9.65
+        },
+        "gate": {
+          "identity_attack": 1.113,
+          "insult": 5.357,
+          "obscene": 5.769,
+          "severe_toxicity": 0.574,
+          "threat": 0.33,
+          "toxicity": 9.519
+        },
+        "train": {
+          "identity_attack": 0.883,
+          "insult": 4.963,
+          "obscene": 5.315,
+          "severe_toxicity": 0.992,
+          "threat": 0.294,
+          "toxicity": 9.639
+        },
+        "val": {
+          "identity_attack": 0.88,
+          "insult": 4.967,
+          "obscene": 5.318,
+          "severe_toxicity": 0.992,
+          "threat": 0.295,
+          "toxicity": 9.638
+        }
+      },
+      "rows_in": {
+        "test_clean": 63978,
+        "train_dedup": 155751
+      },
+      "rows_out": 219729,
+      "task": "split"
+    },
+    "subsets": {
+      "bias_eval_ids_also_in_h2_eval": 2286,
+      "drift_date_range": [
+        "2015-09-29 17:43:40.706242+00:00",
+        "2017-11-11 00:33:39.605448+00:00"
+      ],
+      "dropped": {},
+      "duration_s": 5.85,
+      "excluded": {
+        "ids_listed": 0,
+        "removed": {
+          "train": 0,
+          "validation": 0
+        }
+      },
+      "files": {
+        "bias_eval": 21577,
+        "canary_civil": 4000,
+        "drift/batch_00": 2000,
+        "drift/batch_01": 2000,
+        "drift/batch_02": 2000,
+        "drift/batch_03": 2000,
+        "drift/batch_04": 2000,
+        "drift/batch_05": 2000,
+        "drift/batch_06": 2000,
+        "drift/batch_07": 2000,
+        "drift/batch_08": 2000,
+        "drift/batch_09": 2000,
+        "drift/batch_10": 2000,
+        "drift/batch_11": 2000,
+        "drift/batch_12": 2000,
+        "drift/batch_13": 2000,
+        "drift/batch_14": 2000,
+        "drift/batch_15": 2000,
+        "drift/batch_16": 2000,
+        "drift/batch_17": 2000,
+        "drift/batch_18": 2000,
+        "drift/batch_19": 2000,
+        "h2_eval": 10000
+      },
+      "mode": "real",
+      "rows_in": {
+        "identities_test": 21577,
+        "test": 97320,
+        "train": 1804874,
+        "validation": 97320
+      },
+      "rows_out": 75577,
+      "task": "subsets",
+      "toxicity_pts": {
+        "canary_civil": 7.875,
+        "civil_test": 7.991,
+        "civil_train": 7.997,
+        "civil_validation": 7.882,
+        "drift": 7.998,
+        "h2_eval": 7.99
+      }
+    }
+  },
+  "tasks_reported": 10,
+  "unreadable_summaries": []
+}
