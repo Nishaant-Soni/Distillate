@@ -354,7 +354,69 @@ Commit the pointer files in the same commit as the code that produced them — t
 is what makes a past result reproducible.
 
 ## 8. Pipeline flow optimization
-<!-- Owner: Vaishnavi. Gantt before/after table and screenshots. -->
+
+The DAG runs in two shapes, set by `PIPELINE_MODE` in `.env`. `baseline` wires all eleven
+tasks into one sequential chain; `optimized` (the default) splits the Wikipedia and Civil
+work into parallel branches that rejoin at `schema_stats`. Both are built from the same
+`scripts/pipeline_graph.py`, so the comparison is the same tasks in two orders, not two
+different pipelines.
+
+Measured on an M-series MacBook running the `linux/amd64` image under emulation, with the
+competition downloads already cached. Durations are seconds.
+
+| Task | Baseline (sequential) | Optimized (parallel) |
+|---|---|---|
+| acquire | 4.9 | 2.7 |
+| preprocess | 147.7 | 145.6 |
+| dedupe | 61.7 | 71.7 |
+| subsets | 7.3 | 12.9 *(runs beside `dedupe`)* |
+| split | 3.0 | 3.2 |
+| obfuscate | 1.5 | 1.2 |
+| schema_stats | 0.9 | 1.4 |
+| anomalies | 1.5 | 1.8 |
+| bias | 0.9 | 1.0 |
+| dvc_version | 0.1 | 0.1 |
+| notify_success | 0.1 | 0.1 |
+| **Wall clock** | **235.7** | **235.2** |
+
+**The parallel branches bought almost nothing: 0.5 s, which is inside run-to-run noise.**
+Two reasons, and both are visible in the table:
+
+1. **The branches are badly unbalanced.** The Civil branch is `subsets` alone, about 7 s.
+   The Wikipedia branch is `dedupe` → `split` → `obfuscate`, about 66 s. Overlapping them
+   can never save more than the shorter branch, so roughly 7 s was the ceiling.
+2. **Concurrency made both tasks slower.** Run side by side, `dedupe` went from 61.7 s to
+   71.7 s and `subsets` from 7.3 s to 12.9 s. On an emulated image with a small CPU
+   allocation, the contention cost about as much as the overlap saved.
+
+**The optimization that did work is caching the downloads.** `acquire` writes a manifest of
+row counts and per-file checksums, and skips the download when it still matches:
+
+| `acquire` | Duration |
+|---|---|
+| Cold, first run, about 2 GB over the network | **68.7 s** |
+| Warm, manifest matches | **2.7 – 9.7 s** |
+
+That is a real ~65 s saved on every rerun, and it is why `data/kaggle` is a named Docker
+volume: the cache survives `docker compose down`. To force a cold run, remove the volume.
+
+**Where the time actually goes.** `preprocess` is 147 s, about 62% of the run, and it is a
+single task cleaning both datasets, so no amount of reordering touches it. The honest
+next step is to split it per dataset — `preprocess_wikipedia` alongside `preprocess_civil`
+— which would put real work on both sides of the fork instead of 7 s against 66 s. That
+needs a change to the stage contract in [CONTRACTS.md](CONTRACTS.md) section 3, which is
+one function per script, so it is a team decision rather than a local edit.
+
+Reproduce either shape:
+
+```bash
+sed -i '' 's/^PIPELINE_MODE=.*/PIPELINE_MODE=baseline/' .env   # or optimized
+docker compose up -d
+docker compose exec airflow-scheduler airflow dags trigger data_prep_dag
+```
+
+The Graph and Gantt views in the Airflow UI show the two shapes; per-task durations are in
+`reports/run_summary.json` after each run.
 
 ## 9. Alerts
 
