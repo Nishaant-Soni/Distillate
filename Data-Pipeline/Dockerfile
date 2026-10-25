@@ -84,6 +84,6 @@ COPY --chown=airflow:0 requirements-dev.txt /tmp/requirements-dev.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-dev.txt
 
 ENV TFENV_PYTHON=/opt/tfenv/bin/python \
-    PYTHONPATH=/opt/airflow/pipeline
+    PYTHONPATH=/opt/airflow/repo/Data-Pipeline
 
-WORKDIR /opt/airflow/pipeline
+WORKDIR /opt/airflow/repo/Data-Pipeline

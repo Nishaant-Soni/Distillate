@@ -5,9 +5,11 @@
 #     flower services are gone. One scheduler process runs the tasks.
 #   * Builds the local Dockerfile (Airflow 3.12 env + TFDV 3.11 env at /opt/tfenv)
 #     instead of pulling the stock image.
-#   * The whole Data-Pipeline folder is mounted at /opt/airflow/pipeline and put
-#     on PYTHONPATH, so `from scripts.utils import ...` resolves the same way in
-#     a DAG, in the CLI and under pytest.
+#   * The whole repository is mounted at /opt/airflow/repo, with Data-Pipeline
+#     under it on PYTHONPATH, so `from scripts.utils import ...` resolves the
+#     same way in a DAG, in the CLI and under pytest. The repo root rather than
+#     just Data-Pipeline, because .dvc and .git live there and the dvc_version
+#     task needs to see them.
 #   * kaggle-cache is a named volume holding the competition downloads, so later
 #     runs skip them. That is what makes the cached run in the Gantt comparison
 #     meaningful, and `docker volume rm` gives a clean cold run for the baseline.
@@ -51,9 +53,9 @@ x-airflow-common:
     AIRFLOW__CORE__PARALLELISM: ${AIRFLOW_PARALLELISM:-8}
     AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: ${AIRFLOW_PARALLELISM:-8}
     # Pipeline code and its own folders, not Airflow's.
-    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/pipeline/dags
-    AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/pipeline/logs
-    PYTHONPATH: /opt/airflow/pipeline
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/repo/Data-Pipeline/dags
+    AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/repo/Data-Pipeline/logs
+    PYTHONPATH: /opt/airflow/repo/Data-Pipeline
     TFENV_PYTHON: /opt/tfenv/bin/python
     # Passed through from .env; all have safe defaults so a fresh clone runs.
     # acquire downloads from Kaggle; without a token it fails with a message
@@ -71,10 +73,10 @@ x-airflow-common:
     GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/home/airflow/.config/gcloud/application_default_credentials.json}
   volumes:
     # One mount for everything: dags/, scripts/, config/, data/, reports/, tests/.
-    - ${AIRFLOW_PROJ_DIR:-.}:/opt/airflow/pipeline
+    - ${AIRFLOW_PROJ_DIR:-..}:/opt/airflow/repo
     # Nested inside the bind mount above, so the 1.3 GB of competition zips live
     # in Docker rather than the working tree. paths.kaggle_dir points here.
-    - kaggle-cache:/opt/airflow/pipeline/data/kaggle
+    - kaggle-cache:/opt/airflow/repo/Data-Pipeline/data/kaggle
     # Read-only so dvc push can authenticate as you. Optional: without it the
     # dvc_version task still runs dvc add and only the push is skipped.
     - type: bind
@@ -175,8 +177,8 @@ services:
       - -c
       - |
         set -e
-        mkdir -p /opt/airflow/pipeline/{logs,reports/summaries,data/raw,data/processed}
-        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/pipeline/{logs,reports,data}
+        mkdir -p /opt/airflow/repo/Data-Pipeline/{logs,reports/summaries,data/raw,data/processed}
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/repo/Data-Pipeline/{logs,reports,data}
         /entrypoint airflow version
         echo "TFDV environment check:"
         /opt/tfenv/bin/python -c "import tensorflow_data_validation as t; print('  tfdv', t.__version__)"

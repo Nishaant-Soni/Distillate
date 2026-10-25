@@ -11,3 +11,6 @@ pyarrow
 datasketch==2.0.0
 scikit-learn
 iterative-stratification==0.1.9
+
+# dvc-gs: the remote is gs://, so plain dvc cannot even start without it.
+dvc[gs]==3.67.1
