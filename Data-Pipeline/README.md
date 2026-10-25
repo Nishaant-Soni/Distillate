@@ -5,10 +5,87 @@
 `data_prep_dag` takes the project from nothing to training-ready data: download (Kaggle), clean, deduplicate, split, schema and statistics (TFDV), anomaly checks with alerts, bias analysis with mitigation, and versioning with DVC. Shared file formats and interfaces are in [CONTRACTS.md](CONTRACTS.md).
 
 ## 1. Environment setup
-<!-- Owner: Vaishnavi. Prerequisites (Docker with 8 GB memory, Git, optional gcloud), .env values. -->
+
+**Prerequisites**
+
+| | |
+|---|---|
+| Docker Desktop | **8 GB memory or more** (Settings → Resources). On Apple Silicon also turn on Settings → General → *Use Rosetta for x86/amd64 emulation* — the image is `linux/amd64` because TFDV publishes no Linux arm64 wheel |
+| Git | any recent version |
+| Python 3.12 | only to run the tests outside Docker |
+| Disk | about 15 GB: competition downloads, raw and processed Parquet, and the DVC cache |
+
+**Accept both Kaggle competitions' rules.** Do this first, in a browser, on the
+account whose credentials you are about to use. Downloads return 403 until you do,
+and the rules are accepted per competition:
+
+- <https://www.kaggle.com/c/jigsaw-toxic-comment-classification-challenge/rules>
+- <https://www.kaggle.com/c/jigsaw-unintended-bias-in-toxicity-classification/rules>
+
+**Credentials.** Compose reads `.env` from this folder only, so the copy lives in
+`Data-Pipeline/`, not the repo root:
+
+```bash
+cd Data-Pipeline
+cp .env.example .env
+```
+
+Fill in the Kaggle block from <https://www.kaggle.com/settings/api>. Either route works:
+
+- **`KAGGLE_API_TOKEN`** — the access token that page shows. Checked first, so this is the simplest.
+- **`KAGGLE_USERNAME` + `KAGGLE_KEY`** — from *Legacy API Credentials → Create Legacy API Key*,
+  which downloads `kaggle.json` holding both values. If you use these, leave
+  `KAGGLE_API_TOKEN` empty, because a value there takes precedence.
+
+Everything else in `.env` has a working default. With no `SLACK_WEBHOOK_URL` alerts are
+logged instead of posted, and `DVC_PUSH=false` keeps a fresh clone green without any GCP
+credentials. `.env` is git-ignored; never commit it.
 
 ## 2. Running the pipeline
-<!-- Owner: Vaishnavi. Five-command quickstart, where outputs appear, rerunning one task. -->
+
+Five commands from a fresh clone:
+
+```bash
+cd Data-Pipeline
+cp .env.example .env                 # 1. then add your Kaggle credentials (section 1)
+docker compose build                 # 2. 20-40 min first time; TensorFlow is large
+docker compose up -d                 # 3. Airflow UI on http://localhost:8080
+docker compose exec airflow-scheduler airflow dags trigger data_prep_dag   # 4.
+cat reports/run_summary.json         # 5. what the run did
+```
+
+The UI login comes from `_AIRFLOW_WWW_USER_*` in `.env`. The build prints
+`TFDV checkpoint OK` when the TensorFlow environment is healthy; if that line is missing
+the build has failed, and nothing after it will work.
+
+A full run on real data takes roughly five minutes of task time after the downloads are
+cached. **Keep the machine awake** — everything runs in Docker on your laptop, so sleep
+suspends the run and tasks can exceed their timeouts on wake.
+
+**Where the outputs go**
+
+| Path | Contents |
+|---|---|
+| `data/kaggle/` | competition downloads (a Docker volume, so reruns skip them) |
+| `data/raw/` | raw Parquet plus `manifest.json` with row counts and checksums |
+| `data/cache/` | the 1.8M-row Civil train file: untracked, not in DVC |
+| `data/processed/` | the contract files in [CONTRACTS.md](CONTRACTS.md) section 2 |
+| `data/splits/` | id lists per split, and the drift manifest |
+| `reports/summaries/<task>.json` | one summary per task: rows in, rows out, drops, duration |
+| `reports/run_summary.json` | all of them merged, written by `notify_success` |
+| `logs/` | Airflow task logs |
+
+**Rerunning one task.** In the UI, select the task and press *Clear*; it reruns with
+everything downstream. To run a single stage outside Airflow, use the CLI from
+[CONTRACTS.md](CONTRACTS.md) section 3:
+
+```bash
+docker compose exec --workdir /opt/airflow/pipeline airflow-scheduler \
+  python -m scripts.stage --stage dedupe --config config/pipeline.yaml
+```
+
+Stages are safe to rerun: every write goes through `utils.atomic_write`, so an
+interrupted task leaves the previous output intact rather than a half-written file.
 
 ### Running tests locally (no Docker needed)
 ```bash
@@ -19,7 +96,46 @@ ruff check .
 ```
 
 ## 3. Code structure
-<!-- Owner: Vaishnavi. Folder tree with one line per script. -->
+
+```text
+Data-Pipeline/
+├── dags/data_prep_dag.py     the DAG: 11 tasks built from the graph below
+├── config/
+│   ├── pipeline.yaml         every tunable value; seed 42; no script hard-codes these
+│   └── identity_terms.txt    identity lexicon (owner: Ruchita; others only read it)
+├── scripts/
+│   ├── stage.py              one entry point per stage: real module if merged, stub if not
+│   ├── pipeline_graph.py     the task graph as data, so it is testable without Airflow
+│   ├── stubs.py              contract-shaped placeholder output for unmerged stages
+│   ├── utils.py              get_logger, load_config, atomic_write, write_summary, timed
+│   ├── alerts.py             send_alert plus the Airflow on_failure_callback
+│   ├── columns.py            label names and the Kaggle-to-contract column renames
+│   ├── errors.py             the pipeline's typed errors
+│   ├── parquet_io.py         chunked Parquet writing and SHA-256 helpers
+│   ├── acquire.py            download both competitions, reshape, write the manifest
+│   ├── preprocess.py         label casting, NFKC and entity cleanup, derived columns
+│   ├── dedupe.py             exact and MinHash-LSH near-duplicate removal
+│   ├── split.py              seeded multilabel train/val split, canary carve-out, gate
+│   ├── subsets.py            Civil H2, canary, bias set, 20 drift batches
+│   ├── obfuscate.py          3,000 disguised toxic gate comments
+│   ├── anomalies.py          every data check, each with a fail or warn severity
+│   ├── schema_stats.py       TFDV statistics and schema validation (runs in /opt/tfenv)
+│   ├── dvc_version.py        dvc add, then dvc push when DVC_PUSH is true
+│   └── run_summary.py        merges the task summaries and posts one Slack message
+├── tests/                    pytest; the Airflow DAG tests skip outside the image
+├── Dockerfile                Airflow 3.3.2 on Python 3.12, plus TFDV on 3.11 at /opt/tfenv
+└── docker-compose.yaml       LocalExecutor, Postgres, and the Kaggle download cache
+```
+
+**Two Python environments, one image.** Airflow and most stages run on Python 3.12.
+`schema_stats` runs on Python 3.11 at `/opt/tfenv`, because TFDV 1.16.1 is the last release
+built for this base image's glibc and it publishes no cp312 wheel. It also pins
+`pandas<2`, which would drag the main environment backwards. The two never share memory:
+Parquet on disk is the only thing that crosses between them.
+
+**Adding a stage.** Add it to `TASKS` and the edges in `scripts/pipeline_graph.py`, and map
+it to its module in `STAGE_MODULES` in `scripts/stage.py`. The DAG builds itself from that
+graph, so no DAG edit is needed, and `tests/test_dag.py` checks the two agree.
 
 ## 4. Data acquisition and preprocessing
 <!-- Owner: Praniti. Acquisition, cleaning choices, dedupe method and counts. -->
@@ -206,10 +322,67 @@ Run on its own: `python -m scripts.anomalies --config config/pipeline.yaml`. Eve
 <!-- Owner: Ruchita. Slices, findings, mitigation, link to reports/bias/bias_report.md. -->
 
 ## 7. Reproducibility and DVC
-<!-- Owner: Vaishnavi. Pinned versions, seed, manifests, dvc pull, committing new data versions. -->
+
+**What makes a rerun identical**
+
+- **Seed 42** everywhere, from `config/pipeline.yaml`. `split.py` sorts by `id` before
+  splitting, so results depend on the data and the seed, never on row order.
+- **Pinned versions.** The image is `apache/airflow:3.3.2-python3.12` at an exact patch,
+  and `requirements.txt` installs against Airflow's official constraints file for that
+  version, so a rebuild months from now resolves the same dependency set.
+- **Manifests.** `acquire` writes `data/raw/manifest.json` with row counts and a SHA-256
+  per downloaded file, and fails if a later run's counts or checksums differ.
+- **Expected counts are asserted**, not assumed: 159,571 and 63,978 for Wikipedia,
+  1,804,874 and 97,320 twice for Civil, 21,577 identity-annotated rows.
+
+**DVC.** Git holds only the small `.dvc` pointer files; the Parquet lives in the bucket.
+
+```bash
+dvc pull                 # fetch the data for the current commit
+```
+
+The `dvc_version` task runs `dvc add data/raw data/processed`, then `dvc push` only when
+`DVC_PUSH=true`. It defaults to false so a fresh clone and CI stay green with no GCP
+credentials, and it logs a reminder naming the pointer files to commit:
+
+```bash
+git add Data-Pipeline/data/raw.dvc Data-Pipeline/data/processed.dvc
+git commit -m "Data version for <what changed>"
+```
+
+Commit the pointer files in the same commit as the code that produced them — that pairing
+is what makes a past result reproducible.
 
 ## 8. Pipeline flow optimization
 <!-- Owner: Vaishnavi. Gantt before/after table and screenshots. -->
 
 ## 9. Alerts
-<!-- Owner: Vaishnavi. Slack webhook setup; alerts only log when SLACK_WEBHOOK_URL is unset. -->
+
+Every alert goes through `alerts.send_alert(level, title, details)`, where level is
+`"warn"` or `"fail"`. **With no `SLACK_WEBHOOK_URL` set, alerts are only logged** and
+nothing fails, which is why a grader or a teammate without Slack can run the pipeline
+unchanged.
+
+To turn on Slack, create an Incoming Webhook for your channel
+(<https://api.slack.com/messaging/webhooks>) and put the URL in `.env`:
+
+```bash
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T000/B000/xxxx
+ALERT_EMAIL=                      # optional
+```
+
+Restart so the containers pick it up: `docker compose up -d`.
+
+**What posts a message**
+
+| Trigger | Level |
+|---|---|
+| Any task failure, through `on_failure_callback` on every task | `fail` — DAG id, task id, error, log link |
+| `anomalies` warn-level checks | `warn` — one message listing every warning |
+| `dvc push` failure | `warn` — the data is still versioned locally |
+| End of run, from `notify_success` | `ok`, or `warn` if any stage was still a stub |
+
+A broken webhook never fails the task that called it: `send_alert` catches its own errors
+and falls back to logging. Failures are posted per task, but success is posted once per
+run, so a green run produces one message rather than eleven.
+

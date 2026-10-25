@@ -8,8 +8,9 @@
 #   * The whole Data-Pipeline folder is mounted at /opt/airflow/pipeline and put
 #     on PYTHONPATH, so `from scripts.utils import ...` resolves the same way in
 #     a DAG, in the CLI and under pytest.
-#   * tfds-cache is a named volume: TFDS downloads survive `docker compose down`,
-#     which is what makes the cached run in the Gantt comparison meaningful.
+#   * kaggle-cache is a named volume holding the competition downloads, so later
+#     runs skip them. That is what makes the cached run in the Gantt comparison
+#     meaningful, and `docker volume rm` gives a clean cold run for the baseline.
 #   * Example DAGs are off and new DAGs are unpaused, so a fresh clone shows
 #     exactly one DAG.
 #
@@ -28,9 +29,10 @@ x-airflow-common:
   image: distillate/data-pipeline:3.3.2
   platform: linux/amd64
   env_file:
-    # Project-wide .env at the repo root (cp .env.example .env). Optional: with
-    # no SLACK_WEBHOOK_URL the alert contract says alerts only log.
-    - path: ${ENV_FILE_PATH:-../.env}
+    # Compose only reads .env from its own folder, so Data-Pipeline keeps its own
+    # copy (cp .env.example .env). Optional: with no SLACK_WEBHOOK_URL the alert
+    # contract says alerts only log.
+    - path: ${ENV_FILE_PATH:-.env}
       required: false
   environment:
     &airflow-common-env
@@ -52,7 +54,6 @@ x-airflow-common:
     AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/pipeline/dags
     AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/pipeline/logs
     PYTHONPATH: /opt/airflow/pipeline
-    TFDS_DATA_DIR: /opt/airflow/tfds
     TFENV_PYTHON: /opt/tfenv/bin/python
     # Passed through from .env; all have safe defaults so a fresh clone runs.
     # acquire downloads from Kaggle; without a token it fails with a message
@@ -69,7 +70,9 @@ x-airflow-common:
   volumes:
     # One mount for everything: dags/, scripts/, config/, data/, reports/, tests/.
     - ${AIRFLOW_PROJ_DIR:-.}:/opt/airflow/pipeline
-    - tfds-cache:/opt/airflow/tfds
+    # Nested inside the bind mount above, so the 1.3 GB of competition zips live
+    # in Docker rather than the working tree. paths.kaggle_dir points here.
+    - kaggle-cache:/opt/airflow/pipeline/data/kaggle
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -163,7 +166,7 @@ services:
       - |
         set -e
         mkdir -p /opt/airflow/pipeline/{logs,reports/summaries,data/raw,data/processed}
-        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/pipeline/{logs,reports,data} /opt/airflow/tfds
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/pipeline/{logs,reports,data}
         /entrypoint airflow version
         echo "TFDV environment check:"
         /opt/tfenv/bin/python -c "import tensorflow_data_validation as t; print('  tfdv', t.__version__)"
@@ -190,4 +193,4 @@ services:
 
 volumes:
   postgres-db-volume:
-  tfds-cache:
+  kaggle-cache:

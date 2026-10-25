@@ -4,6 +4,10 @@ pyyaml
 pytest
 ruff
 
+# Stage modules import these at module level, so without them whole test files
+# skip silently rather than failing. Versions come from requirements.txt in CI.
 pandas
 pyarrow
 datasketch==2.0.0
+scikit-learn
+iterative-stratification==0.1.9

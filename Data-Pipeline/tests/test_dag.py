@@ -105,9 +105,18 @@ def test_dag_has_the_expected_task_ids(dagbag):
 
 
 def test_dag_dependencies_match_the_declared_graph(dagbag):
+    """The wiring must match whichever mode the DAG was built in.
+
+    Regression: this asserted "optimized" outright, so running the DAG in
+    baseline mode for the Gantt comparison -- a documented, supported mode --
+    failed the suite.
+    """
+    import os
+
+    mode = os.environ.get("PIPELINE_MODE", "optimized")
     dag = dagbag.dags["data_prep_dag"]
     wired = {(u, d) for u in dag.task_ids for d in dag.get_task(u).downstream_task_ids}
-    assert wired == set(graph.edges("optimized"))
+    assert wired == set(graph.edges(mode)), f"DAG does not match the {mode} graph"
 
 
 def test_dag_is_manual_only_and_never_backfills(dagbag):

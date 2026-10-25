@@ -1,7 +1,8 @@
 """Build the Civil Comments evaluation and drift subsets.
 
 Inputs (CONTRACTS.md section 2, written by the preprocess stage):
-    data/processed/civil/{train,validation,test}_clean.parquet
+    data/cache/civil/train_clean.parquet   (the 1.8M-row train split)
+    data/processed/civil/{validation,test}_clean.parquet
     data/processed/civil/identities_test_clean.parquet
     config/civil_teacher_shift_ids.txt (paths.civil_exclude_ids; optional)
 
@@ -39,6 +40,7 @@ from typing import Any
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+from scripts.preprocess import civil_paths
 from scripts.utils import atomic_path, atomic_write, get_logger, load_config, timed, write_summary
 
 logger = get_logger(__name__)
@@ -122,7 +124,10 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
     summary: dict[str, Any] = {"task": TASK_ID, "mode": "real", "dropped": {}}
 
     with timed(summary):
-        train = _read(civil_out / "train_clean.parquet", labels)
+        # Not under processed_dir: preprocess keeps the 1.8M-row Civil train in the
+        # untracked cache. civil_paths owns that rule, so ask it rather than
+        # rebuilding the path here.
+        train = _read(civil_paths(cfg, "train")[1], labels)
         validation = _read(civil_out / "validation_clean.parquet", labels)
         test = _read(civil_out / "test_clean.parquet", labels)
         identities = _read(civil_out / IDENTITIES_FILE, labels)

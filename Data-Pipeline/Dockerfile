@@ -31,8 +31,8 @@ RUN apt-get update \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-# TFDS cache and the venv are written by the airflow user, not root.
-RUN install -d -o airflow -g 0 -m 775 /opt/tfenv /opt/airflow/tfds
+# The venv is written by the airflow user, not root.
+RUN install -d -o airflow -g 0 -m 775 /opt/tfenv
 
 USER airflow
 
@@ -61,10 +61,9 @@ RUN python3.11 -m venv /opt/tfenv \
 RUN /opt/tfenv/bin/python - <<'PY'
 import sys
 import tensorflow_data_validation as tfdv
-import tensorflow_datasets as tfds
 import tensorflow as tf
 print(f"TFDV checkpoint OK | python={sys.version.split()[0]} "
-      f"tfdv={tfdv.__version__} tf={tf.__version__} tfds={tfds.__version__}")
+      f"tfdv={tfdv.__version__} tf={tf.__version__}")
 # Exercise the code path schema_stats.py actually uses, not just the import.
 import pandas as pd
 stats = tfdv.generate_statistics_from_dataframe(
@@ -85,7 +84,6 @@ COPY --chown=airflow:0 requirements-dev.txt /tmp/requirements-dev.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-dev.txt
 
 ENV TFENV_PYTHON=/opt/tfenv/bin/python \
-    PYTHONPATH=/opt/airflow/pipeline \
-    TFDS_DATA_DIR=/opt/airflow/tfds
+    PYTHONPATH=/opt/airflow/pipeline
 
 WORKDIR /opt/airflow/pipeline

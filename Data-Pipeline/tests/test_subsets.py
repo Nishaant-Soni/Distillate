@@ -9,6 +9,7 @@ pytest.importorskip("pyarrow")
 pytest.importorskip("sklearn")
 
 from scripts import subsets  # noqa: E402
+from scripts.preprocess import civil_paths  # noqa: E402
 from scripts.stubs import IDENTITY_COLUMNS, LABELS, civil_frame  # noqa: E402
 from scripts.utils import load_config  # noqa: E402
 
@@ -20,20 +21,26 @@ def _write_inputs(cfg, train=None):
     civil = Path(cfg["paths"]["processed_dir"]) / "civil"
     civil.mkdir(parents=True, exist_ok=True)
     frames = {
-        "train_clean": train if train is not None else civil_frame(N_ROWS, 42, "civil_train"),
         "validation_clean": civil_frame(N_ROWS, 42, "civil_validation"),
         "test_clean": civil_frame(N_ROWS, 42, "civil_test"),
         "identities_test_clean": civil_frame(200, 42, "civil_identities", with_identities=True),
     }
     for name, df in frames.items():
         df.to_parquet(civil / f"{name}.parquet", index=False)
+    # Train goes wherever preprocess puts it, which is the cache, not processed.
+    train_out = civil_paths(cfg, "train")[1]
+    train_out.parent.mkdir(parents=True, exist_ok=True)
+    (train if train is not None else civil_frame(N_ROWS, 42, "civil_train")).to_parquet(
+        train_out, index=False)
 
 
 @pytest.fixture
 def cfg(tmp_path):
     """Config pointed at a temp dir, with small subset sizes and contract-shaped inputs."""
     cfg = load_config()
-    for key in ("processed_dir", "splits_dir", "summaries_dir"):
+    # cache_dir included: preprocess keeps the 1.8M-row Civil train there, and
+    # without this the tests read the real 391 MB file instead of the fixture.
+    for key in ("processed_dir", "splits_dir", "summaries_dir", "cache_dir"):
         cfg["paths"][key] = str(tmp_path / key)
     cfg["paths"]["civil_exclude_ids"] = str(tmp_path / "exclude_ids.txt")  # absent by default
     cfg["splits"]["civil"].update(
@@ -190,3 +197,20 @@ def test_missing_exclusion_file_excludes_nothing(cfg):
     summary = subsets.run(cfg)
     assert summary["excluded"] == {"ids_listed": 0, "removed": {"validation": 0, "train": 0}}
     assert "teacher_shift_rows" not in summary["dropped"]
+
+
+def test_civil_train_is_read_from_the_cache_not_processed(cfg):
+    """preprocess writes the 1.8M-row Civil train to cache_dir; subsets must follow it.
+
+    Regression: subsets looked under processed_dir. That path happened to hold a
+    200-row stub left over from an earlier run, so the stage silently built the
+    40,000-row drift stream from 200 rows of synthetic text and the DAG still
+    went green.
+    """
+    cached = civil_paths(cfg, "train")[1]
+    assert cached.exists(), "fixture should place Civil train in the cache"
+    assert not (_civil(cfg) / "train_clean.parquet").exists()
+
+    summary = subsets.run(cfg)
+    assert summary["rows_in"]["train"] == N_ROWS
+    assert len(pd.concat(_batches(cfg))) == DRIFT_TOTAL

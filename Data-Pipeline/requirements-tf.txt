@@ -1,5 +1,6 @@
 # TensorFlow / TFDV environment, built as a separate virtualenv at /opt/tfenv.
-# Only two tasks use it: acquire (TFDS download) and schema_stats (TFDV).
+# Only schema_stats uses it. acquire moved to the main environment when the
+# datasets switched from TFDS to Kaggle, so TFDS itself is gone from here.
 #
 # Why it is separate, and why Python 3.11 while Airflow runs on 3.12:
 #   * TFDV 1.16.1 is the last release built as manylinux_2_17. Every release
@@ -18,7 +19,6 @@ tensorflow-data-validation==1.16.1
 tfx-bsl==1.16.1
 tensorflow-metadata==1.16.1
 tensorflow-cpu==2.16.2                  # CPU build: the GPU wheel adds ~3 GB we never use
-tensorflow-datasets==4.9.10             # acquire.py: wikipedia_toxicity_subtypes, civil_comments
 apache-beam[gcp]==2.60.0                # TFDV's execution engine
 
 # Transitive pins TFDV requires, stated explicitly so a resolver change is visible.
