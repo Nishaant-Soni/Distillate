@@ -1,6 +1,6 @@
 {
-  "duration_s": 218.064,
-  "finished_at": "2026-10-25T22:18:01+00:00",
+  "duration_s": 241.142,
+  "finished_at": "2026-10-25T23:36:49+00:00",
   "rows_out": 4943337,
   "slack_posted": false,
   "stages_real": [
@@ -20,7 +20,7 @@
   "tasks": {
     "acquire": {
       "dropped": {},
-      "duration_s": 1.304,
+      "duration_s": 1.897,
       "files": {
         "civil/identities_test.parquet": 21577,
         "civil/test.parquet": 97320,
@@ -41,7 +41,7 @@
         "warn": 1
       },
       "dropped": {},
-      "duration_s": 0.883,
+      "duration_s": 1.717,
       "mode": "real",
       "results": [
         {
@@ -641,12 +641,12 @@
       "task": "anomalies"
     },
     "bias": {
-      "duration_s": 0.244,
+      "duration_s": 0.354,
       "mode": "stub",
       "parts": {
         "bias": {
           "dropped": {},
-          "duration_s": 0.244,
+          "duration_s": 0.354,
           "mode": "stub",
           "rows_out": 0,
           "sample_weight_rows": 132388,
@@ -662,7 +662,7 @@
         "gate_overlap": 1874,
         "near_duplicate": 1282
       },
-      "duration_s": 60.476,
+      "duration_s": 66.712,
       "gate_rows": 63978,
       "label_conflicts": 81,
       "mode": "real",
@@ -685,7 +685,7 @@
     },
     "obfuscate": {
       "dropped": {},
-      "duration_s": 0.74,
+      "duration_s": 0.643,
       "has_obfuscation_share": 0.2247,
       "mode": "real",
       "rows_in": {
@@ -706,7 +706,7 @@
         "empty_in_source": 0,
         "missing_created_date_kept": 0
       },
-      "duration_s": 147.026,
+      "duration_s": 158.537,
       "files": {
         "civil/identities_test_clean.parquet": {
           "dropped": {
@@ -784,7 +784,7 @@
     },
     "split": {
       "dropped": {},
-      "duration_s": 1.541,
+      "duration_s": 1.736,
       "files": {
         "canary_wikipedia": 2000,
         "gate": 63978,
@@ -845,7 +845,7 @@
         "2017-11-11 00:33:39.605448+00:00"
       ],
       "dropped": {},
-      "duration_s": 5.85,
+      "duration_s": 9.546,
       "excluded": {
         "ids_listed": 0,
         "removed": {
