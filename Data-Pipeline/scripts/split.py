@@ -10,7 +10,7 @@ Outputs:
 
 Train and validation come from a seeded multilabel iterative stratification, so
 every label, including rare ones such as threat, keeps the same prevalence in
-both. The canary set is carved out of validation the same way. The TFDS test
+both. The canary set is carved out of validation the same way. The test
 split becomes the gate set unchanged.
 
     python -m scripts.split --config config/pipeline.yaml
