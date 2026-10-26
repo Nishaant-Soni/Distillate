@@ -1,6 +1,6 @@
 {
-  "duration_s": 254.222,
-  "finished_at": "2026-10-25T23:45:14+00:00",
+  "duration_s": 275.791,
+  "finished_at": "2026-10-26T00:01:11+00:00",
   "rows_out": 4943337,
   "slack_posted": false,
   "stages_real": [
@@ -20,7 +20,7 @@
   "tasks": {
     "acquire": {
       "dropped": {},
-      "duration_s": 1.242,
+      "duration_s": 2.681,
       "files": {
         "civil/identities_test.parquet": 21577,
         "civil/test.parquet": 97320,
@@ -41,7 +41,7 @@
         "warn": 1
       },
       "dropped": {},
-      "duration_s": 1.2,
+      "duration_s": 1.053,
       "mode": "real",
       "results": [
         {
@@ -641,12 +641,12 @@
       "task": "anomalies"
     },
     "bias": {
-      "duration_s": 0.389,
+      "duration_s": 0.388,
       "mode": "stub",
       "parts": {
         "bias": {
           "dropped": {},
-          "duration_s": 0.389,
+          "duration_s": 0.388,
           "mode": "stub",
           "rows_out": 0,
           "sample_weight_rows": 132388,
@@ -662,7 +662,7 @@
         "gate_overlap": 1874,
         "near_duplicate": 1282
       },
-      "duration_s": 76.421,
+      "duration_s": 67.232,
       "gate_rows": 63978,
       "label_conflicts": 81,
       "mode": "real",
@@ -677,15 +677,22 @@
       "task": "dedupe"
     },
     "dvc_version": {
+      "commit_reminder": [
+        "Data-Pipeline/data/raw.dvc",
+        "Data-Pipeline/data/processed.dvc"
+      ],
+      "duration_s": 38.907,
       "mode": "real",
-      "pushed": false,
-      "skipped": "no .dvc directory; run `dvc init` at the repo root",
+      "pushed": true,
       "task": "dvc_version",
-      "tracked": []
+      "tracked": [
+        "Data-Pipeline/data/raw",
+        "Data-Pipeline/data/processed"
+      ]
     },
     "obfuscate": {
       "dropped": {},
-      "duration_s": 0.817,
+      "duration_s": 0.757,
       "has_obfuscation_share": 0.2247,
       "mode": "real",
       "rows_in": {
@@ -706,7 +713,7 @@
         "empty_in_source": 0,
         "missing_created_date_kept": 0
       },
-      "duration_s": 161.058,
+      "duration_s": 154.838,
       "files": {
         "civil/identities_test_clean.parquet": {
           "dropped": {
@@ -784,7 +791,7 @@
     },
     "split": {
       "dropped": {},
-      "duration_s": 1.887,
+      "duration_s": 1.593,
       "files": {
         "canary_wikipedia": 2000,
         "gate": 63978,
@@ -845,7 +852,7 @@
         "2017-11-11 00:33:39.605448+00:00"
       ],
       "dropped": {},
-      "duration_s": 11.208,
+      "duration_s": 8.342,
       "excluded": {
         "ids_listed": 0,
         "removed": {
