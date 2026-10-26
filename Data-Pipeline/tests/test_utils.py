@@ -6,11 +6,13 @@ import pytest
 from scripts import utils
 
 
-def test_info_goes_to_stdout_and_warnings_to_stderr(capsys):
-    """Airflow marks every stderr line as an error in the task log.
+def test_only_errors_go_to_stderr(capsys):
+    """Airflow 3 labels task output by stream, so the split has to be at ERROR.
 
-    Regression: a bare StreamHandler sent INFO to stderr too, so routine
-    progress showed up red and a real failure looked no different from it.
+    Regression: a bare StreamHandler sent everything to stderr, so even routine
+    progress showed up red in the Airflow UI. Splitting at WARNING was not
+    enough either -- warnings still turned a healthy run red. Only genuine
+    errors belong on stderr; the level is in the message text regardless.
     """
     logger = utils.get_logger("test_stream_split")
     logger.info("routine progress")
@@ -18,11 +20,11 @@ def test_info_goes_to_stdout_and_warnings_to_stderr(capsys):
     logger.error("a real failure")
 
     captured = capsys.readouterr()
-    assert "routine progress" in captured.out
-    assert "routine progress" not in captured.err
-    for message in ("something worth noticing", "a real failure"):
-        assert message in captured.err
-        assert message not in captured.out
+    for message in ("routine progress", "something worth noticing"):
+        assert message in captured.out, message
+        assert message not in captured.err, message
+    assert "a real failure" in captured.err
+    assert "a real failure" not in captured.out
 
 
 def test_logger_is_configured_once(capsys):

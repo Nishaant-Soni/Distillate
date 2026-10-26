@@ -37,23 +37,26 @@ class _BelowLevel(logging.Filter):
 
 
 def get_logger(name: str) -> logging.Logger:
-    """Return a logger with the pipeline's standard format.
+    """Return a logger whose stream matches how Airflow reads severity.
 
-    Airflow captures stdout and stderr separately and marks every stderr line as
-    an error in the task log. A bare StreamHandler writes to stderr, which made
-    routine progress lines show up red and, worse, made a real failure look no
-    different from them. So INFO and below go to stdout, WARNING and above to
-    stderr, and the task log reflects the severity the code actually used.
+    Airflow 3 captures task output by redirecting the streams, and labels
+    everything on stderr as an error. There is no in-process handler to hand
+    records to instead, so the stream choice *is* the severity signal.
+
+    So the split is at ERROR, not at WARNING: INFO and WARNING go to stdout,
+    ERROR and above to stderr. A warning then reads as a warning in the Airflow
+    UI rather than turning a healthy run red, while a real error still stands
+    out. The level is in the message text either way.
     """
     logger = logging.getLogger(name)
     if not logger.handlers:
         formatter = logging.Formatter(LOG_FORMAT)
         to_stdout = logging.StreamHandler(sys.stdout)
         to_stdout.setFormatter(formatter)
-        to_stdout.addFilter(_BelowLevel(logging.WARNING))
+        to_stdout.addFilter(_BelowLevel(logging.ERROR))
         to_stderr = logging.StreamHandler(sys.stderr)
         to_stderr.setFormatter(formatter)
-        to_stderr.setLevel(logging.WARNING)
+        to_stderr.setLevel(logging.ERROR)
         logger.addHandler(to_stdout)
         logger.addHandler(to_stderr)
         logger.setLevel(os.environ.get("DISTILLATE_LOG_LEVEL", "INFO"))

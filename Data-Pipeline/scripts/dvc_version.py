@@ -72,7 +72,10 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
 
     pointers = [f"{t}.dvc" for t in summary["tracked"]]
     if pointers:
-        logger.warning("Commit the updated pointer files to Git: %s", " ".join(pointers))
+        # Info, not a warning: this fires on success and asks for a normal next
+        # step. Logging it as a warning made a healthy run look like it had a
+        # problem.
+        logger.info("Commit the updated pointer files to Git: %s", " ".join(pointers))
     summary["commit_reminder"] = pointers
     write_summary(TASK_ID, summary, cfg)
     return summary
