@@ -298,7 +298,56 @@ Output: `data/processed/obfuscation.parquet`, with the same columns as the Wikip
 Run on its own: `python -m scripts.obfuscate --config config/pipeline.yaml`. The summary in `reports/summaries/obfuscate.json` records how many comments used each trick and the share flagged as `has_obfuscation`.
 
 ### 5.4 Schema and statistics (`scripts/schema_stats.py`)
-<!-- Owner: Sai. TFDV schema inference, curation, and validation. -->
+
+Validates every raw and processed file against a TFDV schema, and fails the run on any anomaly. It runs in the TensorFlow environment (`/opt/tfenv`, Python 3.11), which is why it is a BashOperator in the DAG.
+
+**Two schemas**, because raw and processed files give the same columns different types (raw labels are float rater fractions, processed labels are `int8`):
+
+| File | Built from | Validates |
+|---|---|---|
+| `data/schema/raw_schema.pbtxt` | raw Wikipedia train and raw Civil identities test | the 6 raw files |
+| `data/schema/schema.pbtxt` | processed Wikipedia train and `bias_eval` | the 16 processed files, including the obfuscation set and all drift batches |
+
+Files with different columns share a schema through **TFDV environments**, so a column can be required in one kind of file and absent from another:
+
+| Environment | Files | Extra columns |
+|---|---|---|
+| `RAW_WIKI` | raw Wikipedia train and test | none |
+| `RAW_CIVIL` | raw Civil train, validation, test, identities test | dates, publication and article ids, `sexual_explicit`, identity scores |
+| `WIKI` | processed Wikipedia files, obfuscation set | none |
+| `WIKI_TRAIN` | processed Wikipedia train | `sample_weight` |
+| `CIVIL` | processed Civil files, H2, canary, drift | `created_date`, publication and article ids, `*_frac` |
+| `CIVIL_BIAS` | `bias_eval`, `identities_test_clean` | `identity_annotator_count` and 24 identity scores |
+
+**Curation on top of inference:**
+
+| Rule | Why |
+|---|---|
+| Labels and the two flags in {0, 1}; `*_frac` and processed identity scores in [0, 1] | the contract's value ranges |
+| `id` and `text` required in every file; `char_len` at least 1 | no row without an id or text |
+| `created_date` required in every Civil file | drift batches are ordered by it |
+| Inferred string vocabularies removed | otherwise every new publication or article id would be an anomaly |
+| Raw identity scores may be missing | most raw Civil rows were never shown to identity annotators (about 78% are empty) |
+
+The work plan's "language is English" rule is not checked: neither Kaggle source has a language field. Both datasets are English-only by construction.
+
+Timestamps are converted to ISO strings and booleans to 0/1 before TFDV reads them, since TFDV handles neither. The two 1.8M-row Civil train files are validated on a seeded sample of `validation.raw_civil_stats_sample` (100,000) rows.
+
+**Running it:**
+
+```bash
+# Validate (what the DAG runs); writes reports/schema/validation.json, fails on any anomaly
+docker compose exec airflow-scheduler bash -c \
+  "cd /opt/airflow/repo/Data-Pipeline && /opt/tfenv/bin/python -m scripts.schema_stats"
+
+# Rebuild both schemas after an intentional contract change, then review the diff and commit
+docker compose exec airflow-scheduler bash -c \
+  "cd /opt/airflow/repo/Data-Pipeline && /opt/tfenv/bin/python -m scripts.schema_stats --infer"
+```
+
+If a schema file is missing, the stage stops and says to run `--infer`. On the first full run on real data, all 22 files matched their schemas, in about 25 seconds.
+
+**Tests:** `tests/test_schema_stats.py` (11 tests) builds contract-shaped raw and processed files, infers schemas from them, and checks that clean data passes and that each kind of anomaly is caught: a label out of range, missing text, a missing required column, an unexpected column, a missing file, and a missing schema. They skip outside the TFDV environment; run them inside the image with `/opt/tfenv/bin/python -m pytest tests/test_schema_stats.py`.
 
 ### 5.5 Anomaly checks (`scripts/anomalies.py`)
 
