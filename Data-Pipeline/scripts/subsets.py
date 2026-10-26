@@ -4,7 +4,7 @@ Inputs (CONTRACTS.md section 2, written by the preprocess stage):
     data/cache/civil/train_clean.parquet   (the 1.8M-row train split)
     data/processed/civil/{validation,test}_clean.parquet
     data/processed/civil/identities_test_clean.parquet
-    config/civil_teacher_shift_ids.txt (paths.civil_exclude_ids; optional)
+    config/civil_teacher_shift_ids.txt (paths.civil_exclude_ids; required, may be empty)
 
 Outputs:
     data/processed/civil/h2_eval.parquet       10,000 from test, stratified on toxicity
@@ -23,8 +23,9 @@ reported in the summary rather than removed.
 
 Comments the teacher lane used to choose its prompt (its shift check on Civil
 validation) are listed in paths.civil_exclude_ids. They are removed before
-sampling, so they never reach the canary or the drift stream. If the file does
-not exist yet, nothing is excluded and the stage logs a warning.
+sampling, so they never reach the canary or the drift stream. The file must
+exist: if it is missing the stage stops, because running without it would put
+those rows into evaluation data. An empty file means nothing is excluded.
 
     python -m scripts.subsets --config config/pipeline.yaml
 """
@@ -71,10 +72,13 @@ def _read(path: Path, labels: list[str]) -> pd.DataFrame:
 
 
 def _load_excluded(path: Path) -> set[str]:
-    """Ids to keep out of every subset; empty (with a warning) if the file is missing."""
+    """Ids to keep out of every subset. A missing file is an error; an empty one is fine."""
     if not path.exists():
-        logger.warning("Exclusion list %s not found; no rows excluded", path.as_posix())
-        return set()
+        raise FileNotFoundError(
+            f"Exclusion list {path.as_posix()} not found. Without it, teacher prompt-selection "
+            "rows would leak into canary_civil and the drift stream. Add the file (an empty "
+            "file excludes nothing)."
+        )
     lines = path.read_text(encoding="utf-8").splitlines()
     return {line.strip() for line in lines if line.strip() and not line.startswith("#")}
 

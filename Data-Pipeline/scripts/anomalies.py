@@ -12,6 +12,9 @@ Each check has a severity (work plan, Phase 1):
     warn  train and validation label prevalence differ by more than
           validation.prevalence_tolerance_pts points
     fail  a created_date that is missing or cannot be parsed (Civil files)
+    fail  a fixed-size subset (canaries, H2, obfuscation, drift batches) whose row
+          count differs from config; only a warning while an upstream data stage
+          is still a stub, since stub outputs are small on purpose
 
 Every check runs, even after one fails, so a single run reports everything.
 Warnings go out as one alert through alerts.send_alert("warn", ...). If any
@@ -55,6 +58,9 @@ RAW_FILES = {
     ("civil_comments", "test"): "civil/test.parquet",
     ("civil_identities", "test"): "civil/identities_test.parquet",
 }
+# Stages that produce the data checked here. If any ran as a stub, its outputs are
+# small on purpose, so size checks drop to a warning instead of failing the run.
+UPSTREAM_DATA_TASKS = ("acquire", "preprocess", "dedupe", "split", "subsets", "obfuscate")
 
 
 class AnomalyError(RuntimeError):
@@ -186,6 +192,54 @@ def check_created_date(name: str, df: pd.DataFrame, checks: Checks) -> None:
     checks.record("created_date", name, "fail", bad == 0, f"{bad:,} missing or unparseable")
 
 
+def stubbed_upstream(cfg: dict[str, Any]) -> list[str]:
+    """Upstream data stages whose latest summary says they ran as a stub."""
+    summaries = Path(cfg["paths"]["summaries_dir"])
+    stubbed = []
+    for task in UPSTREAM_DATA_TASKS:
+        path = summaries / f"{task}.json"
+        if path.exists() and json.loads(path.read_text()).get("mode") == "stub":
+            stubbed.append(task)
+    return stubbed
+
+
+def check_subset_sizes(cfg: dict[str, Any], sets: dict[str, pd.DataFrame],
+                       checks: Checks) -> None:
+    """Every fixed-size subset must have exactly the row count config asks for.
+
+    Regression guard: a run once built the 40,000-row drift stream from 200 rows of
+    stub data and still went green. gate and bias_eval are whole splits by design,
+    so they are left to the raw row-count check.
+    """
+    splits, civil = cfg["splits"], cfg["splits"]["civil"]
+    stubbed = stubbed_upstream(cfg)
+    severity = "warn" if stubbed else "fail"
+    note = f" (warn only: stub upstream in {', '.join(stubbed)})" if stubbed else ""
+
+    expected = {
+        "canary_wikipedia": splits["canary_wikipedia_size"],
+        "obfuscation": splits["obfuscation_size"],
+        "h2_eval": civil["h2_size"],
+        "canary_civil": civil["canary_size"],
+    }
+    for name, n in expected.items():
+        if name in sets:
+            rows = len(sets[name])
+            checks.record("subset_size", name, severity, rows == n,
+                          f"{rows:,} rows, expected {n:,}{note}")
+
+    drift_dir = Path(cfg["paths"]["processed_dir"]) / "civil" / "drift"
+    files = sorted(drift_dir.glob("batch_*.parquet"))
+    n_batches, per_batch = civil["drift_batches"], civil["drift_total"] // civil["drift_batches"]
+    checks.record("subset_size", "drift batch count", severity, len(files) == n_batches,
+                  f"{len(files)} batches, expected {n_batches}{note}")
+    sizes = {p.stem: len(pd.read_parquet(p, columns=["id"])) for p in files}
+    wrong = {stem: n for stem, n in sizes.items() if n != per_batch}
+    detail = (f"wrong sizes: {wrong}, expected {per_batch:,} each" if wrong
+              else f"all {len(sizes)} batches have {per_batch:,} rows")
+    checks.record("subset_size", "drift batch rows", severity, not wrong, detail + note)
+
+
 def run(cfg: dict[str, Any]) -> dict[str, Any]:
     labels = cfg["labels"]["names"]
     summary: dict[str, Any] = {"task": TASK_ID, "mode": "real", "dropped": {}}
@@ -207,6 +261,7 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
         for name in ("h2_eval", "canary_civil", "bias_eval", "drift"):
             if name in sets:
                 check_created_date(name, sets[name], checks)
+        check_subset_sizes(cfg, sets, checks)
 
         fails, warns = checks.failed("fail"), checks.failed("warn")
         summary["rows_out"] = 0  # this stage reads data; it writes none

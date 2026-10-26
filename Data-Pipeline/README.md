@@ -275,7 +275,7 @@ Civil Comments is the shifted-domain data: news-site comments, unlike the Wikipe
 
 Drift rows are sampled across the whole train period first and then sorted, so `batch_00` is the oldest traffic and `batch_19` the newest. Sizes come from `splits.civil` in `config/pipeline.yaml`.
 
-Comments the teacher lane used to choose its prompt (its shift check on Civil validation) are listed in `config/civil_teacher_shift_ids.txt` (`paths.civil_exclude_ids`), one id per line. They are removed before sampling, so they never reach `canary_civil` or the drift stream. Until that file exists, nothing is excluded and the stage logs a warning.
+Comments the teacher lane used to choose its prompt (its shift check on Civil validation) are listed in `config/civil_teacher_shift_ids.txt` (`paths.civil_exclude_ids`), one id per line. They are removed before sampling, so they never reach `canary_civil` or the drift stream. The file is required: if it is missing, the stage stops rather than let those rows into evaluation data. An empty file (or one with only `#` comment lines) excludes nothing.
 
 Outputs: `data/processed/civil/{h2_eval,canary_civil,bias_eval}.parquet` and `data/processed/civil/drift/batch_XX.parquet`. Id lists go to `data/splits/<subset>_ids.txt`, and `data/splits/civil_drift_ids.csv` (`id, batch, created_date`) lists every drift comment with its batch, for teacher labeling of the drift stream.
 
@@ -315,6 +315,7 @@ Runs after every data stage and checks all of their outputs. Fail-level checks s
 | Prevalence gap | Warn | Train and validation label rates differing by more than 1 point (`validation.prevalence_tolerance_pts`) |
 | `created_date` | Fail | Missing or unparseable dates in Civil files. Parsed with `format="mixed"`, since some Kaggle timestamps have no fractional seconds |
 | Expected file present | Fail | An output file an upstream stage should have written |
+| Subset sizes | Fail (warn while an upstream data stage is a stub) | A fixed-size set whose row count differs from config: `canary_wikipedia`, `obfuscation`, `h2_eval`, `canary_civil`, and the drift stream (exactly 20 batches of 2,000). Catches a stage silently building a subset from too few rows, as happened once with drift built from 200 stub rows |
 
 Run on its own: `python -m scripts.anomalies --config config/pipeline.yaml`. Every result, with its severity and a detail message, is recorded in `reports/summaries/anomalies.json`.
 
