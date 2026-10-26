@@ -42,7 +42,9 @@ def cfg(tmp_path):
     # without this the tests read the real 391 MB file instead of the fixture.
     for key in ("processed_dir", "splits_dir", "summaries_dir", "cache_dir"):
         cfg["paths"][key] = str(tmp_path / key)
-    cfg["paths"]["civil_exclude_ids"] = str(tmp_path / "exclude_ids.txt")  # absent by default
+    cfg["paths"]["civil_exclude_ids"] = str(tmp_path / "exclude_ids.txt")
+    # Required file; an empty list (comment only) excludes nothing.
+    Path(cfg["paths"]["civil_exclude_ids"]).write_text("# no ids\n", encoding="utf-8")
     cfg["splits"]["civil"].update(
         {"h2_size": H2, "canary_size": CANARY, "drift_total": DRIFT_TOTAL,
          "drift_batches": BATCHES}
@@ -193,10 +195,17 @@ def test_excluded_ids_never_reach_the_canary_or_drift(cfg):
     assert summary["dropped"]["teacher_shift_rows"] == 350
 
 
-def test_missing_exclusion_file_excludes_nothing(cfg):
+def test_empty_exclusion_file_excludes_nothing(cfg):
     summary = subsets.run(cfg)
     assert summary["excluded"] == {"ids_listed": 0, "removed": {"validation": 0, "train": 0}}
     assert "teacher_shift_rows" not in summary["dropped"]
+
+
+def test_missing_exclusion_file_stops_the_stage(cfg):
+    """Running without the list would put teacher prompt-selection rows into evaluation data."""
+    Path(cfg["paths"]["civil_exclude_ids"]).unlink()
+    with pytest.raises(FileNotFoundError, match="Exclusion list"):
+        subsets.run(cfg)
 
 
 def test_civil_train_is_read_from_the_cache_not_processed(cfg):

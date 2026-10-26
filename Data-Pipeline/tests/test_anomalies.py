@@ -55,6 +55,11 @@ def cfg(tmp_path):
         cfg["paths"][key] = str(tmp_path / key)
     for dataset in cfg["datasets"].values():
         dataset["expected_rows"] = {split: RAW_ROWS for split in dataset["expected_rows"]}
+    # Configured subset sizes that match _clean_sets(), so clean data passes the size check.
+    cfg["splits"]["canary_wikipedia_size"] = 50
+    cfg["splits"]["obfuscation_size"] = 40
+    cfg["splits"]["civil"].update({"h2_size": N, "canary_size": N,
+                                   "drift_total": 200, "drift_batches": 20})
     for rel in anomalies.RAW_FILES.values():
         # raw_location, not raw_dir, so the fixture lands files where acquire does.
         path = anomalies.raw_location(cfg, rel)
@@ -128,6 +133,7 @@ def test_missing_text_below_limit_warns_without_failing(cfg):
     df = civil_frame(2000, 42, "civil_test")
     df.loc[0, "text"] = ""  # 1 of 2,000 rows = 0.05%, under the 0.1% limit
     _write(cfg, "civil/h2_eval", df)
+    cfg["splits"]["civil"]["h2_size"] = 2000  # keep the size check out of this test
     summary = anomalies.run(cfg)
     assert summary["checks"]["fail"] == 0
     row = _result(summary, "missing_text_or_labels", "h2_eval")[0]
@@ -215,7 +221,8 @@ def test_every_check_runs_even_after_a_failure(cfg):
     summary = _failed_run(cfg)
     checks = {r["check"] for r in summary["results"]}
     assert {"raw_row_counts", "id_overlap", "missing_text_or_labels", "label_domain",
-            "duplicate_ids", "long_text", "prevalence_gap", "created_date"} <= checks
+            "duplicate_ids", "long_text", "prevalence_gap", "created_date",
+            "subset_size"} <= checks
 
 
 def test_civil_train_is_read_from_the_cache_not_raw(cfg):
@@ -231,3 +238,37 @@ def test_civil_train_is_read_from_the_cache_not_raw(cfg):
     summary = anomalies.run(cfg)
     result = _result(summary, "raw_row_counts", "civil/train.parquet")[0]
     assert result["passed"], result["detail"]
+
+
+def test_subset_with_the_wrong_size_fails(cfg):
+    _write(cfg, "civil/canary_civil", _clean_sets()["civil/canary_civil"].head(N - 1))
+    summary = _failed_run(cfg)
+    row = _result(summary, "subset_size", "canary_civil")[0]
+    assert not row["passed"] and row["severity"] == "fail"
+
+
+def test_drift_batch_with_the_wrong_size_fails(cfg):
+    """The regression: drift built from far fewer rows than config asks for."""
+    _write(cfg, "civil/drift/batch_05", civil_frame(4, 42, "civil_train_05"))
+    summary = _failed_run(cfg)
+    row = _result(summary, "subset_size", "drift batch rows")[0]
+    assert not row["passed"] and "batch_05" in row["detail"]
+
+
+def test_missing_drift_batch_fails(cfg):
+    (Path(cfg["paths"]["processed_dir"]) / "civil/drift/batch_19.parquet").unlink()
+    summary = _failed_run(cfg)
+    row = _result(summary, "subset_size", "drift batch count")[0]
+    assert not row["passed"] and "19 batches" in row["detail"]
+
+
+def test_size_checks_only_warn_when_an_upstream_stage_is_a_stub(cfg):
+    summaries = Path(cfg["paths"]["summaries_dir"])
+    summaries.mkdir(parents=True, exist_ok=True)
+    (summaries / "subsets.json").write_text(json.dumps({"mode": "stub"}))
+    _write(cfg, "civil/canary_civil", _clean_sets()["civil/canary_civil"].head(10))
+    summary = anomalies.run(cfg)
+    assert summary["checks"]["fail"] == 0
+    row = _result(summary, "subset_size", "canary_civil")[0]
+    assert row["severity"] == "warn" and not row["passed"]
+    assert "stub upstream in subsets" in row["detail"]
