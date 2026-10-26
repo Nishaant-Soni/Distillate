@@ -41,6 +41,15 @@ Everything else in `.env` has a working default. With no `SLACK_WEBHOOK_URL` ale
 logged instead of posted, and `DVC_PUSH=false` keeps a fresh clone green without any GCP
 credentials. `.env` is git-ignored; never commit it.
 
+**If a variable is already set in your shell, Compose uses that and ignores `.env`.**
+A stale `KAGGLE_API_TOKEN` left in your environment will produce 401s that look like bad
+credentials. Check with `echo $KAGGLE_API_TOKEN` (`echo %KAGGLE_API_TOKEN%` on Windows)
+and unset it if it is not the one you want.
+
+**On Windows**, Compose does not set `HOME`, so set `GCLOUD_CONFIG_DIR` in `.env` to the
+full path of your gcloud folder (`C:\Users\<you>\.config\gcloud`) rather than relying
+on a variable. Leave it empty if you are not pushing to GCS.
+
 ## 2. Running the pipeline
 
 Five commands from a fresh clone:
@@ -80,7 +89,7 @@ everything downstream. To run a single stage outside Airflow, use the CLI from
 [CONTRACTS.md](CONTRACTS.md) section 3:
 
 ```bash
-docker compose exec --workdir /opt/airflow/pipeline airflow-scheduler \
+docker compose exec --workdir /opt/airflow/repo/Data-Pipeline airflow-scheduler \
   python -m scripts.stage --stage dedupe --config config/pipeline.yaml
 ```
 

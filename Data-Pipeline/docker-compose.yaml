@@ -63,28 +63,37 @@ x-airflow-common:
     KAGGLE_API_TOKEN: ${KAGGLE_API_TOKEN:-}
     KAGGLE_USERNAME: ${KAGGLE_USERNAME:-}
     KAGGLE_KEY: ${KAGGLE_KEY:-}
+    # The Kaggle client writes a config folder on first use. Its default is
+    # under /home/airflow/.config, which Docker may have created as root while
+    # setting up a mount, leaving the airflow user unable to write there. A
+    # tmpfs-free path it always owns avoids that entirely.
+    KAGGLE_CONFIG_DIR: /tmp/kaggle
     SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     ALERT_EMAIL: ${ALERT_EMAIL:-}
     DVC_PUSH: ${DVC_PUSH:-false}
     GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
     GCS_DATA_BUCKET: ${GCS_DATA_BUCKET:-}
-    # Defaults to the gcloud credentials mounted below, so `gcloud auth
-    # application-default login` on the host is all dvc push needs.
-    GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/home/airflow/.config/gcloud/application_default_credentials.json}
+    # Points at the gcloud credentials mounted below, so `gcloud auth
+    # application-default login` on the host is all dvc push needs. If they are
+    # not there, dvc push warns and the run still succeeds.
+    GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/opt/gcloud/application_default_credentials.json}
   volumes:
     # One mount for everything: dags/, scripts/, config/, data/, reports/, tests/.
     - ${AIRFLOW_PROJ_DIR:-..}:/opt/airflow/repo
     # Nested inside the bind mount above, so the 1.3 GB of competition zips live
     # in Docker rather than the working tree. paths.kaggle_dir points here.
     - kaggle-cache:/opt/airflow/repo/Data-Pipeline/data/kaggle
-    # Read-only so dvc push can authenticate as you. Optional: without it the
-    # dvc_version task still runs dvc add and only the push is skipped.
+    # gcloud credentials, read-only, so dvc push can authenticate as you.
+    # Mounted at /opt/gcloud rather than under /home/airflow/.config: Docker
+    # creates a mount's parent directory as root, and that locked the Kaggle
+    # client out of its own config folder on a fresh machine.
+    # GCLOUD_CONFIG_DIR rather than $HOME, which Docker Compose does not set on
+    # Windows. The /tmp fallback means a machine with no gcloud still starts;
+    # dvc push just warns.
     - type: bind
-      source: ${HOME}/.config/gcloud
-      target: /home/airflow/.config/gcloud
+      source: ${GCLOUD_CONFIG_DIR:-/tmp}
+      target: /opt/gcloud
       read_only: true
-      bind:
-        create_host_path: false
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
