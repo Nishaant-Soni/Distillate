@@ -15,6 +15,13 @@
 | Python 3.12 | only to run the tests outside Docker |
 | Disk | about 15 GB: competition downloads, raw and processed Parquet, and the DVC cache |
 
+**Get the code.** Every command in this README runs from `Data-Pipeline/`, not the repo root:
+
+```bash
+git clone https://github.com/Nishaant-Soni/Distillate.git
+cd Distillate/Data-Pipeline
+```
+
 **Accept both Kaggle competitions' rules.** Do this first, in a browser, on the
 account whose credentials you are about to use. Downloads return 403 until you do,
 and the rules are accepted per competition:
@@ -26,7 +33,6 @@ and the rules are accepted per competition:
 `Data-Pipeline/`, not the repo root:
 
 ```bash
-cd Data-Pipeline
 cp .env.example .env
 ```
 
@@ -55,7 +61,7 @@ on a variable. Leave it empty if you are not pushing to GCS.
 Five commands from a fresh clone:
 
 ```bash
-cd Data-Pipeline
+cd Distillate/Data-Pipeline          # skip if you are already here from section 1
 cp .env.example .env                 # 1. then add your Kaggle credentials (section 1)
 docker compose build                 # 2. 20-40 min first time; TensorFlow is large
 docker compose up -d                 # 3. Airflow UI on http://localhost:8080
@@ -66,6 +72,31 @@ cat reports/run_summary.json         # 5. what the run did
 The UI login comes from `_AIRFLOW_WWW_USER_*` in `.env`. The build prints
 `TFDV checkpoint OK` when the TensorFlow environment is healthy; if that line is missing
 the build has failed, and nothing after it will work.
+
+**Before step 4**, wait until `docker compose ps` shows the Airflow services as `healthy`
+(about a minute). Triggering earlier can fail with "DAG not found", because the DAG
+processor has not read the DAG yet.
+
+**Following the run.** The Grid view in the UI shows each task live. From the terminal:
+
+```bash
+docker compose exec airflow-scheduler airflow dags list-runs data_prep_dag   # queued, running, success, failed
+```
+
+**Optional settings.** Set these in `.env` before step 3:
+
+| Variable | Effect | Details |
+|---|---|---|
+| `SLACK_WEBHOOK_URL` | posts alerts to Slack instead of only logging them | section 9 |
+| `DVC_PUSH=true` | `dvc_version` also pushes the data to the GCS remote | section 7 |
+| `PIPELINE_MODE=baseline` | runs the 11 tasks as one sequential chain | section 8 |
+
+Containers read `.env` only when they are created, so after changing it run
+`docker compose up -d` again before triggering.
+
+**Stopping.** `docker compose down` stops everything and keeps the Kaggle download volume,
+so the next run skips the downloads. Avoid `docker compose down -v` unless you want a cold
+run: it deletes that volume and the Airflow database with it.
 
 A full run on real data takes roughly five minutes of task time after the downloads are
 cached. **Keep the machine awake** — everything runs in Docker on your laptop, so sleep
@@ -128,7 +159,9 @@ interrupted task leaves the previous output intact rather than a half-written fi
 
 ### Running tests locally (no Docker needed)
 ```bash
-cd Data-Pipeline
+cd Distillate/Data-Pipeline
+python3.12 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 pytest
 ruff check .
