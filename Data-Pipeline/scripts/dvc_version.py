@@ -5,6 +5,10 @@ bucket. Pushing is controlled by ``DVC_PUSH`` (pipeline.yaml -> dvc.push), which
 defaults to false, so a fresh clone and CI both run this task green without any
 GCP credentials.
 
+Three targets: data/raw, data/processed, and reports/schema/stats (the TFDV
+statistics schema_stats writes), so the statistics are versioned in the same
+DVC commit as the data they describe.
+
     python -m scripts.dvc_version --config config/pipeline.yaml
 """
 
@@ -34,9 +38,15 @@ def _dvc(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(["dvc", *args], cwd=cwd, capture_output=True, text=True, check=False)
 
 
+def _targets(cfg: dict[str, Any]) -> list[Path]:
+    """What DVC versions: the raw and processed data, plus the TFDV statistics."""
+    stats = Path(cfg["paths"]["reports_dir"]) / "schema" / "stats"
+    return [Path(cfg["paths"]["raw_dir"]), Path(cfg["paths"]["processed_dir"]), stats]
+
+
 def run(cfg: dict[str, Any]) -> dict[str, Any]:
     root = _repo_root()
-    targets = [Path(cfg["paths"][key]) for key in ("raw_dir", "processed_dir")]
+    targets = _targets(cfg)
     summary: dict[str, Any] = {"task": TASK_ID, "mode": "real", "tracked": [], "pushed": False}
 
     with timed(summary):
@@ -51,13 +61,16 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
             if not target.exists():
                 logger.warning("Skipping %s: not produced by this run", target)
                 continue
-            result = _dvc(["add", str(target.relative_to(root))], cwd=root)
+            # as_posix(): DVC and the summary want forward slashes on every OS
+            # (str() gives data\raw on Windows).
+            rel = target.relative_to(root).as_posix()
+            result = _dvc(["add", rel], cwd=root)
             if result.returncode != 0:
                 summary["error"] = result.stderr.strip()[:500]
                 send_alert("fail", "dvc add failed",
                            {"target": target.name, "error": summary["error"]})
                 raise RuntimeError(f"dvc add {target} failed: {summary['error']}")
-            summary["tracked"].append(str(target.relative_to(root)))
+            summary["tracked"].append(rel)
 
         if cfg.get("dvc", {}).get("push"):
             result = _dvc(["push"], cwd=root)

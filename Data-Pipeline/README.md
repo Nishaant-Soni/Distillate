@@ -115,6 +115,7 @@ suspends the run and tasks can exceed their timeouts on wake.
 | `reports/run_summary.json` | all of them merged, written by `notify_success` |
 | `reports/dedupe/removed_ids.csv` | every row dedupe removed, with the reason and the matching id (ids only, never text) |
 | `reports/schema/validation.json` | the TFDV validation result for every raw and processed file |
+| `reports/schema/stats/` | TFDV statistics per validated file, versioned with DVC (`stats.dvc`), no comment text |
 | `reports/bias/` | `bias_report.md` and `bias_metrics.json` from the bias stage |
 | `logs/` | Airflow task logs |
 
@@ -505,7 +506,13 @@ docker compose exec airflow-scheduler bash -c \
 
 If a schema file is missing, the stage stops and says to run `--infer`. On the first full run on real data, all 22 files matched their schemas, in about 25 seconds.
 
-**Tests:** `tests/test_schema_stats.py` (11 tests) builds contract-shaped raw and processed files, infers schemas from them, and checks that clean data passes and that each kind of anomaly is caught: a label out of range, missing text, a missing required column, an unexpected column, a missing file, and a missing schema. They skip outside the TFDV environment; run them inside the image with `/opt/tfenv/bin/python -m pytest tests/test_schema_stats.py`.
+**Statistics:** the TFDV statistics for every validated file are saved as text protos in `reports/schema/stats/`, mirroring the target names (for example `reports/schema/stats/processed/civil/drift.pbtxt`). Each entry in `validation.json` links to its statistics file. They let two runs be compared feature by feature (`tfdv.load_stats_text`, then `tfdv.visualize_statistics(lhs, rhs)` or a skew/drift comparator), and they are the baseline the monitoring phase's drift checks read.
+
+The `text` column's most-frequent-values lists are removed before saving, because they hold real comments and the Kaggle competition rules keep comment text out of the repository (work plan v3, section 2.2). The `id`, `article_id` and `created_date` lists are removed too, since nearly every value is unique and they only add size. Counts, lengths and uniqueness statistics, and every other column's statistics, are kept.
+
+**Where they live:** the statistics are versioned with **DVC**, not Git. The `dvc_version` task adds `reports/schema/stats` alongside `data/raw` and `data/processed`, so each data version and the statistics describing it share one DVC commit, and Git holds only the pointer `reports/schema/stats.dvc` (section 7).
+
+**Tests:** `tests/test_schema_stats.py` (14 tests) builds contract-shaped raw and processed files, infers schemas from them, and checks that clean data passes, that a loadable statistics file is saved for every target with no comment text in it (including a non-ASCII comment, checked on the loaded proto), that statistics paths use one starting point, and that each kind of anomaly is caught: a label out of range, missing text, a missing required column, an unexpected column, a missing file, and a missing schema. They skip outside the TFDV environment; run them inside the image with `/opt/tfenv/bin/python -m pytest tests/test_schema_stats.py`.
 
 ### 5.5 Anomaly checks (`scripts/anomalies.py`)
 
@@ -596,12 +603,12 @@ GCLOUD_CONFIG_DIR=/Users/<you>/.config/gcloud   # Windows: C:\Users\<you>\.confi
 Compose mounts that folder read-only at `/opt/gcloud`, and `dvc_version` pushes with the
 credentials `gcloud auth application-default login` saved there.
 
-The `dvc_version` task runs `dvc add data/raw data/processed`, then `dvc push` only when
+The `dvc_version` task runs `dvc add data/raw data/processed reports/schema/stats` (the last is the TFDV statistics from section 5.4), then `dvc push` only when
 `DVC_PUSH=true`. It defaults to false so a fresh clone and CI stay green with no GCP
 credentials, and it logs a reminder naming the pointer files to commit:
 
 ```bash
-git add Data-Pipeline/data/raw.dvc Data-Pipeline/data/processed.dvc
+git add Data-Pipeline/data/raw.dvc Data-Pipeline/data/processed.dvc Data-Pipeline/reports/schema/stats.dvc
 git commit -m "Data version for <what changed>"
 ```
 

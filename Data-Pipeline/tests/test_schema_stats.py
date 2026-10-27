@@ -124,6 +124,64 @@ def test_civil_train_files_are_validated_on_a_sample(cfg):
     assert summary["rows_checked"]["processed/civil/h2_eval"] == N
 
 
+def test_statistics_are_saved_for_every_file(cfg):
+    """One loadable text proto per target, so two runs can be compared later."""
+    import tensorflow_data_validation as tfdv
+
+    summary = schema_stats.run(cfg)
+    stats_dir = Path(cfg["paths"]["reports_dir"]) / "schema" / "stats"
+    for target in schema_stats.targets(cfg):
+        path = stats_dir / f"{target['name']}.pbtxt"
+        assert path.exists(), target["name"]
+        stats = tfdv.load_stats_text(str(path))
+        assert stats.datasets[0].num_examples == summary["rows_checked"][target["name"]]
+
+
+def test_saved_statistics_contain_no_comment_text(cfg):
+    """Kaggle rules: comment text never goes into the repository (work plan v3, 2.2).
+
+    Checked two ways. The text format escapes non-ASCII characters, so a substring
+    search alone would miss a leaked accented comment; the proto-level check is
+    the one that holds for any text.
+    """
+    import tensorflow_data_validation as tfdv
+
+    # A repeated non-ASCII comment, frequent enough to land in the top values.
+    df = pd.read_parquet(_proc(cfg, "wikipedia/val.parquet"))
+    df.loc[:19, "text"] = "\u00c7a suffit, esp\u00e8ce d'idiot \u2603"
+    _write(_proc(cfg, "wikipedia/val.parquet"), df)
+    schema_stats.run(cfg)
+
+    comments = set(df["text"])
+    comments |= set(pd.read_parquet(_proc(cfg, "civil/h2_eval.parquet"))["text"])
+    stats_dir = Path(cfg["paths"]["reports_dir"]) / "schema" / "stats"
+    for path in stats_dir.rglob("*.pbtxt"):
+        content = path.read_text(encoding="utf-8")
+        leaked = [c for c in comments if c in content]
+        assert not leaked, f"{path.name} contains comment text: {leaked[:2]}"
+
+        stats = tfdv.load_stats_text(str(path))
+        for feature in stats.datasets[0].features:
+            name = feature.path.step[0] if feature.path.step else feature.name
+            if name in schema_stats.STRIP_TOP_VALUES:
+                assert not feature.string_stats.top_values, (path.name, name)
+                assert not feature.string_stats.rank_histogram.buckets, (path.name, name)
+            if name == "text":  # the useful parts are still there
+                assert feature.string_stats.common_stats.num_non_missing > 0
+
+
+def test_statistics_paths_start_at_reports(cfg):
+    """validation.json and the run summary use the same starting point."""
+    import json
+
+    summary = schema_stats.run(cfg)
+    assert summary["statistics_dir"].endswith("schema/stats")
+    report = json.loads((Path(cfg["paths"]["reports_dir"]) / "schema/validation.json")
+                        .read_text())
+    for result in report["results"]:
+        assert result["statistics"].startswith(summary["statistics_dir"] + "/")
+
+
 def test_raw_identity_scores_may_be_missing(cfg):
     """Most raw Civil rows were never annotated; that alone is not an anomaly."""
     assert _anomalies(cfg, "raw/civil/test") == {}
