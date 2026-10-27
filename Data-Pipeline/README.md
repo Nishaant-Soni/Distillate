@@ -82,6 +82,9 @@ suspends the run and tasks can exceed their timeouts on wake.
 | `data/splits/` | id lists per split, and the drift manifest |
 | `reports/summaries/<task>.json` | one summary per task: rows in, rows out, drops, duration |
 | `reports/run_summary.json` | all of them merged, written by `notify_success` |
+| `reports/dedupe/removed_ids.csv` | every row dedupe removed, with the reason and the matching id (ids only, never text) |
+| `reports/schema/validation.json` | the TFDV validation result for every raw and processed file |
+| `reports/bias/` | `bias_report.md` and `bias_metrics.json` from the bias stage |
 | `logs/` | Airflow task logs |
 
 **Rerunning one task.** In the UI, select the task and press *Clear*; it reruns with
@@ -104,6 +107,14 @@ pytest
 ruff check .
 ```
 
+**CI.** `.github/workflows/data-pipeline-ci.yml` runs on every pull request, and every push
+to `main`, that touches `Data-Pipeline/` or the workflows:
+
+- `lint-test`: `ruff check .`, then `pytest`. It installs `requirements.txt` against the same
+  Airflow constraints file as the image, so the DAG tests run here too.
+- `tf-tests` (optional): `tests/test_schema_stats.py` in a Python 3.11 environment built from
+  `requirements-tf.txt`, since TFDV has no Python 3.12 wheel.
+
 ## 3. Code structure
 
 ```text
@@ -111,7 +122,8 @@ Data-Pipeline/
 ├── dags/data_prep_dag.py     the DAG: 11 tasks built from the graph below
 ├── config/
 │   ├── pipeline.yaml         every tunable value; seed 42; no script hard-codes these
-│   └── identity_terms.txt    identity lexicon (owner: Ruchita; others only read it)
+│   ├── identity_terms.txt    identity lexicon (owner: Ruchita; others only read it)
+│   └── civil_teacher_shift_ids.txt  teacher shift-check ids kept out of canary_civil and drift
 ├── scripts/
 │   ├── stage.py              one entry point per stage: real module if merged, stub if not
 │   ├── pipeline_graph.py     the task graph as data, so it is testable without Airflow
@@ -132,6 +144,11 @@ Data-Pipeline/
 │   ├── bias.py               slice metrics, reweighting, sample_weight into train.parquet
 │   ├── dvc_version.py        dvc add, then dvc push when DVC_PUSH is true
 │   └── run_summary.py        merges the task summaries and posts one Slack message
+├── data/
+│   ├── raw.dvc, processed.dvc  DVC pointers to the raw and processed Parquet
+│   ├── schema/               the two curated TFDV schemas (section 5.4)
+│   └── splits/               id lists per set and civil_drift_ids.csv
+├── reports/                  run summary, dedupe removals, schema validation, bias report
 ├── tests/                    pytest; the Airflow DAG tests skip outside the image
 ├── Dockerfile                Airflow 3.3.2 on Python 3.12, plus TFDV on 3.11 at /opt/tfenv
 └── docker-compose.yaml       LocalExecutor, Postgres, and the Kaggle download cache
@@ -422,6 +439,29 @@ See the [bias report](reports/bias/bias_report.md) for the full slice tables, th
 dvc pull                 # fetch the data for the current commit
 ```
 
+**Access.** The remote is a private bucket (`gs://distillate-mlops-data/dvc`), so `dvc pull` and `dvc push` need a Google account that has access to it. DVC signs in with Application Default Credentials, so run this once with that account:
+
+```bash
+gcloud auth application-default login
+```
+
+`gcloud auth login` on its own is not enough, because DVC does not use the gcloud CLI's
+login. Without bucket access, run the DAG instead: it rebuilds the same files from Kaggle.
+
+On macOS with the python.org installer's Python, DVC can fail with
+`CERTIFICATE_VERIFY_FAILED`. Run the installer's `Install Certificates.command`, or point
+Python at certifi's certificate bundle: `export SSL_CERT_FILE=$(python -m certifi)`.
+
+**Pushing from the DAG.** Set these in `.env`, then restart with `docker compose up -d`:
+
+```bash
+DVC_PUSH=true
+GCLOUD_CONFIG_DIR=/Users/<you>/.config/gcloud   # Windows: C:\Users\<you>\.config\gcloud
+```
+
+Compose mounts that folder read-only at `/opt/gcloud`, and `dvc_version` pushes with the
+credentials `gcloud auth application-default login` saved there.
+
 The `dvc_version` task runs `dvc add data/raw data/processed`, then `dvc push` only when
 `DVC_PUSH=true`. It defaults to false so a fresh clone and CI stay green with no GCP
 credentials, and it logs a reminder naming the pointer files to commit:
@@ -522,6 +562,10 @@ Restart so the containers pick it up: `docker compose up -d`.
 |---|---|
 | Any task failure, through `on_failure_callback` on every task | `fail` — DAG id, task id, error, log link |
 | `anomalies` warn-level checks | `warn` — one message listing every warning |
+| `preprocess` drops some rows within the 0.1% limit, or finds unparseable `created_date` values | `warn` — dropped rows are counted per reason; rows with bad dates are kept |
+| Identity lexicon missing or empty | `warn` — `has_identity_term` is then False everywhere |
+| `bias`: slices still flagged on the Civil identity rows, or no reweighting factor passed | `warn` — the report explains why |
+| `dvc add` failure | `fail` — the task then fails, so the failure callback posts too |
 | `dvc push` failure | `warn` — the data is still versioned locally |
 | End of run, from `notify_success` | `ok`, or `warn` if any stage was still a stub |
 
