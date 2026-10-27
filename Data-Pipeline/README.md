@@ -446,7 +446,7 @@ gcloud auth application-default login
 ```
 
 `gcloud auth login` on its own is not enough, because DVC does not use the gcloud CLI's
-login. Without bucket access, run the DAG instead: it rebuilds the same files from Kaggle.
+login. Without bucket access, run the DAG instead (section 2): it rebuilds the same files from Kaggle, so you only need the Kaggle credentials from section 1.
 
 On macOS with the python.org installer's Python, DVC can fail with
 `CERTIFICATE_VERIFY_FAILED`. Run the installer's `Install Certificates.command`, or point
