@@ -38,6 +38,11 @@ has a language field; both datasets are English-only by construction.
 Any anomaly fails the task after the full report is written to
 reports/schema/validation.json. The two Civil train files (1.8M rows each) are
 validated on a seeded sample of validation.raw_civil_stats_sample rows.
+
+The TFDV statistics for every validated file are saved as text protos in
+reports/schema/stats/, mirroring the target names (for example
+reports/schema/stats/processed/civil/drift.pbtxt), so two runs can be compared
+and the monitoring phase's drift comparator can load them as a baseline.
 """
 
 from __future__ import annotations
@@ -297,6 +302,19 @@ def describe(anomalies) -> dict[str, str]:
     return found
 
 
+def stats_dir(cfg: dict[str, Any]) -> Path:
+    return Path(cfg["paths"]["reports_dir"]) / "schema" / "stats"
+
+
+def save_statistics(stats, cfg: dict[str, Any], target_name: str) -> str:
+    """Write one target's TFDV statistics as a text proto; return its path under reports/."""
+    path = stats_dir(cfg) / f"{target_name}.pbtxt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with atomic_path(path) as tmp:
+        _tfdv().write_stats_text(stats, str(tmp))
+    return path.relative_to(Path(cfg["paths"]["reports_dir"])).as_posix()
+
+
 def validate(cfg: dict[str, Any], only: list[str] | None = None) -> dict[str, Any]:
     """Validate every target (or just the named ones) against its schema."""
     tfdv = _tfdv()
@@ -312,10 +330,12 @@ def validate(cfg: dict[str, Any], only: list[str] | None = None) -> dict[str, An
                             "anomalies": {"(file)": f"missing: {missing}"}})
             continue
         df = read_for_tfdv(target["paths"], sample if target["sampled"] else None, cfg["seed"])
-        anomalies = tfdv.validate_statistics(statistics(df), schemas[target["schema"]],
+        stats = statistics(df)
+        anomalies = tfdv.validate_statistics(stats, schemas[target["schema"]],
                                              environment=target["environment"])
         results.append({"target": target["name"], "rows": len(df),
                         "environment": target["environment"],
+                        "statistics": save_statistics(stats, cfg, target["name"]),
                         "anomalies": describe(anomalies)})
         logger.info("schema_stats: %s (%d rows) -> %d anomalies", target["name"], len(df),
                     len(results[-1]["anomalies"]))
@@ -330,6 +350,8 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
         summary["files_checked"] = len(report["results"])
         summary["rows_checked"] = {r["target"]: r["rows"] for r in report["results"]}
         summary["files_with_anomalies"] = report["failed"]
+        summary["statistics_dir"] = stats_dir(cfg).relative_to(
+            Path(cfg["paths"]["reports_dir"]).parent).as_posix()
     atomic_write(Path(cfg["paths"]["reports_dir"]) / "schema" / "validation.json",
                  json.dumps(report, indent=2, sort_keys=True))
     write_summary(TASK_ID, summary, cfg)

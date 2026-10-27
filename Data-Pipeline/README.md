@@ -460,7 +460,9 @@ docker compose exec airflow-scheduler bash -c \
 
 If a schema file is missing, the stage stops and says to run `--infer`. On the first full run on real data, all 22 files matched their schemas, in about 25 seconds.
 
-**Tests:** `tests/test_schema_stats.py` (11 tests) builds contract-shaped raw and processed files, infers schemas from them, and checks that clean data passes and that each kind of anomaly is caught: a label out of range, missing text, a missing required column, an unexpected column, a missing file, and a missing schema. They skip outside the TFDV environment; run them inside the image with `/opt/tfenv/bin/python -m pytest tests/test_schema_stats.py`.
+**Statistics:** the TFDV statistics for every validated file are saved as text protos in `reports/schema/stats/`, mirroring the target names (for example `reports/schema/stats/processed/civil/drift.pbtxt`). Each entry in `validation.json` links to its statistics file. They let two runs be compared feature by feature (`tfdv.load_stats_text`, then `tfdv.visualize_statistics(lhs, rhs)` or a skew/drift comparator), and they are the baseline the monitoring phase's drift checks read.
+
+**Tests:** `tests/test_schema_stats.py` (12 tests) builds contract-shaped raw and processed files, infers schemas from them, and checks that clean data passes, that a loadable statistics file is saved for every target, and that each kind of anomaly is caught: a label out of range, missing text, a missing required column, an unexpected column, a missing file, and a missing schema. They skip outside the TFDV environment; run them inside the image with `/opt/tfenv/bin/python -m pytest tests/test_schema_stats.py`.
 
 ### 5.5 Anomaly checks (`scripts/anomalies.py`)
 

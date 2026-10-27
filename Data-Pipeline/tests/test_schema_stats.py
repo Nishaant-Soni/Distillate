@@ -124,6 +124,19 @@ def test_civil_train_files_are_validated_on_a_sample(cfg):
     assert summary["rows_checked"]["processed/civil/h2_eval"] == N
 
 
+def test_statistics_are_saved_for_every_file(cfg):
+    """One loadable text proto per target, so two runs can be compared later."""
+    import tensorflow_data_validation as tfdv
+
+    summary = schema_stats.run(cfg)
+    stats_dir = Path(cfg["paths"]["reports_dir"]) / "schema" / "stats"
+    for target in schema_stats.targets(cfg):
+        path = stats_dir / f"{target['name']}.pbtxt"
+        assert path.exists(), target["name"]
+        stats = tfdv.load_stats_text(str(path))
+        assert stats.datasets[0].num_examples == summary["rows_checked"][target["name"]]
+
+
 def test_raw_identity_scores_may_be_missing(cfg):
     """Most raw Civil rows were never annotated; that alone is not an anomaly."""
     assert _anomalies(cfg, "raw/civil/test") == {}
