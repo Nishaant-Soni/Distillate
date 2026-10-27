@@ -332,10 +332,11 @@ checksums. A rerun verifies the files against the manifest and skips the downloa
 | `wikipedia/train.parquet` | 159,571 |
 | `wikipedia/test.parquet` (unscored `-1` rows removed) | 63,978 |
   | `civil/train.parquet` (in `data/cache/`, not DVC-tracked) | 1,804,874 |
-  The full Civil train split is too large to version, so its raw and clean files live in the untracked `data/cache/` folder. It can be rebuilt from the pinned Kaggle source; only the sampled subsets are versioned with DVC.
 | `civil/validation.parquet` | 97,320 |
 | `civil/test.parquet` | 97,320 |
 | `civil/identities_test.parquet` (test rows with `identity_annotator_count > 0`) | 21,577 |
+
+The full Civil train split is too large to version, so its raw and clean files live in the untracked `data/cache/` folder. It can be rebuilt from the pinned Kaggle source; only the sampled subsets are versioned with DVC.
 
 CSVs are read with `keep_default_na=False`. Without it, pandas turns comments that are
 literally a "missing value" word into empty values: Civil train has 3 comments that
@@ -542,6 +543,9 @@ Run on its own: `python -m scripts.anomalies --config config/pipeline.yaml`. Eve
 **Mitigation.** Non-toxic Wikipedia training rows that mention an identity term are reweighted by each factor in `[1, 2, 3, 5]`. The smallest factor that brings the validation `identity_mention` FPR gap under 5 points with an AUC drop of at most 0.005 is kept, and its weights are written to the `sample_weight` column of `wikipedia/train.parquet` for the student. The factor is chosen on Wikipedia validation only. Civil is evaluated before and after, never used for tuning; the next factor up is also scored on Civil and shown as information only.
 
 **This run.**
+
+These figures are from the rerun on commit 993ec40 (reports/bias/bias_report.md) and match the earlier report: the bias change in PR #13 affected speed, not results.
+
 - No reweighting was needed by the selection rule. The Wikipedia `identity_mention` FPR gap was +2.6 points at factor 1, under the 5-point margin, so 0 rows were reweighted.
 - That does not mean the model is free of bias. On Civil, `homosexual_gay_or_lesbian` (n = 538, +8.5 points) and `sexual_orientation:any` (+7.9 points) are flagged on FPR. The gap doesn't show up on Wikipedia, whose identity slice comes from an approximate lexicon and pools every group.
 - At the data level, the sexual orientation, black and white slices have toxic rates 16 to 21 points above overall, which a model can learn as a shortcut.
@@ -612,33 +616,35 @@ work into parallel branches that rejoin at `schema_stats`. Both are built from t
 `scripts/pipeline_graph.py`, so the comparison is the same tasks in two orders, not two
 different pipelines.
 
-Measured on an M-series MacBook running the `linux/amd64` image under emulation, with the
-competition downloads already cached. Durations are seconds.
+Measured on a Windows laptop (Intel Core i5-1235U, 10 cores / 12 threads, about 7.6 GB of memory for Docker), with the competition downloads already cached, on commit 993ec40. Each mode was run once after a warm-up run. Durations are seconds.
 
 | Task | Baseline (sequential) | Optimized (parallel) |
 |---|---|---|
-| acquire | 4.9 | 2.7 |
-| preprocess | 147.7 | 145.6 |
-| dedupe | 61.7 | 71.7 |
-| subsets | 7.3 | 12.9 *(runs beside `dedupe`)* |
-| split | 3.0 | 3.2 |
-| obfuscate | 1.5 | 1.2 |
-| schema_stats | 0.9 | 1.4 |
-| anomalies | 1.5 | 1.8 |
-| bias | 0.9 | 1.0 |
-| dvc_version | 0.1 | 0.1 |
-| notify_success | 0.1 | 0.1 |
-| **Wall clock** | **235.7** | **235.2** |
+| acquire | 6.5 | 4.0 |
+| preprocess | 156.7 | 179.8 |
+| dedupe | 90.9 | 123.6 |
+| subsets | 14.3 | 22.9 (runs beside dedupe) |
+| split | 4.3 | 3.3 |
+| obfuscate | 0.9 | 0.7 |
+| schema_stats | 40.3 | 29.4 |
+| anomalies | 3.4 | 3.5 |
+| bias | 113.3 | 112.8 |
+| dvc_version | 5.3 | 5.1 |
+| Sum of task times | 435.8 | 485.0 |
+| **Wall clock** (Airflow run duration) | **467** | **489** |
 
-**The parallel branches bought almost nothing: 0.5 s, which is inside run-to-run noise.**
-Two reasons, and both are visible in the table:
+The wall clock includes about 30 s of Airflow scheduling between tasks.
 
-1. **The branches are badly unbalanced.** The Civil branch is `subsets` alone, about 7 s.
-   The Wikipedia branch is `dedupe` → `split` → `obfuscate`, about 66 s. Overlapping them
-   can never save more than the shorter branch, so roughly 7 s was the ceiling.
-2. **Concurrency made both tasks slower.** Run side by side, `dedupe` went from 61.7 s to
-   71.7 s and `subsets` from 7.3 s to 12.9 s. On an emulated image with a small CPU
-   allocation, the contention cost about as much as the overlap saved.
+![Baseline (sequential) Gantt](docs/images/gantt_baseline.png)
+
+![Optimized (parallel) Gantt](docs/images/gantt_optimized.png)
+
+The parallel shape did not pay off: on this laptop the optimized run was 22 s slower. Two reasons, both visible in the table:
+
+- The branches are badly unbalanced. The Civil branch is subsets alone, about 14 s. The Wikipedia branch is dedupe → split → obfuscate, about 96 s. Overlapping them can never save more than the shorter branch, so roughly 14 s was the ceiling.
+- Concurrency made both tasks slower. Run side by side, dedupe went from 91 s to 124 s and subsets from 14 s to 23 s, which cost more than the overlap saved.
+
+An earlier measurement on an M-series MacBook (linux/amd64 image under emulation) reached the same conclusion: 235.7 s baseline against 235.2 s optimized.
 
 **The optimization that did work is caching the downloads.** `acquire` writes a manifest of
 row counts and per-file checksums, and skips the download when it still matches:
@@ -651,17 +657,27 @@ row counts and per-file checksums, and skips the download when it still matches:
 That is a real ~65 s saved on every rerun, and it is why `data/kaggle` is a named Docker
 volume: the cache survives `docker compose down`. To force a cold run, remove the volume.
 
-**Where the time actually goes.** `preprocess` is 147 s, about 62% of the run, and it is a
-single task cleaning both datasets, so no amount of reordering touches it. The honest
-next step is to split it per dataset — `preprocess_wikipedia` alongside `preprocess_civil`
-— which would put real work on both sides of the fork instead of 7 s against 66 s. That
-needs a change to the stage contract in [CONTRACTS.md](CONTRACTS.md) section 3, which is
-one function per script, so it is a team decision rather than a local edit.
+**Where the time actually goes.** In the baseline run, preprocess is 157 s (about 36% of task time), bias 113 s (about 26%) and dedupe 91 s (about 21%). preprocess is a single task cleaning both datasets, so no amount of reordering touches it. The honest next step is to split it per dataset — preprocess_wikipedia alongside preprocess_civil — which would put real work on both sides of the fork. That needs a change to the stage contract in CONTRACTS.md section 3, which is one function per script, so it is a team decision rather than a local edit.
 
-Reproduce either shape:
+**MinHash settings were not tuned.** dedupe confirms every MinHash candidate with the exact Jaccard similarity, so a faster setting (fewer permutations or different bands) could only miss duplicates, never remove wrong ones, and dedupe is about a fifth of the run. The expected gain didn't justify the time before submission. The way to do it would be to compare the removed ids at num_perm 64 and 128 against 256 on the full train set, and keep the fastest setting that misses none.
+
+Reproduce either shape. The `sed -i ''` form is macOS-only (BSD sed); use the line for your system:
 
 ```bash
+# macOS
 sed -i '' 's/^PIPELINE_MODE=.*/PIPELINE_MODE=baseline/' .env   # or optimized
+# Linux
+sed -i 's/^PIPELINE_MODE=.*/PIPELINE_MODE=baseline/' .env
+```
+
+```powershell
+# Windows PowerShell
+(Get-Content .env) -replace '^PIPELINE_MODE=.*', 'PIPELINE_MODE=baseline' | Set-Content .env
+```
+
+Then, on any system:
+
+```bash
 docker compose up -d
 docker compose exec airflow-scheduler airflow dags trigger data_prep_dag
 ```

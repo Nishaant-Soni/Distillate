@@ -1,10 +1,30 @@
 # Bias report: TF-IDF + logistic regression toxicity baseline
 
-Model `tfidf-lr-bias-v1`, label `toxicity`. Slices with at least 100 rows are judged; a slice is flagged when its FPR is 5 or more points above the overall FPR. The decision threshold maximizes F1 on Wikipedia validation.
+Model `tfidf-lr-bias-v1`; the reweighting factor is chosen on `toxicity`. Slices with at least 100 rows are judged; a slice is flagged when its FPR is 5 or more points above the overall FPR. The decision threshold maximizes F1 on Wikipedia validation.
 
-## 1. Data-level and model-level slices before mitigation
+## 1. Summary
 
-### Civil identity rows (bias set)
+- **No reweighting needed by the selection rule.** The rule looks only at the Wikipedia validation `identity_mention` slice, whose FPR gap was +2.6 points without reweighting, under the 5-point margin. Factor 1 was kept, no training rows were reweighted, and before and after below are the same model. This does not mean the Civil gaps below were fixed.
+- **Still flagged on Civil (`toxicity`):** `sexual_orientation:homosexual_gay_or_lesbian` (+8.5 pts, n = 538), `sexual_orientation:any` (+7.9 pts, n = 570) above overall FPR. The selection rule never sees these gaps: Wikipedia has no identity annotations, so its `identity_mention` slice comes from an approximate lexicon (`config/identity_terms.txt`) and pools every group into one slice. A gap concentrated in one Civil group doesn't show up there.
+- **Data-level gaps.** On Civil, `race_or_ethnicity:black`, `race_or_ethnicity:white`, `sexual_orientation:homosexual_gay_or_lesbian`, `sexual_orientation:any`, `race_or_ethnicity:any` have `toxicity` rates 16 to 21 points above the overall 11.1%. A model trained on data like this can learn the identity term itself as a shortcut for `toxicity`.
+- **Domain shift.** Trained and thresholded on Wikipedia (validation AUC 0.975, F1 0.793, FNR 21.2%), the baseline transfers poorly to the Civil identity rows: AUC 0.830, F1 0.442, FNR 63.1% at the threshold 0.25 chosen on Wikipedia. This is the domain shift the project is about.
+- Labels evaluated on the Civil identity rows: `toxicity`. Not scored by `tfidf-lr-bias-v1`, so skipped: `obscene`, `threat`, `insult`, `identity_attack`. `severe_toxicity` is excluded from the Civil slices: only 0 of 21577 rows (0.0%) are positive at ≥ 0.5, too few for per-slice rates. The reweighting factor is chosen on `toxicity` only.
+
+## 2. Biases found
+
+**Model level, Civil identity rows** (FPR flags before mitigation):
+- `toxicity`: `sexual_orientation:homosexual_gay_or_lesbian`, `sexual_orientation:any`
+
+**Model level, Wikipedia validation:** no slice is flagged in this run, which is why the selection rule required no reweighting.
+
+**Data level** (judged slices whose `toxicity` rate is 15 or more points above overall):
+- Civil identity rows: `race_or_ethnicity:black` (+21.2 pts, n = 761), `race_or_ethnicity:white` (+18.8 pts, n = 1178), `sexual_orientation:homosexual_gay_or_lesbian` (+17.5 pts, n = 538), `sexual_orientation:any` (+17.0 pts, n = 570), `race_or_ethnicity:any` (+16.0 pts, n = 1911)
+- Wikipedia validation: none
+- Above the cutoff but too small to judge (n < 100): `race_or_ethnicity:other_race_or_ethnicity` (+26.4 pts, n = 16)
+
+## 3. Data-level and model-level slices before mitigation
+
+### Civil identity rows (bias set), `toxicity`
 
 n = 21577, toxic rate 11.1%, threshold 0.25, AUC 0.830, F1 0.442, FPR 3.8%, FNR 63.1%
 
@@ -54,13 +74,9 @@ n = 21363, toxic rate 9.6%, threshold 0.25, AUC 0.975, F1 0.793, FPR 2.1%, FNR 2
 | length_100_499 | 11408 | 8.2% | -1.4 | 1.9% | -0.2 | 24.5% | 0.974 | ok |
 | length_500+ | 4224 | 4.9% | -4.7 | 1.2% | -0.9 | 31.6% | 0.973 | ok |
 
-## 2. Biases found
+## 4. Mitigation
 
-Flagged on the Civil identity rows before mitigation: `sexual_orientation:homosexual_gay_or_lesbian`, `sexual_orientation:any`.
-
-## 3. Mitigation
-
-Non-toxic Wikipedia training rows that mention an identity term were reweighted by each factor in [1, 2, 3, 5]. A factor passes when the validation `identity_mention` slice's FPR gap is under 5 points and validation AUC drops by at most 0.005. The smallest passing factor is kept. Chosen factor: **1**.
+Non-toxic Wikipedia training rows that mention an identity term were reweighted by each factor in [1, 2, 3, 5]. A factor passes when the validation `identity_mention` slice's FPR gap is under 5 points and validation AUC drops by at most 0.005. The smallest passing factor is kept. Factor 1 already passes, so **no reweighting is needed by the selection rule** and no training rows were reweighted.
 
 | Factor | Val AUC | AUC drop | Identity FPR gap (pts) | Threshold | Passes |
 |---|---|---|---|---|---|
@@ -69,7 +85,11 @@ Non-toxic Wikipedia training rows that mention an identity term were reweighted 
 | 3 | 0.9730 | 0.0017 | +0.6 | 0.31 | yes |
 | 5 | 0.9722 | 0.0025 | +0.1 | 0.27 | yes |
 
-## 4. Before and after on the Civil identity rows
+## 5. Before and after on the Civil identity rows
+
+Factor 1 was kept, so before and after are the same model and the numbers below are identical.
+
+### `toxicity`
 
 Before: n = 21577, toxic rate 11.1%, threshold 0.25, AUC 0.830, F1 0.442, FPR 3.8%, FNR 63.1%
 
@@ -109,11 +129,26 @@ After: n = 21577, toxic rate 11.1%, threshold 0.25, AUC 0.830, F1 0.442, FPR 3.8
 
 Still flagged after mitigation: `sexual_orientation:homosexual_gay_or_lesbian`, `sexual_orientation:any`.
 
-## 5. Trade-off
+### Sensitivity: factor 2 (information only)
 
-AUC 0.830 → 0.830, F1 0.442 → 0.442 on the Civil identity rows.
+**Information only, not the chosen factor.** The factor is chosen on Wikipedia validation alone; these Civil numbers for the next factor up are shown so the effect of reweighting is visible, and must not be used to tune it.
 
-## 6. Limits
+|  | Factor 1 (chosen) | Factor 2 (information only) |
+|---|---|---|
+| Val identity FPR gap (pts) | +2.6 | +1.0 |
+| Val AUC drop | 0.0000 | 0.0013 |
+| Threshold | 0.25 | 0.27 |
+| Civil AUC | 0.830 | 0.816 |
+| Civil F1 | 0.442 | 0.394 |
+| Civil FPR | 3.8% | 2.6% |
+| Civil FNR | 63.1% | 70.4% |
+| Civil flagged slices | `sexual_orientation:homosexual_gay_or_lesbian`, `sexual_orientation:any` | `gender:transgender`, `sexual_orientation:homosexual_gay_or_lesbian`, `sexual_orientation:any` |
+
+## 6. Trade-off
+
+No reweighting was applied, so there is no trade-off: AUC 0.830, F1 0.442 on the Civil identity rows (`toxicity`).
+
+## 7. Limits
 
 - **Approximate lexicon.** Wikipedia slices rely on word matching against `config/identity_terms.txt`, which misses identity references it doesn't list and matches innocent uses ("black car").
 - **Rater bias.** Gold labels come from crowd raters, whose own biases are in the labels the model is measured against.
