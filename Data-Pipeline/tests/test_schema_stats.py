@@ -137,6 +137,18 @@ def test_statistics_are_saved_for_every_file(cfg):
         assert stats.datasets[0].num_examples == summary["rows_checked"][target["name"]]
 
 
+def test_saved_statistics_contain_no_comment_text(cfg):
+    """Kaggle rules: comment text never goes into the repository (work plan v3, 2.2)."""
+    schema_stats.run(cfg)
+    comments = set(pd.read_parquet(_proc(cfg, "wikipedia/val.parquet"))["text"])
+    comments |= set(pd.read_parquet(_proc(cfg, "civil/h2_eval.parquet"))["text"])
+    stats_dir = Path(cfg["paths"]["reports_dir"]) / "schema" / "stats"
+    for path in stats_dir.rglob("*.pbtxt"):
+        content = path.read_text(encoding="utf-8")
+        leaked = [c for c in comments if c in content]
+        assert not leaked, f"{path.name} contains comment text: {leaked[:2]}"
+
+
 def test_raw_identity_scores_may_be_missing(cfg):
     """Most raw Civil rows were never annotated; that alone is not an anomaly."""
     assert _anomalies(cfg, "raw/civil/test") == {}

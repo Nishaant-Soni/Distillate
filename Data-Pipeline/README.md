@@ -473,7 +473,9 @@ If a schema file is missing, the stage stops and says to run `--infer`. On the f
 
 **Statistics:** the TFDV statistics for every validated file are saved as text protos in `reports/schema/stats/`, mirroring the target names (for example `reports/schema/stats/processed/civil/drift.pbtxt`). Each entry in `validation.json` links to its statistics file. They let two runs be compared feature by feature (`tfdv.load_stats_text`, then `tfdv.visualize_statistics(lhs, rhs)` or a skew/drift comparator), and they are the baseline the monitoring phase's drift checks read.
 
-**Tests:** `tests/test_schema_stats.py` (12 tests) builds contract-shaped raw and processed files, infers schemas from them, and checks that clean data passes, that a loadable statistics file is saved for every target, and that each kind of anomaly is caught: a label out of range, missing text, a missing required column, an unexpected column, a missing file, and a missing schema. They skip outside the TFDV environment; run them inside the image with `/opt/tfenv/bin/python -m pytest tests/test_schema_stats.py`.
+The `text` column's most-frequent-values lists are removed before saving, because they hold real comments and the Kaggle competition rules keep comment text out of the repository (work plan v3, section 2.2). Its length and uniqueness statistics, and every other column's statistics, are kept.
+
+**Tests:** `tests/test_schema_stats.py` (13 tests) builds contract-shaped raw and processed files, infers schemas from them, and checks that clean data passes, that a loadable statistics file is saved for every target with no comment text in it, and that each kind of anomaly is caught: a label out of range, missing text, a missing required column, an unexpected column, a missing file, and a missing schema. They skip outside the TFDV environment; run them inside the image with `/opt/tfenv/bin/python -m pytest tests/test_schema_stats.py`.
 
 ### 5.5 Anomaly checks (`scripts/anomalies.py`)
 

@@ -43,6 +43,10 @@ The TFDV statistics for every validated file are saved as text protos in
 reports/schema/stats/, mirroring the target names (for example
 reports/schema/stats/processed/civil/drift.pbtxt), so two runs can be compared
 and the monitoring phase's drift comparator can load them as a baseline.
+Before saving, the most-frequent-values lists of the text column are removed:
+they hold real comments, and the Kaggle rules (work plan v3, section 2.2) keep
+comment text out of the repository. Length, uniqueness and every other
+column's statistics are kept.
 """
 
 from __future__ import annotations
@@ -67,6 +71,8 @@ PROCESSED_SCHEMA = "schema.pbtxt"
 RAW_ENVS = ("RAW_WIKI", "RAW_CIVIL")
 PROCESSED_ENVS = ("WIKI", "WIKI_TRAIN", "CIVIL", "CIVIL_BIAS")
 FLAG_COLUMNS = ("has_identity_term", "has_obfuscation")
+# Free-text columns whose example values must never be written to reports/.
+TEXT_COLUMNS = ("text",)
 
 
 class SchemaAnomalyError(RuntimeError):
@@ -306,12 +312,30 @@ def stats_dir(cfg: dict[str, Any]) -> Path:
     return Path(cfg["paths"]["reports_dir"]) / "schema" / "stats"
 
 
+def without_comment_text(stats):
+    """A copy of the statistics with the text column's example values removed.
+
+    TFDV records each string column's most frequent values, which for `text`
+    are real comments. Those may not be committed (Kaggle rules), so they are
+    cleared; the text column's length and uniqueness statistics remain.
+    """
+    clean = type(stats)()
+    clean.CopyFrom(stats)
+    for dataset in clean.datasets:
+        for feature in dataset.features:
+            name = feature.path.step[0] if feature.path.step else feature.name
+            if name in TEXT_COLUMNS and feature.HasField("string_stats"):
+                feature.string_stats.ClearField("top_values")
+                feature.string_stats.ClearField("rank_histogram")
+    return clean
+
+
 def save_statistics(stats, cfg: dict[str, Any], target_name: str) -> str:
     """Write one target's TFDV statistics as a text proto; return its path under reports/."""
     path = stats_dir(cfg) / f"{target_name}.pbtxt"
     path.parent.mkdir(parents=True, exist_ok=True)
     with atomic_path(path) as tmp:
-        _tfdv().write_stats_text(stats, str(tmp))
+        _tfdv().write_stats_text(without_comment_text(stats), str(tmp))
     return path.relative_to(Path(cfg["paths"]["reports_dir"])).as_posix()
 
 
