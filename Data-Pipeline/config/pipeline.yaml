@@ -74,7 +74,11 @@ bias:
   fpr_flag_margin_pts: 5.0
   reweight_factors: [1, 2, 3, 5]
   max_auc_drop: 0.005
-  label: toxicity                   # the baseline scores this label only
+  label: toxicity                   # the baseline scores this label only; the factor is chosen on it
+  # Civil slices are reported for each of these the prediction file scores.
+  # severe_toxicity is left out: almost no Civil rows are positive at >= 0.5.
+  civil_labels: [toxicity, obscene, threat, insult, identity_attack]
+  data_gap_flag_pts: 15.0           # data level: a slice's toxic rate this far above overall is reported
   identity_threshold: 0.5           # Civil identity attribute >= this puts a row in the slice
   length_bands: [100, 500]          # Wikipedia val bands: <100, 100-499, 500+ characters
   tfidf: {max_features: 50000, ngram_max: 2, min_df: 2}

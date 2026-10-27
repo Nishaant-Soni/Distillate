@@ -379,7 +379,28 @@ Runs after every data stage and checks all of their outputs. Fail-level checks s
 Run on its own: `python -m scripts.anomalies --config config/pipeline.yaml`. Every result, with its severity and a detail message, is recorded in `reports/summaries/anomalies.json`.
 
 ## 6. Bias detection and mitigation
-<!-- Owner: Ruchita. Slices, findings, mitigation, link to reports/bias/bias_report.md. -->
+
+`scripts/bias.py` checks whether a toxicity model treats identity groups differently, reweights the training data if the selection rule calls for it, and writes [reports/bias/bias_report.md](reports/bias/bias_report.md) and `reports/bias/bias_metrics.json`. Run on its own: `python -m scripts.bias --config config/pipeline.yaml`.
+
+**Baseline.** TF-IDF (word 1-2 grams) + logistic regression, trained on Wikipedia train for `toxicity`. The decision threshold is the one that maximizes F1 on Wikipedia validation. The slice functions take any prediction file in the contract format (`id`, `p_<label>`, `model_version`), so Phase 2 reuses them on student predictions.
+
+**Slices.**
+- Wikipedia validation: identity mention (a word-boundary match against `config/identity_terms.txt`), obfuscation, and length bands (<100, 100-499, 500+ characters).
+- Civil identity rows (`bias_eval`): one slice per identity attribute ≥ 0.5, plus one `any` slice per group (gender, sexual orientation, religion, race or ethnicity, disability). Each label in `bias.civil_labels` the prediction file scores is evaluated: `toxicity`, `obscene`, `threat`, `insult`, `identity_attack`. `severe_toxicity` is left out because almost no Civil rows are positive at ≥ 0.5. The baseline scores `toxicity` only; a six-label student file gets all five with no code change.
+
+**Detection.**
+- Data level: each slice's toxic rate against the overall rate. Gaps of 15 points or more (`data_gap_flag_pts`) are listed in the report.
+- Model level: FPR, FNR and AUC per slice from a Fairlearn `MetricFrame`. Only slices with at least 100 rows are judged, and a slice is flagged when its FPR is 5 or more points above the overall FPR.
+
+**Mitigation.** Non-toxic Wikipedia training rows that mention an identity term are reweighted by each factor in `[1, 2, 3, 5]`. The smallest factor that brings the validation `identity_mention` FPR gap under 5 points with an AUC drop of at most 0.005 is kept, and its weights are written to the `sample_weight` column of `wikipedia/train.parquet` for the student. The factor is chosen on Wikipedia validation only. Civil is evaluated before and after, never used for tuning; the next factor up is also scored on Civil and shown as information only.
+
+**This run.**
+- No reweighting was needed by the selection rule. The Wikipedia `identity_mention` FPR gap was +2.6 points at factor 1, under the 5-point margin, so 0 rows were reweighted.
+- That does not mean the model is free of bias. On Civil, `homosexual_gay_or_lesbian` (n = 538, +8.5 points) and `sexual_orientation:any` (+7.9 points) are flagged on FPR. The gap doesn't show up on Wikipedia, whose identity slice comes from an approximate lexicon and pools every group.
+- At the data level, the sexual orientation, black and white slices have toxic rates 16 to 21 points above overall, which a model can learn as a shortcut.
+- The baseline transfers poorly to Civil (AUC 0.830, F1 0.442, FNR 63% at the Wikipedia threshold, against 0.975, 0.793 and 21% on Wikipedia validation). This is the domain shift the project is about.
+
+See the [bias report](reports/bias/bias_report.md) for the full slice tables, the factor trials and the limits (approximate lexicon, rater bias, no age or location fields, no per-group thresholds).
 
 ## 7. Reproducibility and DVC
 
