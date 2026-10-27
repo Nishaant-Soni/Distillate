@@ -99,6 +99,22 @@ docker compose exec --workdir /opt/airflow/repo/Data-Pipeline airflow-scheduler 
 Stages are safe to rerun: every write goes through `utils.atomic_write`, so an
 interrupted task leaves the previous output intact rather than a half-written file.
 
+### Logging and tracking
+
+- **One logger.** Every module logs through `utils.get_logger(__name__)`, in one format:
+  `time level [module] message`. INFO and WARNING go to stdout and ERROR to stderr, so a
+  warning doesn't show up as an error in the Airflow UI. The level comes from
+  `DISTILLATE_LOG_LEVEL` (default `INFO`).
+- **Where logs go.** Each task's log is in the Airflow UI (select the task, then *Logs*) and
+  on disk under `logs/`, which is Airflow's log folder.
+- **Per-task tracking.** Every stage writes its own `reports/summaries/<task>.json`: rows in,
+  rows out, dropped rows with the reason for each, duration, and whether it ran as the real
+  stage or a stub. Tasks never write to a shared file, so parallel tasks can't overwrite each
+  other.
+- **Per-run tracking.** `notify_success` merges those summaries into
+  `reports/run_summary.json`, with the totals, which stages were real, and whether the Slack
+  message was delivered. Alerts for failures and anomalies are covered in section 9.
+
 ### Running tests locally (no Docker needed)
 ```bash
 cd Data-Pipeline
@@ -114,6 +130,26 @@ to `main`, that touches `Data-Pipeline/` or the workflows:
   Airflow constraints file as the image, so the DAG tests run here too.
 - `tf-tests` (optional): `tests/test_schema_stats.py` in a Python 3.11 environment built from
   `requirements-tf.txt`, since TFDV has no Python 3.12 wheel.
+
+**What the tests cover.** About 200 unit tests: one file per stage, plus the shared helpers
+and the DAG. They use small
+made-up data and never touch the network. The DAG tests skip where Airflow isn't installed,
+and the schema tests skip outside the TFDV environment.
+
+| Test file | What it checks |
+|---|---|
+| `test_acquire.py` | Kaggle columns renamed; unscored test rows dropped; comments that are literally "NA" or "null" kept as text; corrupted zips deleted; existing files not downloaded again; wrong row counts rejected; the full Civil train file goes to the cache |
+| `test_preprocess.py` | NFKC, HTML and whitespace cleanup; empty text dropped; Wikipedia labels must be 0/1; the Civil 0.5 boundary (0.5 is positive, 0.4999 is not); both date formats parse; whole-word lexicon matching; the drop-rate rule (fail above 0.1%, warn below) |
+| `test_dedupe.py` | Exact and near duplicates removed; gate rows never removed; distinct comments kept; label conflicts counted; the same result every run |
+| `test_split.py` | Same seed, same split; row order doesn't matter; sets are disjoint; validation within 1 point of 15%; exact canary size; every label in every set; gate unchanged |
+| `test_subsets.py` | Configured sizes; no overlap; drift sorted by date and drawn from the whole period; stratification keeps the toxic rate; teacher shift-check ids never reach the canary or drift; a missing exclusion list stops the stage |
+| `test_obfuscate.py` | Configured size; `_obf` ids; text changes but labels don't; deterministic; all three tricks used; derived columns recomputed |
+| `test_schema_stats.py` | Schema inference; clean files pass; a label out of range, missing text, a missing or unexpected column, a missing file and a missing schema are each caught |
+| `test_anomalies.py` | Clean data passes every check, and each check fires on crafted bad input: row counts, id overlap, missing text or labels, label domain, duplicate ids, long text, prevalence gap, dates, subset sizes; every check runs even after one fails |
+| `test_bias.py` | Word-boundary lexicon matching; per-group metrics against a hand computation; small slices not judged; reweighting touches only non-toxic identity rows; factor selection; an end-to-end run |
+| `test_dag.py` | The DAG imports; tasks and dependencies match `pipeline_graph.py`; every task has a timeout and a failure alert; `acquire` retries twice; the DAG is manual-only and never backfills |
+| `test_stage.py` | The real module is used once merged, otherwise the stub; a broken import isn't hidden; stubs match the contract and never overwrite real output |
+| `test_utils.py`, `test_alerts.py`, `test_run_summary.py`, `test_dvc_version.py` | Logging split and level; config loading; atomic writes; alerts with and without a webhook, a broken webhook never raising; the run summary; `dvc add` and `dvc push` behaviour |
 
 ## 3. Code structure
 
@@ -153,6 +189,56 @@ Data-Pipeline/
 ├── Dockerfile                Airflow 3.3.2 on Python 3.12, plus TFDV on 3.11 at /opt/tfenv
 └── docker-compose.yaml       LocalExecutor, Postgres, and the Kaggle download cache
 ```
+
+**The DAG.** `data_prep_dag` in its default `optimized` shape. After `preprocess`, the
+Wikipedia chain and the Civil chain are independent, so they run side by side and rejoin at
+`schema_stats`:
+
+```mermaid
+flowchart LR
+    acquire --> preprocess
+    preprocess --> dedupe --> split --> obfuscate --> schema_stats
+    preprocess --> subsets --> schema_stats
+    schema_stats --> anomalies --> bias --> dvc_version --> notify_success
+```
+
+With `PIPELINE_MODE=baseline`, the same 11 tasks run as one chain, in this order: `acquire`,
+`preprocess`, `dedupe`, `split`, `subsets`, `obfuscate`, `schema_stats`, `anomalies`, `bias`,
+`dvc_version`, `notify_success`. Section 8 compares the two shapes.
+
+**Task settings and failure handling**
+
+| Task | Runs in | Timeout (min) | Retries |
+|---|---|---|---|
+| `acquire` | main | 120 | 2, 2 min apart |
+| `preprocess` | main | 60 | 1 |
+| `dedupe` | main | 90 | 1 |
+| `split` | main | 30 | 1 |
+| `subsets` | main | 30 | 1 |
+| `obfuscate` | main | 15 | 1 |
+| `schema_stats` | `/opt/tfenv`, through a BashOperator | 60 | 1 |
+| `anomalies` | main | 30 | 1 |
+| `bias` | main | 60 | 1 |
+| `dvc_version` | main | 60 | 1 |
+| `notify_success` | main | 10 | 0 |
+
+- **Timeouts.** Every task has an execution timeout, so a stage that hangs fails and sends an
+  alert instead of running forever.
+- **Retries.** `acquire` is the only task that uses the network, so it retries twice, two
+  minutes apart. Other tasks retry once after one minute. `notify_success` doesn't retry,
+  since it never fails the run.
+- **Failure alerts.** Every task has the same `on_failure_callback`, set in the DAG's
+  `default_args`, so a new task can't be added without it. It posts the DAG id, task id, error
+  and log link (section 9).
+- **Clear errors.** Stages raise typed errors that name the problem and the fix (section 4.6).
+  A missing input file fails with its name and a pointer to run the upstream stage first.
+  `anomalies` and `schema_stats` write their full report before failing, so the report on
+  disk says what went wrong.
+- **One run at a time.** The DAG is triggered by hand only (no schedule, `catchup=False`), with
+  at most one active run, so two runs can never overwrite each other's outputs.
+
+`tests/test_dag.py` checks these settings: the graph, the timeouts, the retries, the failure
+callback, and the manual-only schedule.
 
 **Two Python environments, one image.** Airflow and most stages run on Python 3.12.
 `schema_stats` runs on Python 3.11 at `/opt/tfenv`, because TFDV 1.16.1 is the last release
