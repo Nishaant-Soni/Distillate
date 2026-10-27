@@ -53,7 +53,7 @@ credentials. Check with `echo $KAGGLE_API_TOKEN` (`echo %KAGGLE_API_TOKEN%` on W
 and unset it if it is not the one you want.
 
 **On Windows**, Compose does not set `HOME`, so set `GCLOUD_CONFIG_DIR` in `.env` to the
-full path of your gcloud folder (`C:\Users\<you>\.config\gcloud`) rather than relying
+full path of your gcloud folder (`%APPDATA%\gcloud`, i.e. `C:\Users\<you>\AppData\Roaming\gcloud`) rather than relying
 on a variable. Leave it empty if you are not pushing to GCS.
 
 ## 2. Running the pipeline
@@ -98,7 +98,7 @@ Containers read `.env` only when they are created, so after changing it run
 so the next run skips the downloads. Avoid `docker compose down -v` unless you want a cold
 run: it deletes that volume and the Airflow database with it.
 
-A full run on real data takes roughly five minutes of task time after the downloads are
+A full run on real data takes about 7–8 minutes of task time after the downloads are
 cached. **Keep the machine awake** — everything runs in Docker on your laptop, so sleep
 suspends the run and tasks can exceed their timeouts on wake.
 
@@ -229,7 +229,8 @@ Data-Pipeline/
 │   ├── raw.dvc, processed.dvc  DVC pointers to the raw and processed Parquet
 │   ├── schema/               the two curated TFDV schemas (section 5.4)
 │   └── splits/               id lists per set and civil_drift_ids.csv
-├── reports/                  run summary, dedupe removals, schema validation, bias report
+├── reports/                  run summary, dedupe removals, schema validation and statistics, bias report
+├── docs/images/              Airflow Graph and Gantt screenshots (sections 3 and 8)
 ├── tests/                    pytest; the Airflow DAG tests skip outside the image
 ├── Dockerfile                Airflow 3.3.2 on Python 3.12, plus TFDV on 3.11 at /opt/tfenv
 └── docker-compose.yaml       LocalExecutor, Postgres, and the Kaggle download cache
@@ -246,6 +247,10 @@ flowchart LR
     preprocess --> subsets --> schema_stats
     schema_stats --> anomalies --> bias --> dvc_version --> notify_success
 ```
+
+The same DAG in the Airflow UI (Graph view of an optimized run, every task green):
+
+![Airflow Graph view of data_prep_dag](docs/images/airflow_graph.png)
 
 With `PIPELINE_MODE=baseline`, the same 11 tasks run as one chain, in this order: `acquire`,
 `preprocess`, `dedupe`, `split`, `subsets`, `obfuscate`, `schema_stats`, `anomalies`, `bias`,
@@ -597,7 +602,7 @@ Python at certifi's certificate bundle: `export SSL_CERT_FILE=$(python -m certif
 
 ```bash
 DVC_PUSH=true
-GCLOUD_CONFIG_DIR=/Users/<you>/.config/gcloud   # Windows: C:\Users\<you>\.config\gcloud
+GCLOUD_CONFIG_DIR=/Users/<you>/.config/gcloud   # Windows: C:\Users\<you>\AppData\Roaming\gcloud
 ```
 
 Compose mounts that folder read-only at `/opt/gcloud`, and `dvc_version` pushes with the
@@ -639,8 +644,6 @@ Measured on a Windows laptop (Intel Core i5-1235U, 10 cores / 12 threads, about 
 | dvc_version | 5.3 | 5.1 |
 | Sum of task times | 435.8 | 485.0 |
 | **Wall clock** (Airflow run duration) | **467** | **489** |
-
-The wall clock includes about 30 s of Airflow scheduling between tasks.
 
 ![Baseline (sequential) Gantt](docs/images/gantt_baseline.png)
 
