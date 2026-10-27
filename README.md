@@ -66,24 +66,32 @@ Each phase folder is self-contained and runs its own `docker compose`, which rea
 
 ## Installation
 
-**Prerequisites:** Python 3.12, Docker, the `gcloud` CLI, and read access to the team's GCS bucket.
+**Prerequisites:** Docker Desktop with 8 GB of memory, Git, and a Kaggle account that has
+accepted both competitions' rules. The `gcloud` CLI is needed only to push data to GCS.
+
+Each phase folder runs its own `docker compose`, so **every command below is run from inside
+that folder, not the repository root.** There is no compose file at the root; running
+`docker compose up -d` there fails with *"no configuration file provided: not found"*.
+
+Phase 1, the data pipeline:
 
 ```bash
 git clone https://github.com/Nishaant-Soni/Distillate.git
-cd Distillate
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env        # set GCP project, bucket, and MLflow tracking URI
-gcloud auth application-default login
-dvc pull                    # fetch versioned data and split manifests
-docker compose up -d        # local API, Prometheus, Grafana, Airflow
+cd Distillate/Data-Pipeline      # the compose file lives here
+cp .env.example .env             # then add your Kaggle credentials
+docker compose build             # 20-40 min the first time
+docker compose up -d
 ```
 
-Local services: API at `localhost:8000`, Airflow at `localhost:8080`, Grafana at `localhost:3000`.
+Airflow is then at `localhost:8080`. Full setup, credentials and troubleshooting are in
+[Data-Pipeline/README.md](Data-Pipeline/README.md); start there rather than here.
+
+Phase 2 and Phase 3 each have their own folder and their own README, added as those
+phases land.
 
 ## Usage
 
-**1. Prepare data.** Trigger `data_prep_dag` from the Airflow UI, or:
+**1. Prepare data.** Trigger `data_prep_dag` from the Airflow UI, or from `Data-Pipeline/`:
 ```bash
 docker compose exec airflow-scheduler airflow dags trigger data_prep_dag
 ```
