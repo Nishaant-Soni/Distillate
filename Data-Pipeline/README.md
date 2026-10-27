@@ -129,6 +129,7 @@ Data-Pipeline/
 │   ├── obfuscate.py          3,000 disguised toxic gate comments
 │   ├── anomalies.py          every data check, each with a fail or warn severity
 │   ├── schema_stats.py       TFDV statistics and schema validation (runs in /opt/tfenv)
+│   ├── bias.py               slice metrics, reweighting, sample_weight into train.parquet
 │   ├── dvc_version.py        dvc add, then dvc push when DVC_PUSH is true
 │   └── run_summary.py        merges the task summaries and posts one Slack message
 ├── tests/                    pytest; the Airflow DAG tests skip outside the image
