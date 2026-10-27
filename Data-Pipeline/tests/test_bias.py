@@ -26,6 +26,7 @@ TOXIC = ["idiot", "stupid", "moron", "trash", "pathetic", "loser"]
 # Term in the text -> Civil identity column it sets.
 IDENTITY = {"muslim": "muslim", "gay": "homosexual_gay_or_lesbian", "black": "black",
             "women": "female", "jewish": "jewish"}
+CIVIL_LABELS = ["toxicity", "obscene", "threat", "insult", "identity_attack"]
 
 
 def _comment(rng: np.random.Generator, toxic: bool, identity: str | None) -> str:
@@ -83,12 +84,13 @@ def make_civil(n: int, seed: int) -> pd.DataFrame:
 def make_cfg(tmp_path, lexicon) -> dict:
     return {
         "seed": 42,
-        "labels": {"names": LABELS},
+        "labels": {"names": LABELS, "civil_positive_threshold": 0.5},
         "paths": {"processed_dir": str(tmp_path / "processed"),
                   "reports_dir": str(tmp_path / "reports"),
                   "summaries_dir": str(tmp_path / "reports" / "summaries"),
                   "identity_terms": str(lexicon)},
         "bias": {"label": "toxicity", "min_slice_size": 30, "fpr_flag_margin_pts": 5.0,
+                 "civil_labels": CIVIL_LABELS, "data_gap_flag_pts": 15.0,
                  "reweight_factors": [1, 2, 3, 5], "max_auc_drop": 0.005,
                  "identity_threshold": 0.5, "length_bands": [60, 75],
                  "tfidf": {"max_features": 5000, "ngram_max": 2, "min_df": 1},
@@ -170,6 +172,33 @@ def test_civil_slices_use_the_identity_threshold():
     assert slices["gender:any"].tolist() == [False, False, False, True]
 
 
+def test_scored_labels_skip_unscored_and_unlisted():
+    ids = pd.Series(["1", "2", "3"])
+    baseline = bias.predictions_frame(ids, np.array([0.1, 0.5, 0.9]), "toxicity", LABELS)
+    assert bias.scored_labels(baseline, CIVIL_LABELS) == ["toxicity"]
+    # A six-label student file gets all five Civil labels; severe_toxicity isn't listed.
+    student = baseline.assign(**{f"p_{name}": 0.5 for name in LABELS})
+    assert bias.scored_labels(student, CIVIL_LABELS) == CIVIL_LABELS
+
+
+def test_label_reports_cover_every_scored_label():
+    gold = make_civil(200, seed=4)
+    gold["insult"] = gold["toxicity"]
+    preds = pd.DataFrame({"id": gold["id"], "p_toxicity": gold["toxicity"] * 0.8 + 0.1,
+                          "p_insult": gold["insult"] * 0.7 + 0.2})
+    slices = bias.civil_slices(gold, 0.5)
+    reports = bias.label_reports(preds, gold, slices, {"toxicity": 0.5, "insult": 0.5},
+                                 ["toxicity", "insult"], min_size=10, margin_pts=5.0)
+    assert list(reports) == ["toxicity", "insult"]
+    assert reports["insult"]["overall"]["auc"] == pytest.approx(1.0)
+
+
+def test_data_gaps_keep_only_large_gaps_largest_first():
+    table = pd.DataFrame({"slice": ["a", "b", "c", "d"],
+                          "toxicity_rate_gap_pts": [16.0, 3.0, 21.0, np.nan]})
+    assert bias.data_gaps(table, 15.0)["slice"].tolist() == ["c", "a"]
+
+
 def test_wikipedia_length_bands_cover_every_row():
     df = make_wikipedia(200, seed=1, identity_toxic_rate=0.15)
     slices = bias.wikipedia_slices(df, length_bands=[60, 75])
@@ -216,6 +245,19 @@ def test_select_factor_keeps_one_when_there_is_no_bias():
     assert bias.select_factor(trials, margin_pts=5.0, max_auc_drop=0.005) == (1, True)
 
 
+def test_mitigation_status_separates_not_needed_from_applied():
+    assert bias.mitigation_status(1, True) == "not_needed"
+    assert bias.mitigation_status(3, True) == "applied"
+    assert bias.mitigation_status(1, False) == "no_factor_passed"
+
+
+def test_factor_one_never_reads_as_a_fix():
+    sentence = bias.mitigation_sentence("not_needed", 1)
+    assert "no reweighting is needed by the selection rule" in sentence
+    assert "Chosen factor" not in sentence
+    assert "factor **3**" in bias.mitigation_sentence("applied", 3)
+
+
 def test_choose_threshold_separable_scores():
     y = np.array([0, 0, 0, 1, 1])
     scores = np.array([0.1, 0.2, 0.3, 0.8, 0.9])
@@ -253,7 +295,42 @@ def test_run_end_to_end(tmp_path):
     assert (written.loc[untouched, "sample_weight"] == 1.0).all()
     assert set(written["sample_weight"].unique()) <= {1.0, float(summary["chosen_factor"])}
 
+    assert summary["mitigation_status"] in ("not_needed", "applied", "no_factor_passed")
+    assert summary["civil_labels"] == ["toxicity"]  # the baseline scores toxicity only
+
     report = (tmp_path / "reports" / "bias" / "bias_report.md").read_text(encoding="utf-8")
-    assert "## 6. Limits" in report
+    for heading in ("## 1. Summary", "## 2. Biases found", "## 7. Limits"):
+        assert heading in report
+    assert "**Domain shift.** Trained and thresholded on Wikipedia" in report
+    assert "Labels evaluated on the Civil identity rows: `toxicity`." in report
+    assert "`severe_toxicity` is excluded" in report
+    assert "**Model level, Wikipedia validation:**" in report
     metrics = json.loads((tmp_path / "reports" / "bias" / "bias_metrics.json").read_text())
-    assert {"civil_before", "civil_after", "trials"} <= metrics.keys()
+    assert {"civil_before", "civil_after", "trials", "mitigation_status"} <= metrics.keys()
+    assert list(metrics["civil_before"]) == ["toxicity"]
+    if summary["chosen_factor"] < 5:
+        assert metrics["sensitivity_factor"] > summary["chosen_factor"]
+        assert "(information only)" in report
+
+
+def test_run_without_planted_bias_needs_no_reweighting(tmp_path):
+    wiki = tmp_path / "processed" / "wikipedia"
+    civil = tmp_path / "processed" / "civil"
+    wiki.mkdir(parents=True)
+    civil.mkdir(parents=True)
+    train = make_wikipedia(1500, seed=1, identity_toxic_rate=0.15)
+    train.to_parquet(wiki / "train.parquet")
+    make_wikipedia(600, seed=2, identity_toxic_rate=0.15).to_parquet(wiki / "val.parquet")
+    make_civil(600, seed=3).to_parquet(civil / "bias_eval.parquet")
+    lexicon = tmp_path / "identity_terms.txt"
+    lexicon.write_text("\n".join(IDENTITY), encoding="utf-8")
+
+    summary = bias.run(make_cfg(tmp_path, lexicon))
+
+    assert summary["chosen_factor"] == 1
+    assert summary["mitigation_status"] == "not_needed"
+    assert summary["reweighted_rows"] == 0
+    report = (tmp_path / "reports" / "bias" / "bias_report.md").read_text(encoding="utf-8")
+    assert "**No reweighting needed by the selection rule.**" in report
+    assert "Chosen factor" not in report
+    assert "### Sensitivity: factor 2 (information only)" in report

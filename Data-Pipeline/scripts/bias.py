@@ -11,7 +11,8 @@ Outputs:
     reports/bias/bias_metrics.json
 
 Steps:
-    1. Train a TF-IDF + logistic regression toxicity baseline on Wikipedia train.
+    1. Train a TF-IDF + logistic regression toxicity baseline on Wikipedia train. The
+       vectorizer is fit once; only the classifier is refit for each reweighting factor.
     2. Slice Wikipedia validation (identity mention, length band, obfuscation) and the
        Civil identity rows (each identity attribute >= 0.5, plus one slice per group).
     3. Data level: toxicity rate per slice against the overall rate.
@@ -21,10 +22,14 @@ Steps:
        keep the smallest that brings the validation identity slice under the margin with
        an AUC drop of at most ``max_auc_drop``. The decision threshold is chosen on
        validation for every factor.
-    5. Report before and after on the Civil identity rows only.
+    5. Report before and after on the Civil identity rows only, for every label in
+       ``civil_labels`` that the prediction file scores. The factor is chosen on ``label``
+       alone. The next factor above the chosen one is also scored on Civil, for
+       information only (Civil is never used to choose the factor).
 
 The slice functions take a prediction file (id, p_<label>, model_version) plus gold
-labels, so Phase 2 reuses them on student predictions with no changes.
+labels, so Phase 2 reuses them on student predictions with no changes; a six-label
+prediction file gets all of ``civil_labels``.
 
     python -m scripts.bias --config config/pipeline.yaml
 """
@@ -41,6 +46,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from fairlearn.metrics import MetricFrame
+from scipy.sparse import spmatrix
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, roc_auc_score
@@ -68,6 +74,8 @@ IDENTITY_GROUPS: dict[str, list[str]] = {
     ],
 }
 IDENTITY_SLICE = "identity_mention"
+# Wikipedia-to-Civil AUC drop at which the report calls it domain shift.
+DOMAIN_SHIFT_AUC_DROP = 0.02
 
 
 # ---------------------------------------------------------------------------
@@ -102,32 +110,34 @@ def mentions_identity(texts: pd.Series, pattern: re.Pattern[str]) -> pd.Series:
 # Baseline model and prediction files
 # ---------------------------------------------------------------------------
 
-def train_baseline(
-    texts: pd.Series,
-    y: pd.Series,
-    bias_cfg: dict[str, Any],
-    seed: int,
-    sample_weight: np.ndarray | None = None,
-) -> tuple[TfidfVectorizer, LogisticRegression]:
-    """Fit TF-IDF + logistic regression for one label."""
+def make_vectorizer(bias_cfg: dict[str, Any]) -> TfidfVectorizer:
+    """Unfitted TF-IDF vectorizer. Its fit doesn't depend on sample weights, so fit it once."""
     tfidf = bias_cfg["tfidf"]
-    vectorizer = TfidfVectorizer(
+    return TfidfVectorizer(
         max_features=tfidf["max_features"],
         ngram_range=(1, tfidf["ngram_max"]),
         min_df=tfidf["min_df"],
         sublinear_tf=True,
     )
-    features = vectorizer.fit_transform(texts.fillna(""))
+
+
+def fit_classifier(
+    features: spmatrix,
+    y: pd.Series,
+    bias_cfg: dict[str, Any],
+    seed: int,
+    sample_weight: np.ndarray | None = None,
+) -> LogisticRegression:
+    """Fit logistic regression for one label on precomputed TF-IDF features."""
     logreg = bias_cfg["logreg"]
     model = LogisticRegression(C=logreg["C"], max_iter=logreg["max_iter"], random_state=seed)
     model.fit(features, np.asarray(y), sample_weight=sample_weight)
-    return vectorizer, model
+    return model
 
 
-def score(model: tuple[TfidfVectorizer, LogisticRegression], texts: pd.Series) -> np.ndarray:
-    """Probability of the positive class for each text."""
-    vectorizer, clf = model
-    return clf.predict_proba(vectorizer.transform(texts.fillna("")))[:, 1]
+def score(model: LogisticRegression, features: spmatrix) -> np.ndarray:
+    """Probability of the positive class for each row."""
+    return model.predict_proba(features)[:, 1]
 
 
 def predictions_frame(
@@ -286,6 +296,36 @@ def slice_report(
     return table, overall
 
 
+def scored_labels(predictions: pd.DataFrame, candidates: list[str]) -> list[str]:
+    """Labels in ``candidates`` the prediction file scores: p_<label> present with no NaN."""
+    return [name for name in candidates
+            if f"p_{name}" in predictions.columns and predictions[f"p_{name}"].notna().all()]
+
+
+def label_reports(
+    predictions: pd.DataFrame,
+    gold: pd.DataFrame,
+    slices: dict[str, pd.Series],
+    thresholds: dict[str, float],
+    labels: list[str],
+    min_size: int,
+    margin_pts: float,
+) -> dict[str, dict[str, Any]]:
+    """slice_report for each label, keyed by label. ``thresholds`` maps label -> threshold."""
+    reports = {}
+    for name in labels:
+        table, overall = slice_report(predictions, gold, slices, thresholds[name], name,
+                                      min_size, margin_pts)
+        reports[name] = {"table": table, "overall": overall}
+    return reports
+
+
+def data_gaps(table: pd.DataFrame, min_gap_pts: float) -> pd.DataFrame:
+    """Slices whose toxic rate is at least ``min_gap_pts`` above overall, largest first."""
+    hit = table["toxicity_rate_gap_pts"] >= min_gap_pts
+    return table[hit].sort_values("toxicity_rate_gap_pts", ascending=False)
+
+
 # ---------------------------------------------------------------------------
 # Mitigation
 # ---------------------------------------------------------------------------
@@ -317,6 +357,13 @@ def select_factor(
         if trial["passes"] and chosen is None:
             chosen = trial["factor"]
     return (chosen, True) if chosen is not None else (1, False)
+
+
+def mitigation_status(chosen: float, passed: bool) -> str:
+    """not_needed (factor 1 already passes), applied (a larger factor) or no_factor_passed."""
+    if not passed:
+        return "no_factor_passed"
+    return "not_needed" if chosen == 1 else "applied"
 
 
 # ---------------------------------------------------------------------------
@@ -361,67 +408,240 @@ def _overall_line(overall: dict[str, float]) -> str:
             f"F1 {_num(overall['f1'])}, FPR {_pct(overall['fpr'])}, FNR {_pct(overall['fnr'])}")
 
 
+def _flagged(table: pd.DataFrame) -> list[str]:
+    return table.query("flagged")["slice"].tolist()
+
+
+def _names(slices: list[str]) -> str:
+    return ", ".join(f"`{s}`" for s in slices) if slices else "none"
+
+
+def _gap_list(table: pd.DataFrame, column: str) -> str:
+    """`slice` (+gap pts, n = size), ... for every row of ``table``."""
+    return ", ".join(f"`{r['slice']}` ({_pts(r[column])} pts, n = {r['n']})"
+                     for _, r in table.iterrows())
+
+
+def _compare_table(before: pd.DataFrame, after: pd.DataFrame) -> str:
+    compare = before[["slice", "n", "fpr", "fpr_gap_pts", "judged", "flagged"]].merge(
+        after[["slice", "fpr", "fpr_gap_pts", "flagged"]],
+        on="slice", suffixes=("_before", "_after"),
+    )
+    rows = [[r["slice"], str(r["n"]), _pct(r["fpr_before"]), _pct(r["fpr_after"]),
+             _pts(r["fpr_gap_pts_before"]), _pts(r["fpr_gap_pts_after"]),
+             ("too small" if not r["judged"] else
+              ("**flagged**" if r["flagged_before"] else "ok") + " → "
+              + ("**flagged**" if r["flagged_after"] else "ok"))]
+            for _, r in compare.iterrows()]
+    return _md_table(["Slice", "n", "FPR before", "FPR after", "Gap before (pts)",
+                      "Gap after (pts)", "Status"], rows)
+
+
+def mitigation_sentence(status: str, chosen: float) -> str:
+    """How the mitigation outcome reads in the report, so factor 1 never reads as a fix."""
+    if status == "not_needed":
+        return ("Factor 1 already passes, so **no reweighting is needed by the selection "
+                "rule** and no training rows were reweighted.")
+    if status == "applied":
+        return f"Reweighting applied with factor **{chosen}**."
+    return "No factor met both conditions, so no reweighting was applied (factor 1)."
+
+
+def _labels_note(result: dict[str, Any]) -> str:
+    parts = [f"Labels evaluated on the Civil identity rows: {_names(result['civil_labels'])}."]
+    if result["unscored_labels"]:
+        parts.append(f"Not scored by `{MODEL_VERSION}`, so skipped: "
+                     f"{_names(result['unscored_labels'])}.")
+    for item in result["excluded_labels"]:
+        share = item["positives"] / item["n"] if item["n"] else float("nan")
+        parts.append(f"`{item['label']}` is excluded from the Civil slices: only "
+                     f"{item['positives']} of {item['n']} rows ({_pct(share)}) are positive at "
+                     f"≥ {result['civil_positive_threshold']}, too few for per-slice rates.")
+    parts.append(f"The reweighting factor is chosen on `{result['label']}` only.")
+    return " ".join(parts)
+
+
+def _summary(result: dict[str, Any], bias_cfg: dict[str, Any]) -> str:
+    """Generated interpretation, so it stays correct when the numbers change."""
+    label, margin = result["label"], bias_cfg["fpr_flag_margin_pts"]
+    trials = {t["factor"]: t for t in result["trials"]}
+    chosen, status = result["chosen_factor"], result["mitigation_status"]
+    before, after = result["civil_before"][label], result["civil_after"][label]
+    base_gap = trials[1]["identity_fpr_gap_pts"]
+    still = after["table"].query("flagged")
+
+    if status == "not_needed":
+        bullets = [f"**No reweighting needed by the selection rule.** The rule looks only at "
+                   f"the Wikipedia validation `{IDENTITY_SLICE}` slice, whose FPR gap was "
+                   f"{_pts(base_gap)} points without reweighting, under the {margin:.0f}-point "
+                   "margin. Factor 1 was kept, no training rows were reweighted, and before "
+                   "and after below are the same model."
+                   + (" This does not mean the Civil gaps below were fixed." if len(still)
+                      else "")]
+    elif status == "applied":
+        bullets = [f"**Reweighting applied (factor {chosen}).** Without reweighting, the "
+                   f"Wikipedia validation `{IDENTITY_SLICE}` FPR gap was {_pts(base_gap)} "
+                   f"points; factor {chosen} brought it to "
+                   f"{_pts(trials[chosen]['identity_fpr_gap_pts'])} with a validation AUC drop "
+                   f"of {_num(trials[chosen]['auc_drop'], 4)}."]
+    else:
+        bullets = [f"**No reweighting factor passed.** The Wikipedia validation "
+                   f"`{IDENTITY_SLICE}` FPR gap was {_pts(base_gap)} points without "
+                   "reweighting, and no factor brought it under the margin within the allowed "
+                   "AUC drop, so no reweighting was applied."]
+
+    if len(still):
+        bullets.append(
+            f"**Still flagged on Civil (`{label}`):** {_gap_list(still, 'fpr_gap_pts')} "
+            "above overall FPR. The selection rule never sees these gaps: Wikipedia has no "
+            f"identity annotations, so its `{IDENTITY_SLICE}` slice comes from an approximate "
+            "lexicon (`config/identity_terms.txt`) and pools every group into one slice. A "
+            "gap concentrated in one Civil group doesn't show up there.")
+
+    gaps = data_gaps(before["table"].query("judged"), bias_cfg["data_gap_flag_pts"])
+    if len(gaps):
+        low, high = gaps["toxicity_rate_gap_pts"].min(), gaps["toxicity_rate_gap_pts"].max()
+        bullets.append(
+            f"**Data-level gaps.** On Civil, {_names(gaps['slice'].tolist())} have `{label}` "
+            f"rates {low:.0f} to {high:.0f} points above the overall "
+            f"{_pct(before['overall']['toxicity_rate'])}. A model trained on data like this "
+            f"can learn the identity term itself as a shortcut for `{label}`.")
+
+    wiki, civil = result["wiki_before"]["overall"], before["overall"]
+    shifted = wiki["auc"] - civil["auc"] >= DOMAIN_SHIFT_AUC_DROP
+    bullets.append(
+        f"**Domain shift.** Trained and thresholded on Wikipedia (validation AUC "
+        f"{_num(wiki['auc'])}, F1 {_num(wiki['f1'])}, FNR {_pct(wiki['fnr'])}), the baseline "
+        + ("transfers poorly to" if shifted else "scores")
+        + f" the Civil identity rows: AUC {_num(civil['auc'])}, F1 {_num(civil['f1'])}, FNR "
+        f"{_pct(civil['fnr'])} at the threshold {civil['threshold']:.2f} chosen on Wikipedia."
+        + (" This is the domain shift the project is about." if shifted else ""))
+    bullets.append(_labels_note(result))
+    return "\n".join(f"- {b}" for b in bullets)
+
+
+def _biases_found(result: dict[str, Any], bias_cfg: dict[str, Any]) -> str:
+    label, cutoff = result["label"], bias_cfg["data_gap_flag_pts"]
+    lines = ["**Model level, Civil identity rows** (FPR flags before mitigation):"]
+    lines += [f"- `{name}`: {_names(_flagged(entry['table']))}"
+              for name, entry in result["civil_before"].items()]
+    wiki_flags = _flagged(result["wiki_before"]["table"])
+    lines.append("")
+    lines.append("**Model level, Wikipedia validation:** "
+                 + (f"flagged {_names(wiki_flags)}." if wiki_flags else
+                    "no slice is flagged in this run"
+                    + (", which is why the selection rule required no reweighting."
+                       if result["mitigation_status"] == "not_needed" else ".")))
+    lines.append("")
+    lines.append(f"**Data level** (judged slices whose `{label}` rate is {cutoff:.0f} or more "
+                 "points above overall):")
+    unjudged = []
+    for title, table in (("Civil identity rows", result["civil_before"][label]["table"]),
+                         ("Wikipedia validation", result["wiki_before"]["table"])):
+        gaps = data_gaps(table, cutoff)
+        judged = gaps.query("judged")
+        lines.append(f"- {title}: "
+                     + (_gap_list(judged, "toxicity_rate_gap_pts") if len(judged) else "none"))
+        unjudged += [f"`{r['slice']}` ({_pts(r['toxicity_rate_gap_pts'])} pts, n = {r['n']})"
+                     for _, r in gaps.query("~judged").iterrows()]
+    if unjudged:
+        lines.append(f"- Above the cutoff but too small to judge (n < "
+                     f"{bias_cfg['min_slice_size']}): {', '.join(unjudged)}")
+    return "\n".join(lines)
+
+
+def _sensitivity(result: dict[str, Any]) -> list[str]:
+    sens = result["sensitivity"]
+    if sens is None:
+        return []
+    label, chosen, factor = result["label"], result["chosen_factor"], sens["factor"]
+    trials = {t["factor"]: t for t in result["trials"]}
+    ours, theirs = result["civil_after"][label], sens["civil"][label]
+    rows = [
+        ["Val identity FPR gap (pts)", _pts(trials[chosen]["identity_fpr_gap_pts"]),
+         _pts(trials[factor]["identity_fpr_gap_pts"])],
+        ["Val AUC drop", _num(trials[chosen]["auc_drop"], 4), _num(trials[factor]["auc_drop"], 4)],
+        ["Threshold", f"{ours['overall']['threshold']:.2f}",
+         f"{theirs['overall']['threshold']:.2f}"],
+        *[[f"Civil {key.upper()}", fmt(ours["overall"][key]), fmt(theirs["overall"][key])]
+          for key, fmt in (("auc", _num), ("f1", _num), ("fpr", _pct), ("fnr", _pct))],
+        ["Civil flagged slices", _names(_flagged(ours["table"])),
+         _names(_flagged(theirs["table"]))],
+    ]
+    return [
+        f"### Sensitivity: factor {factor} (information only)",
+        "**Information only, not the chosen factor.** The factor is chosen on Wikipedia "
+        "validation alone; these Civil numbers for the next factor up are shown so the "
+        "effect of reweighting is visible, and must not be used to tune it.",
+        _md_table(["", f"Factor {chosen} (chosen)", f"Factor {factor} (information only)"],
+                  rows),
+    ]
+
+
 def build_report(result: dict[str, Any], bias_cfg: dict[str, Any]) -> str:
-    """Markdown report. Interpretation goes in by hand after the first real run."""
+    """Markdown report, interpretation included, generated from the results."""
+    label = result["label"]
+    status = result["mitigation_status"]
     before, after = result["civil_before"], result["civil_after"]
-    flagged_before = before["table"].query("flagged")["slice"].tolist()
-    flagged_after = after["table"].query("flagged")["slice"].tolist()
 
     trial_rows = [[str(t["factor"]), _num(t["val_auc"], 4), _num(t["auc_drop"], 4),
                    _pts(t["identity_fpr_gap_pts"]), f"{t['threshold']:.2f}",
                    "yes" if t["passes"] else "no"] for t in result["trials"]]
 
-    compare = before["table"][["slice", "n", "fpr", "fpr_gap_pts", "judged", "flagged"]].merge(
-        after["table"][["slice", "fpr", "fpr_gap_pts", "flagged"]],
-        on="slice", suffixes=("_before", "_after"),
-    )
-    compare_rows = [[r["slice"], str(r["n"]), _pct(r["fpr_before"]), _pct(r["fpr_after"]),
-                     _pts(r["fpr_gap_pts_before"]), _pts(r["fpr_gap_pts_after"]),
-                     ("too small" if not r["judged"] else
-                      ("**flagged**" if r["flagged_before"] else "ok") + " → "
-                      + ("**flagged**" if r["flagged_after"] else "ok"))]
-                    for _, r in compare.iterrows()]
+    slice_sections = []
+    for name, entry in before.items():
+        slice_sections += [f"### Civil identity rows (bias set), `{name}`",
+                           _overall_line(entry["overall"]), _slice_table(entry["table"])]
 
-    chosen = result["chosen_factor"]
-    mitigation = (f"Chosen factor: **{chosen}**." if result["mitigation_passed"] else
-                  "No factor met both conditions, so no reweighting was applied (factor 1).")
+    compare_sections = []
+    if status == "not_needed":
+        compare_sections.append("Factor 1 was kept, so before and after are the same model "
+                                "and the numbers below are identical.")
+    for name in before:
+        compare_sections += [
+            f"### `{name}`",
+            f"Before: {_overall_line(before[name]['overall'])}",
+            f"After: {_overall_line(after[name]['overall'])}",
+            _compare_table(before[name]["table"], after[name]["table"]),
+            f"Still flagged after mitigation: {_names(_flagged(after[name]['table']))}.",
+        ]
+
+    b, a = before[label]["overall"], after[label]["overall"]
+    trade_off = (f"No reweighting was applied, so there is no trade-off: AUC {_num(b['auc'])}, "
+                 f"F1 {_num(b['f1'])} on the Civil identity rows (`{label}`)."
+                 if status == "not_needed" else
+                 f"AUC {_num(b['auc'])} → {_num(a['auc'])}, F1 {_num(b['f1'])} → "
+                 f"{_num(a['f1'])} on the Civil identity rows (`{label}`).")
 
     return "\n\n".join([
         "# Bias report: TF-IDF + logistic regression toxicity baseline",
-        f"Model `{MODEL_VERSION}`, label `{result['label']}`. Slices with at least "
-        f"{bias_cfg['min_slice_size']} rows are judged; a slice is flagged when its FPR is "
-        f"{bias_cfg['fpr_flag_margin_pts']:.0f} or more points above the overall FPR. The "
-        "decision threshold maximizes F1 on Wikipedia validation.",
-        "## 1. Data-level and model-level slices before mitigation",
-        "### Civil identity rows (bias set)",
-        _overall_line(before["overall"]),
-        _slice_table(before["table"]),
+        f"Model `{MODEL_VERSION}`; the reweighting factor is chosen on `{label}`. Slices with "
+        f"at least {bias_cfg['min_slice_size']} rows are judged; a slice is flagged when its "
+        f"FPR is {bias_cfg['fpr_flag_margin_pts']:.0f} or more points above the overall FPR. "
+        "The decision threshold maximizes F1 on Wikipedia validation.",
+        "## 1. Summary",
+        _summary(result, bias_cfg),
+        "## 2. Biases found",
+        _biases_found(result, bias_cfg),
+        "## 3. Data-level and model-level slices before mitigation",
+        *slice_sections,
         "### Wikipedia validation",
         _overall_line(result["wiki_before"]["overall"]),
         _slice_table(result["wiki_before"]["table"]),
-        "## 2. Biases found",
-        ("Flagged on the Civil identity rows before mitigation: "
-         + (", ".join(f"`{s}`" for s in flagged_before) if flagged_before else "none") + "."),
-        "## 3. Mitigation",
+        "## 4. Mitigation",
         f"Non-toxic Wikipedia training rows that mention an identity term were reweighted by "
         f"each factor in {bias_cfg['reweight_factors']}. A factor passes when the validation "
         f"`{IDENTITY_SLICE}` slice's FPR gap is under {bias_cfg['fpr_flag_margin_pts']:.0f} "
         f"points and validation AUC drops by at most {bias_cfg['max_auc_drop']}. The smallest "
-        f"passing factor is kept. {mitigation}",
+        f"passing factor is kept. {mitigation_sentence(status, result['chosen_factor'])}",
         _md_table(["Factor", "Val AUC", "AUC drop", "Identity FPR gap (pts)", "Threshold",
                    "Passes"], trial_rows),
-        "## 4. Before and after on the Civil identity rows",
-        f"Before: {_overall_line(before['overall'])}",
-        f"After: {_overall_line(after['overall'])}",
-        _md_table(["Slice", "n", "FPR before", "FPR after", "Gap before (pts)",
-                   "Gap after (pts)", "Status"], compare_rows),
-        ("Still flagged after mitigation: "
-         + (", ".join(f"`{s}`" for s in flagged_after) if flagged_after else "none") + "."),
-        "## 5. Trade-off",
-        f"AUC {_num(before['overall']['auc'])} → {_num(after['overall']['auc'])}, "
-        f"F1 {_num(before['overall']['f1'])} → {_num(after['overall']['f1'])} "
-        "on the Civil identity rows.",
-        "## 6. Limits",
+        "## 5. Before and after on the Civil identity rows",
+        *compare_sections,
+        *_sensitivity(result),
+        "## 6. Trade-off",
+        trade_off,
+        "## 7. Limits",
         "- **Approximate lexicon.** Wikipedia slices rely on word matching against "
         "`config/identity_terms.txt`, which misses identity references it doesn't list and "
         "matches innocent uses (\"black car\").\n"
@@ -475,6 +695,9 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
     bias_cfg = cfg["bias"]
     label = bias_cfg["label"]
     labels = cfg["labels"]["names"]
+    civil_labels = bias_cfg["civil_labels"]
+    if label not in civil_labels:
+        raise ValueError(f"bias.label {label!r} must be one of bias.civil_labels")
     seed = cfg["seed"]
     margin, min_size = bias_cfg["fpr_flag_margin_pts"], bias_cfg["min_slice_size"]
     processed = Path(cfg["paths"]["processed_dir"])
@@ -487,7 +710,7 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
     with timed(summary):
         train = _read(train_path, ["id", "text", label])
         val = _read(val_path, ["id", "text", label, "char_len", "has_obfuscation"])
-        civil = _read(civil_path, ["id", "text", label])
+        civil = _read(civil_path, ["id", "text", *civil_labels])
 
         pattern = compile_lexicon(load_lexicon(cfg["paths"]["identity_terms"]))
         for name, df in (("train", train), ("val", val)):
@@ -500,11 +723,16 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
         civil_masks = civil_slices(civil, bias_cfg["identity_threshold"])
         factors = sorted({1, *bias_cfg["reweight_factors"]})
 
+        vectorizer = make_vectorizer(bias_cfg)
+        x_train = vectorizer.fit_transform(train["text"].fillna(""))
+        x_val = vectorizer.transform(val["text"].fillna(""))
+        x_civil = vectorizer.transform(civil["text"].fillna(""))
+
         trials, fitted = [], {}
         for factor in factors:
             weights = reweight(train, factor, label).to_numpy()
-            model = train_baseline(train["text"], train[label], bias_cfg, seed, weights)
-            val_scores = score(model, val["text"])
+            model = fit_classifier(x_train, train[label], bias_cfg, seed, weights)
+            val_scores = score(model, x_val)
             threshold = choose_threshold(val[label].to_numpy().astype(int), val_scores)
             preds = predictions_frame(val["id"], val_scores, label, labels)
             table, overall = slice_report(preds, val, wiki_masks, threshold, label,
@@ -518,19 +746,38 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
                         factor, overall["auc"], gap, threshold)
 
         chosen, passed = select_factor(trials, margin, bias_cfg["max_auc_drop"])
+        status = mitigation_status(chosen, passed)
+        # The next factor up is scored on Civil for the report only, never for selection.
+        sensitivity_factor = next((f for f in factors if f > chosen), None)
 
-        civil_results = {}
-        for tag, factor in (("civil_before", 1), ("civil_after", chosen)):
+        runs = {"civil_before": 1, "civil_after": chosen}
+        if sensitivity_factor is not None:
+            runs["civil_sensitivity"] = sensitivity_factor
+        civil_results, evaluated = {}, []
+        for tag, factor in runs.items():
             entry = fitted[factor]
-            preds = predictions_frame(civil["id"], score(entry["model"], civil["text"]),
-                                      label, labels)
-            table, overall = slice_report(preds, civil, civil_masks, entry["threshold"],
-                                          label, min_size, margin)
-            civil_results[tag] = {"table": table, "overall": overall}
+            preds = predictions_frame(civil["id"], score(entry["model"], x_civil), label, labels)
+            evaluated = scored_labels(preds, civil_labels)
+            civil_results[tag] = label_reports(preds, civil, civil_masks,
+                                               {label: entry["threshold"]}, evaluated,
+                                               min_size, margin)
 
-        result = {"label": label, "trials": trials, "chosen_factor": chosen,
-                  "mitigation_passed": passed, "wiki_before": fitted[1]["wiki"],
-                  "wiki_after": fitted[chosen]["wiki"], **civil_results}
+        positive_at = cfg["labels"]["civil_positive_threshold"]
+        excluded = [{"label": name, "n": len(civil), "positives": int((civil[name] == 1).sum())}
+                    for name in labels if name not in civil_labels and name in civil.columns]
+        result = {
+            "label": label, "trials": trials, "chosen_factor": chosen,
+            "mitigation_status": status, "wiki_before": fitted[1]["wiki"],
+            "wiki_after": fitted[chosen]["wiki"],
+            "civil_before": civil_results["civil_before"],
+            "civil_after": civil_results["civil_after"],
+            "sensitivity": (None if sensitivity_factor is None else
+                            {"factor": sensitivity_factor,
+                             "civil": civil_results["civil_sensitivity"]}),
+            "civil_labels": evaluated,
+            "unscored_labels": [n for n in civil_labels if n not in evaluated],
+            "excluded_labels": excluded, "civil_positive_threshold": positive_at,
+        }
 
         # Write sample_weight into train.parquet, re-read so only that column changes.
         train_file = pd.read_parquet(train_path)
@@ -539,41 +786,58 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
             train_file.to_parquet(tmp, index=False)
 
         atomic_write(out_dir / "bias_report.md", build_report(result, bias_cfg))
+        def as_json(entry: dict[str, Any]) -> dict[str, Any]:
+            return {"overall": entry["overall"], "slices": _records(entry["table"])}
+
         metrics = {
             "model_version": MODEL_VERSION, "label": label, "chosen_factor": chosen,
-            "mitigation_passed": passed, "trials": trials,
-            **{key: {"overall": result[key]["overall"], "slices": _records(result[key]["table"])}
-               for key in ("wiki_before", "wiki_after", "civil_before", "civil_after")},
+            "mitigation_status": status, "trials": trials,
+            "civil_labels": result["civil_labels"],
+            "unscored_labels": result["unscored_labels"], "excluded_labels": excluded,
+            "wiki_before": as_json(result["wiki_before"]),
+            "wiki_after": as_json(result["wiki_after"]),
+            # Civil results are keyed by label.
+            **{tag: {name: as_json(entry) for name, entry in civil_results[tag].items()}
+               for tag in ("civil_before", "civil_after")},
+            # Information only: Civil at the next factor up, not used to choose the factor.
+            "sensitivity_factor": sensitivity_factor,
+            "civil_sensitivity": ({name: as_json(entry) for name, entry
+                                   in civil_results["civil_sensitivity"].items()}
+                                  if sensitivity_factor is not None else None),
         }
         atomic_write(out_dir / "bias_metrics.json",
                      json.dumps(_clean(metrics), indent=2, sort_keys=True))
 
-        flagged_before = civil_results["civil_before"]["table"].query("flagged")["slice"].tolist()
-        flagged_after = civil_results["civil_after"]["table"].query("flagged")["slice"].tolist()
+        flagged_before = {name: _flagged(entry["table"])
+                          for name, entry in civil_results["civil_before"].items()}
+        flagged_after = {name: _flagged(entry["table"])
+                         for name, entry in civil_results["civil_after"].items()}
         if not passed:
             send_alert("warn", "Bias mitigation: no reweighting factor passed",
                        {"factors": factors, "margin_pts": margin})
-        if flagged_after:
+        if any(flagged_after.values()):
             send_alert("warn", "Bias slices still flagged on the Civil identity rows",
-                       {"slices": ", ".join(flagged_after)})
+                       {"slices": "; ".join(f"{name}: {', '.join(found)}"
+                                            for name, found in flagged_after.items() if found)})
 
+        before, after = civil_results["civil_before"][label], civil_results["civil_after"][label]
         summary.update({
             "rows_in": {"train": len(train), "val": len(val), "bias_eval": len(civil)},
             "rows_out": len(train_file),
             "chosen_factor": chosen,
-            "mitigation_passed": passed,
+            "mitigation_status": status,
             "reweighted_rows": int((train_file["sample_weight"] != 1.0).sum()),
             "threshold": fitted[chosen]["threshold"],
             "val_auc": {"before": trials[0]["val_auc"],
                         "after": fitted[chosen]["wiki"]["overall"]["auc"]},
-            "civil_auc": {"before": civil_results["civil_before"]["overall"]["auc"],
-                          "after": civil_results["civil_after"]["overall"]["auc"]},
-            "slices_judged": int(civil_results["civil_before"]["table"]["judged"].sum()),
+            "civil_auc": {"before": before["overall"]["auc"], "after": after["overall"]["auc"]},
+            "civil_labels": evaluated,
+            "slices_judged": int(before["table"]["judged"].sum()),
             "flagged_before": flagged_before,
             "flagged_after": flagged_after,
         })
-    logger.info("bias: chosen factor %s, flagged before %s, after %s",
-                chosen, flagged_before, flagged_after)
+    logger.info("bias: %s (factor %s), flagged before %s, after %s",
+                status, chosen, flagged_before, flagged_after)
     return _clean(summary)
 
 
