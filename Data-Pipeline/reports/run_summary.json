@@ -1,26 +1,25 @@
 {
-  "duration_s": 221.048,
-  "finished_at": "2026-10-26T00:21:39+00:00",
-  "rows_out": 4943337,
+  "duration_s": 381.873,
+  "finished_at": "2026-10-27T00:05:43+00:00",
+  "rows_out": 5075725,
   "slack_posted": false,
   "stages_real": [
     "acquire",
     "anomalies",
+    "bias",
     "dedupe",
     "dvc_version",
     "obfuscate",
     "preprocess",
+    "schema_stats",
     "split",
     "subsets"
   ],
-  "stages_stubbed": [
-    "bias",
-    "schema_stats"
-  ],
+  "stages_stubbed": [],
   "tasks": {
     "acquire": {
       "dropped": {},
-      "duration_s": 1.426,
+      "duration_s": 1.692,
       "files": {
         "civil/identities_test.parquet": 21577,
         "civil/test.parquet": 97320,
@@ -37,11 +36,11 @@
     "anomalies": {
       "checks": {
         "fail": 0,
-        "run": 83,
+        "run": 89,
         "warn": 1
       },
       "dropped": {},
-      "duration_s": 1.659,
+      "duration_s": 0.974,
       "mode": "real",
       "results": [
         {
@@ -624,6 +623,48 @@
           "passed": true,
           "severity": "fail",
           "target": "drift"
+        },
+        {
+          "check": "subset_size",
+          "detail": "2,000 rows, expected 2,000",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_wikipedia"
+        },
+        {
+          "check": "subset_size",
+          "detail": "3,000 rows, expected 3,000",
+          "passed": true,
+          "severity": "fail",
+          "target": "obfuscation"
+        },
+        {
+          "check": "subset_size",
+          "detail": "10,000 rows, expected 10,000",
+          "passed": true,
+          "severity": "fail",
+          "target": "h2_eval"
+        },
+        {
+          "check": "subset_size",
+          "detail": "4,000 rows, expected 4,000",
+          "passed": true,
+          "severity": "fail",
+          "target": "canary_civil"
+        },
+        {
+          "check": "subset_size",
+          "detail": "20 batches, expected 20",
+          "passed": true,
+          "severity": "fail",
+          "target": "drift batch count"
+        },
+        {
+          "check": "subset_size",
+          "detail": "all 20 batches have 2,000 rows",
+          "passed": true,
+          "severity": "fail",
+          "target": "drift batch rows"
         }
       ],
       "rows_checked": {
@@ -641,20 +682,36 @@
       "task": "anomalies"
     },
     "bias": {
-      "duration_s": 0.227,
-      "mode": "stub",
-      "parts": {
-        "bias": {
-          "dropped": {},
-          "duration_s": 0.227,
-          "mode": "stub",
-          "rows_out": 0,
-          "sample_weight_rows": 132388,
-          "task": "bias"
-        }
+      "chosen_factor": 1,
+      "civil_auc": {
+        "after": 0.8301946451860069,
+        "before": 0.8301946451860069
       },
-      "rows_out": 0,
-      "task": "bias"
+      "duration_s": 139.292,
+      "flagged_after": [
+        "sexual_orientation:homosexual_gay_or_lesbian",
+        "sexual_orientation:any"
+      ],
+      "flagged_before": [
+        "sexual_orientation:homosexual_gay_or_lesbian",
+        "sexual_orientation:any"
+      ],
+      "mitigation_passed": true,
+      "mode": "real",
+      "reweighted_rows": 0,
+      "rows_in": {
+        "bias_eval": 21577,
+        "train": 132388,
+        "val": 21363
+      },
+      "rows_out": 132388,
+      "slices_judged": 18,
+      "task": "bias",
+      "threshold": 0.25,
+      "val_auc": {
+        "after": 0.9747332222035932,
+        "before": 0.9747332222035932
+      }
     },
     "dedupe": {
       "dropped": {
@@ -662,7 +719,7 @@
         "gate_overlap": 1874,
         "near_duplicate": 1282
       },
-      "duration_s": 61.792,
+      "duration_s": 65.341,
       "gate_rows": 63978,
       "label_conflicts": 81,
       "mode": "real",
@@ -681,7 +738,7 @@
         "Data-Pipeline/data/raw.dvc",
         "Data-Pipeline/data/processed.dvc"
       ],
-      "duration_s": 3.775,
+      "duration_s": 3.87,
       "mode": "real",
       "pushed": true,
       "task": "dvc_version",
@@ -692,7 +749,7 @@
     },
     "obfuscate": {
       "dropped": {},
-      "duration_s": 0.797,
+      "duration_s": 0.848,
       "has_obfuscation_share": 0.2247,
       "mode": "real",
       "rows_in": {
@@ -713,7 +770,7 @@
         "empty_in_source": 0,
         "missing_created_date_kept": 0
       },
-      "duration_s": 142.286,
+      "duration_s": 145.448,
       "files": {
         "civil/identities_test_clean.parquet": {
           "dropped": {
@@ -774,24 +831,41 @@
       "task": "preprocess"
     },
     "schema_stats": {
-      "duration_s": 0.0,
-      "mode": "stub",
-      "parts": {
-        "schema_stats": {
-          "dropped": {},
-          "duration_s": 0.0,
-          "mode": "stub",
-          "note": "no schema written by the stub; run scripts.schema_stats --infer",
-          "rows_out": 0,
-          "task": "schema_stats"
-        }
+      "dropped": {},
+      "duration_s": 14.109,
+      "files_checked": 22,
+      "files_with_anomalies": [],
+      "mode": "real",
+      "rows_checked": {
+        "cache/civil/train": 100000,
+        "cache/civil/train_clean": 100000,
+        "processed/civil/bias_eval": 21577,
+        "processed/civil/canary_civil": 4000,
+        "processed/civil/drift": 40000,
+        "processed/civil/h2_eval": 10000,
+        "processed/civil/identities_test_clean": 21577,
+        "processed/civil/test_clean": 97320,
+        "processed/civil/validation_clean": 97320,
+        "processed/obfuscation": 3000,
+        "processed/wikipedia/canary_wikipedia": 2000,
+        "processed/wikipedia/gate": 63978,
+        "processed/wikipedia/test_clean": 63978,
+        "processed/wikipedia/train": 132388,
+        "processed/wikipedia/train_clean": 159571,
+        "processed/wikipedia/train_dedup": 155751,
+        "processed/wikipedia/val": 21363,
+        "raw/civil/identities_test": 21577,
+        "raw/civil/test": 97320,
+        "raw/civil/validation": 97320,
+        "raw/wikipedia/test": 63978,
+        "raw/wikipedia/train": 159571
       },
       "rows_out": 0,
       "task": "schema_stats"
     },
     "split": {
       "dropped": {},
-      "duration_s": 1.599,
+      "duration_s": 1.587,
       "files": {
         "canary_wikipedia": 2000,
         "gate": 63978,
@@ -851,13 +925,15 @@
         "2015-09-29 17:43:40.706242+00:00",
         "2017-11-11 00:33:39.605448+00:00"
       ],
-      "dropped": {},
-      "duration_s": 7.487,
+      "dropped": {
+        "teacher_shift_rows": 3033
+      },
+      "duration_s": 8.712,
       "excluded": {
-        "ids_listed": 0,
+        "ids_listed": 3033,
         "removed": {
           "train": 0,
-          "validation": 0
+          "validation": 3033
         }
       },
       "files": {
@@ -895,10 +971,10 @@
       "rows_out": 75577,
       "task": "subsets",
       "toxicity_pts": {
-        "canary_civil": 7.875,
+        "canary_civil": 7.15,
         "civil_test": 7.991,
         "civil_train": 7.997,
-        "civil_validation": 7.882,
+        "civil_validation": 7.148,
         "drift": 7.998,
         "h2_eval": 7.99
       }

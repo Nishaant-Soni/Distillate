@@ -1,0 +1,137 @@
+{
+  "failed": [],
+  "results": [
+    {
+      "anomalies": {},
+      "environment": "RAW_WIKI",
+      "rows": 159571,
+      "target": "raw/wikipedia/train"
+    },
+    {
+      "anomalies": {},
+      "environment": "RAW_WIKI",
+      "rows": 63978,
+      "target": "raw/wikipedia/test"
+    },
+    {
+      "anomalies": {},
+      "environment": "RAW_CIVIL",
+      "rows": 100000,
+      "target": "cache/civil/train"
+    },
+    {
+      "anomalies": {},
+      "environment": "RAW_CIVIL",
+      "rows": 97320,
+      "target": "raw/civil/validation"
+    },
+    {
+      "anomalies": {},
+      "environment": "RAW_CIVIL",
+      "rows": 97320,
+      "target": "raw/civil/test"
+    },
+    {
+      "anomalies": {},
+      "environment": "RAW_CIVIL",
+      "rows": 21577,
+      "target": "raw/civil/identities_test"
+    },
+    {
+      "anomalies": {},
+      "environment": "WIKI",
+      "rows": 159571,
+      "target": "processed/wikipedia/train_clean"
+    },
+    {
+      "anomalies": {},
+      "environment": "WIKI",
+      "rows": 63978,
+      "target": "processed/wikipedia/test_clean"
+    },
+    {
+      "anomalies": {},
+      "environment": "WIKI",
+      "rows": 155751,
+      "target": "processed/wikipedia/train_dedup"
+    },
+    {
+      "anomalies": {},
+      "environment": "WIKI",
+      "rows": 21363,
+      "target": "processed/wikipedia/val"
+    },
+    {
+      "anomalies": {},
+      "environment": "WIKI",
+      "rows": 63978,
+      "target": "processed/wikipedia/gate"
+    },
+    {
+      "anomalies": {},
+      "environment": "WIKI",
+      "rows": 2000,
+      "target": "processed/wikipedia/canary_wikipedia"
+    },
+    {
+      "anomalies": {},
+      "environment": "WIKI_TRAIN",
+      "rows": 132388,
+      "target": "processed/wikipedia/train"
+    },
+    {
+      "anomalies": {},
+      "environment": "WIKI",
+      "rows": 3000,
+      "target": "processed/obfuscation"
+    },
+    {
+      "anomalies": {},
+      "environment": "CIVIL",
+      "rows": 100000,
+      "target": "cache/civil/train_clean"
+    },
+    {
+      "anomalies": {},
+      "environment": "CIVIL",
+      "rows": 97320,
+      "target": "processed/civil/validation_clean"
+    },
+    {
+      "anomalies": {},
+      "environment": "CIVIL",
+      "rows": 97320,
+      "target": "processed/civil/test_clean"
+    },
+    {
+      "anomalies": {},
+      "environment": "CIVIL",
+      "rows": 10000,
+      "target": "processed/civil/h2_eval"
+    },
+    {
+      "anomalies": {},
+      "environment": "CIVIL",
+      "rows": 4000,
+      "target": "processed/civil/canary_civil"
+    },
+    {
+      "anomalies": {},
+      "environment": "CIVIL",
+      "rows": 40000,
+      "target": "processed/civil/drift"
+    },
+    {
+      "anomalies": {},
+      "environment": "CIVIL_BIAS",
+      "rows": 21577,
+      "target": "processed/civil/identities_test_clean"
+    },
+    {
+      "anomalies": {},
+      "environment": "CIVIL_BIAS",
+      "rows": 21577,
+      "target": "processed/civil/bias_eval"
+    }
+  ]
+}
