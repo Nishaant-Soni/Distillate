@@ -45,8 +45,10 @@ reports/schema/stats/processed/civil/drift.pbtxt), so two runs can be compared
 and the monitoring phase's drift comparator can load them as a baseline.
 Before saving, the most-frequent-values lists of the text column are removed:
 they hold real comments, and the Kaggle rules (work plan v3, section 2.2) keep
-comment text out of the repository. Length, uniqueness and every other
-column's statistics are kept.
+comment text out of the repository. The id, article_id and created_date lists
+are removed too: those values are nearly all unique, so they add size without
+helping to compare runs. Every other statistic is kept. The files are versioned
+with DVC by the dvc_version task (reports/schema/stats.dvc), not committed to Git.
 """
 
 from __future__ import annotations
@@ -71,8 +73,10 @@ PROCESSED_SCHEMA = "schema.pbtxt"
 RAW_ENVS = ("RAW_WIKI", "RAW_CIVIL")
 PROCESSED_ENVS = ("WIKI", "WIKI_TRAIN", "CIVIL", "CIVIL_BIAS")
 FLAG_COLUMNS = ("has_identity_term", "has_obfuscation")
-# Free-text columns whose example values must never be written to reports/.
-TEXT_COLUMNS = ("text",)
+# Columns whose most-frequent-values lists are removed before statistics are saved.
+# text: they are real comments, which the Kaggle rules keep out of the repository.
+# The others: nearly every value is unique, so the lists only add size.
+STRIP_TOP_VALUES = ("text", "id", "article_id", "created_date")
 
 
 class SchemaAnomalyError(RuntimeError):
@@ -312,31 +316,37 @@ def stats_dir(cfg: dict[str, Any]) -> Path:
     return Path(cfg["paths"]["reports_dir"]) / "schema" / "stats"
 
 
-def without_comment_text(stats):
-    """A copy of the statistics with the text column's example values removed.
+def _from_pipeline_root(path: Path, cfg: dict[str, Any]) -> str:
+    """A path starting at reports/, the same form validation.json and the summary use."""
+    return path.relative_to(Path(cfg["paths"]["reports_dir"]).parent).as_posix()
 
-    TFDV records each string column's most frequent values, which for `text`
-    are real comments. Those may not be committed (Kaggle rules), so they are
-    cleared; the text column's length and uniqueness statistics remain.
+
+def without_top_values(stats):
+    """A copy of the statistics with STRIP_TOP_VALUES columns' example values removed.
+
+    TFDV records each string column's most frequent values. For `text` those
+    are real comments, which may not be committed (Kaggle rules); for the id
+    and date columns they are near-unique and useless. Counts, lengths and
+    uniqueness statistics stay.
     """
     clean = type(stats)()
     clean.CopyFrom(stats)
     for dataset in clean.datasets:
         for feature in dataset.features:
             name = feature.path.step[0] if feature.path.step else feature.name
-            if name in TEXT_COLUMNS and feature.HasField("string_stats"):
+            if name in STRIP_TOP_VALUES and feature.HasField("string_stats"):
                 feature.string_stats.ClearField("top_values")
                 feature.string_stats.ClearField("rank_histogram")
     return clean
 
 
 def save_statistics(stats, cfg: dict[str, Any], target_name: str) -> str:
-    """Write one target's TFDV statistics as a text proto; return its path under reports/."""
+    """Write one target's TFDV statistics as a text proto; return its reports/ path."""
     path = stats_dir(cfg) / f"{target_name}.pbtxt"
     path.parent.mkdir(parents=True, exist_ok=True)
     with atomic_path(path) as tmp:
-        _tfdv().write_stats_text(without_comment_text(stats), str(tmp))
-    return path.relative_to(Path(cfg["paths"]["reports_dir"])).as_posix()
+        _tfdv().write_stats_text(without_top_values(stats), str(tmp))
+    return _from_pipeline_root(path, cfg)
 
 
 def validate(cfg: dict[str, Any], only: list[str] | None = None) -> dict[str, Any]:
@@ -374,8 +384,7 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
         summary["files_checked"] = len(report["results"])
         summary["rows_checked"] = {r["target"]: r["rows"] for r in report["results"]}
         summary["files_with_anomalies"] = report["failed"]
-        summary["statistics_dir"] = stats_dir(cfg).relative_to(
-            Path(cfg["paths"]["reports_dir"]).parent).as_posix()
+        summary["statistics_dir"] = _from_pipeline_root(stats_dir(cfg), cfg)
     atomic_write(Path(cfg["paths"]["reports_dir"]) / "schema" / "validation.json",
                  json.dumps(report, indent=2, sort_keys=True))
     write_summary(TASK_ID, summary, cfg)
