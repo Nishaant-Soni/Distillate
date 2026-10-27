@@ -99,6 +99,17 @@ docker compose exec --workdir /opt/airflow/repo/Data-Pipeline airflow-scheduler 
 Stages are safe to rerun: every write goes through `utils.atomic_write`, so an
 interrupted task leaves the previous output intact rather than a half-written file.
 
+**Common first-run problems**
+
+| Symptom | Cause and fix |
+|---|---|
+| `no configuration file provided: not found` | You are in the repository root. The compose file lives in `Data-Pipeline/`; `cd` there first |
+| `acquire` fails with a 401 | Either the Kaggle credentials are wrong, or a variable set in your shell is overriding `.env` — see section 1 |
+| `acquire` fails with a 403 | You have not accepted that competition's rules yet. They are accepted per competition, so check both |
+| `Permission denied: .../\.config/kaggle` | An older image. Rebuild, or set `KAGGLE_CONFIG_DIR=/tmp/kaggle` in `.env` |
+| The build never prints `TFDV checkpoint OK` | The TensorFlow environment failed to build; nothing downstream will work. Rebuild with `docker compose build --no-cache` |
+| `dvc push` warns about credentials | Expected unless you ran `gcloud auth application-default login` and set `GCLOUD_CONFIG_DIR`. The run still succeeds; only the upload is skipped |
+
 ### Logging and tracking
 
 - **One logger.** Every module logs through `utils.get_logger(__name__)`, in one format:
