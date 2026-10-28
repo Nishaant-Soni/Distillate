@@ -98,7 +98,7 @@ Containers read `.env` only when they are created, so after changing it run
 so the next run skips the downloads. Avoid `docker compose down -v` unless you want a cold
 run: it deletes that volume and the Airflow database with it.
 
-A full run on real data takes about 7–8 minutes of task time after the downloads are
+A full run on real data takes about 6–8 minutes of task time, depending on the machine, after the downloads are
 cached. **Keep the machine awake** — everything runs in Docker on your laptop, so sleep
 suspends the run and tasks can exceed their timeouts on wake.
 
