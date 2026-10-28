@@ -1121,20 +1121,20 @@
       "val_auc": 0.9734587969246234
     },
     {
-      "auc_drop": 0.0017245983438822776,
+      "auc_drop": 0.0017245983438823886,
       "factor": 3,
       "identity_fpr_gap_pts": 0.5575203523288401,
       "passes": true,
       "threshold": 0.31,
-      "val_auc": 0.9730086238597109
+      "val_auc": 0.9730086238597108
     },
     {
-      "auc_drop": 0.00252632051939794,
+      "auc_drop": 0.002526295360225861,
       "factor": 5,
       "identity_fpr_gap_pts": 0.08053130290025072,
       "passes": true,
       "threshold": 0.27,
-      "val_auc": 0.9722069016841952
+      "val_auc": 0.9722069268433673
     }
   ],
   "unscored_labels": [

@@ -1,6 +1,6 @@
 {
-  "duration_s": 485.039,
-  "finished_at": "2026-10-27T22:35:24+00:00",
+  "duration_s": 342.57,
+  "finished_at": "2026-10-28T00:39:59+00:00",
   "rows_out": 5075725,
   "slack_posted": false,
   "stages_real": [
@@ -19,7 +19,7 @@
   "tasks": {
     "acquire": {
       "dropped": {},
-      "duration_s": 4.032,
+      "duration_s": 1.302,
       "files": {
         "civil/identities_test.parquet": 21577,
         "civil/test.parquet": 97320,
@@ -40,7 +40,7 @@
         "warn": 1
       },
       "dropped": {},
-      "duration_s": 3.525,
+      "duration_s": 0.896,
       "mode": "real",
       "results": [
         {
@@ -690,7 +690,7 @@
       "civil_labels": [
         "toxicity"
       ],
-      "duration_s": 112.78,
+      "duration_s": 90.605,
       "flagged_after": {
         "toxicity": [
           "sexual_orientation:homosexual_gay_or_lesbian",
@@ -726,7 +726,7 @@
         "gate_overlap": 1874,
         "near_duplicate": 1282
       },
-      "duration_s": 123.568,
+      "duration_s": 65.431,
       "gate_rows": 63978,
       "label_conflicts": 81,
       "mode": "real",
@@ -743,21 +743,22 @@
     "dvc_version": {
       "commit_reminder": [
         "Data-Pipeline/data/raw.dvc",
-        "Data-Pipeline/data/processed.dvc"
+        "Data-Pipeline/data/processed.dvc",
+        "Data-Pipeline/reports/schema/stats.dvc"
       ],
-      "duration_s": 5.068,
+      "duration_s": 6.872,
       "mode": "real",
-      "pushed": false,
-      "skipped_push": "DVC_PUSH is false",
+      "pushed": true,
       "task": "dvc_version",
       "tracked": [
         "Data-Pipeline/data/raw",
-        "Data-Pipeline/data/processed"
+        "Data-Pipeline/data/processed",
+        "Data-Pipeline/reports/schema/stats"
       ]
     },
     "obfuscate": {
       "dropped": {},
-      "duration_s": 0.732,
+      "duration_s": 0.577,
       "has_obfuscation_share": 0.2247,
       "mode": "real",
       "rows_in": {
@@ -778,7 +779,7 @@
         "empty_in_source": 0,
         "missing_created_date_kept": 0
       },
-      "duration_s": 179.831,
+      "duration_s": 148.615,
       "files": {
         "civil/identities_test_clean.parquet": {
           "dropped": {
@@ -840,7 +841,7 @@
     },
     "schema_stats": {
       "dropped": {},
-      "duration_s": 29.359,
+      "duration_s": 16.276,
       "files_checked": 22,
       "files_with_anomalies": [],
       "mode": "real",
@@ -869,11 +870,12 @@
         "raw/wikipedia/train": 159571
       },
       "rows_out": 0,
+      "statistics_dir": "reports/schema/stats",
       "task": "schema_stats"
     },
     "split": {
       "dropped": {},
-      "duration_s": 3.278,
+      "duration_s": 2.01,
       "files": {
         "canary_wikipedia": 2000,
         "gate": 63978,
@@ -936,7 +938,7 @@
       "dropped": {
         "teacher_shift_rows": 3033
       },
-      "duration_s": 22.866,
+      "duration_s": 9.986,
       "excluded": {
         "ids_listed": 3033,
         "removed": {

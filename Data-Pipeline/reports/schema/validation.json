@@ -5,132 +5,154 @@
       "anomalies": {},
       "environment": "RAW_WIKI",
       "rows": 159571,
+      "statistics": "reports/schema/stats/raw/wikipedia/train.pbtxt",
       "target": "raw/wikipedia/train"
     },
     {
       "anomalies": {},
       "environment": "RAW_WIKI",
       "rows": 63978,
+      "statistics": "reports/schema/stats/raw/wikipedia/test.pbtxt",
       "target": "raw/wikipedia/test"
     },
     {
       "anomalies": {},
       "environment": "RAW_CIVIL",
       "rows": 100000,
+      "statistics": "reports/schema/stats/cache/civil/train.pbtxt",
       "target": "cache/civil/train"
     },
     {
       "anomalies": {},
       "environment": "RAW_CIVIL",
       "rows": 97320,
+      "statistics": "reports/schema/stats/raw/civil/validation.pbtxt",
       "target": "raw/civil/validation"
     },
     {
       "anomalies": {},
       "environment": "RAW_CIVIL",
       "rows": 97320,
+      "statistics": "reports/schema/stats/raw/civil/test.pbtxt",
       "target": "raw/civil/test"
     },
     {
       "anomalies": {},
       "environment": "RAW_CIVIL",
       "rows": 21577,
+      "statistics": "reports/schema/stats/raw/civil/identities_test.pbtxt",
       "target": "raw/civil/identities_test"
     },
     {
       "anomalies": {},
       "environment": "WIKI",
       "rows": 159571,
+      "statistics": "reports/schema/stats/processed/wikipedia/train_clean.pbtxt",
       "target": "processed/wikipedia/train_clean"
     },
     {
       "anomalies": {},
       "environment": "WIKI",
       "rows": 63978,
+      "statistics": "reports/schema/stats/processed/wikipedia/test_clean.pbtxt",
       "target": "processed/wikipedia/test_clean"
     },
     {
       "anomalies": {},
       "environment": "WIKI",
       "rows": 155751,
+      "statistics": "reports/schema/stats/processed/wikipedia/train_dedup.pbtxt",
       "target": "processed/wikipedia/train_dedup"
     },
     {
       "anomalies": {},
       "environment": "WIKI",
       "rows": 21363,
+      "statistics": "reports/schema/stats/processed/wikipedia/val.pbtxt",
       "target": "processed/wikipedia/val"
     },
     {
       "anomalies": {},
       "environment": "WIKI",
       "rows": 63978,
+      "statistics": "reports/schema/stats/processed/wikipedia/gate.pbtxt",
       "target": "processed/wikipedia/gate"
     },
     {
       "anomalies": {},
       "environment": "WIKI",
       "rows": 2000,
+      "statistics": "reports/schema/stats/processed/wikipedia/canary_wikipedia.pbtxt",
       "target": "processed/wikipedia/canary_wikipedia"
     },
     {
       "anomalies": {},
       "environment": "WIKI_TRAIN",
       "rows": 132388,
+      "statistics": "reports/schema/stats/processed/wikipedia/train.pbtxt",
       "target": "processed/wikipedia/train"
     },
     {
       "anomalies": {},
       "environment": "WIKI",
       "rows": 3000,
+      "statistics": "reports/schema/stats/processed/obfuscation.pbtxt",
       "target": "processed/obfuscation"
     },
     {
       "anomalies": {},
       "environment": "CIVIL",
       "rows": 100000,
+      "statistics": "reports/schema/stats/cache/civil/train_clean.pbtxt",
       "target": "cache/civil/train_clean"
     },
     {
       "anomalies": {},
       "environment": "CIVIL",
       "rows": 97320,
+      "statistics": "reports/schema/stats/processed/civil/validation_clean.pbtxt",
       "target": "processed/civil/validation_clean"
     },
     {
       "anomalies": {},
       "environment": "CIVIL",
       "rows": 97320,
+      "statistics": "reports/schema/stats/processed/civil/test_clean.pbtxt",
       "target": "processed/civil/test_clean"
     },
     {
       "anomalies": {},
       "environment": "CIVIL",
       "rows": 10000,
+      "statistics": "reports/schema/stats/processed/civil/h2_eval.pbtxt",
       "target": "processed/civil/h2_eval"
     },
     {
       "anomalies": {},
       "environment": "CIVIL",
       "rows": 4000,
+      "statistics": "reports/schema/stats/processed/civil/canary_civil.pbtxt",
       "target": "processed/civil/canary_civil"
     },
     {
       "anomalies": {},
       "environment": "CIVIL",
       "rows": 40000,
+      "statistics": "reports/schema/stats/processed/civil/drift.pbtxt",
       "target": "processed/civil/drift"
     },
     {
       "anomalies": {},
       "environment": "CIVIL_BIAS",
       "rows": 21577,
+      "statistics": "reports/schema/stats/processed/civil/identities_test_clean.pbtxt",
       "target": "processed/civil/identities_test_clean"
     },
     {
       "anomalies": {},
       "environment": "CIVIL_BIAS",
       "rows": 21577,
+      "statistics": "reports/schema/stats/processed/civil/bias_eval.pbtxt",
       "target": "processed/civil/bias_eval"
     }
   ]
