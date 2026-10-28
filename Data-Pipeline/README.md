@@ -229,7 +229,8 @@ Data-Pipeline/
 │   ├── raw.dvc, processed.dvc  DVC pointers to the raw and processed Parquet
 │   ├── schema/               the two curated TFDV schemas (section 5.4)
 │   └── splits/               id lists per set and civil_drift_ids.csv
-├── reports/                  run summary, dedupe removals, schema validation and statistics, bias report
+├── reports/                  run summary, dedupe removals, schema validation, bias report
+│   └── schema/stats.dvc      DVC pointer to the TFDV statistics (the files stay out of Git)
 ├── docs/images/              Airflow Graph and Gantt screenshots (sections 3 and 8)
 ├── tests/                    pytest; the Airflow DAG tests skip outside the image
 ├── logs/                     Airflow task logs (created at runtime, git-ignored)
@@ -510,7 +511,7 @@ docker compose exec airflow-scheduler bash -c \
   "cd /opt/airflow/repo/Data-Pipeline && /opt/tfenv/bin/python -m scripts.schema_stats --infer"
 ```
 
-If a schema file is missing, the stage stops and says to run `--infer`. On the first full run on real data, all 22 files matched their schemas, in about 25 seconds.
+If a schema file is missing, the stage stops and says to run `--infer`. On the official run on real data, all 22 files matched their schemas with no anomalies in about 16 seconds, and a statistics file was written for each of the 22.
 
 **Statistics:** the TFDV statistics for every validated file are saved as text protos in `reports/schema/stats/`, mirroring the target names (for example `reports/schema/stats/processed/civil/drift.pbtxt`). Each entry in `validation.json` links to its statistics file. They let two runs be compared feature by feature (`tfdv.load_stats_text`, then `tfdv.visualize_statistics(lhs, rhs)` or a skew/drift comparator), and they are the baseline the monitoring phase's drift checks read.
 
@@ -585,7 +586,7 @@ There is no `dvc.yaml`: Airflow runs the pipeline, so DVC is used only to versio
 outputs (`dvc add` plus `.dvc` pointers), not as a second pipeline runner.
 
 ```bash
-dvc pull                 # fetch the data for the current commit
+dvc pull                 # fetch the data and TFDV statistics for the current commit
 ```
 
 **Access.** The remote is a private bucket (`gs://distillate-mlops-data/dvc`), so `dvc pull` and `dvc push` need a Google account that has access to it. DVC signs in with Application Default Credentials, so run this once with that account:
