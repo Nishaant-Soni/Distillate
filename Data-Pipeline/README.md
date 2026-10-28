@@ -232,6 +232,7 @@ Data-Pipeline/
 ├── reports/                  run summary, dedupe removals, schema validation and statistics, bias report
 ├── docs/images/              Airflow Graph and Gantt screenshots (sections 3 and 8)
 ├── tests/                    pytest; the Airflow DAG tests skip outside the image
+├── logs/                     Airflow task logs (created at runtime, git-ignored)
 ├── Dockerfile                Airflow 3.3.2 on Python 3.12, plus TFDV on 3.11 at /opt/tfenv
 └── docker-compose.yaml       LocalExecutor, Postgres, and the Kaggle download cache
 ```
@@ -530,7 +531,7 @@ Runs after every data stage and checks all of their outputs. Fail-level checks s
 | Missing text or labels | Fail above 0.1%, warn below | Empty text or missing labels (`validation.max_missing_fraction`) |
 | Label domain | Fail | A label outside {0, 1}, or a `*_frac` value outside [0, 1] |
 | Duplicate ids | Fail | An id repeated within one file |
-| Long text | Warn | Comments over 5,000 characters (`preprocess.max_char_len_flag`) |
+| Long text (length outlier) | Warn | Comments over 5,000 characters (`preprocess.max_char_len_flag`) |
 | Prevalence gap | Warn | Train and validation label rates differing by more than 1 point (`validation.prevalence_tolerance_pts`) |
 | `created_date` | Fail | Missing or unparseable dates in Civil files. Parsed with `format="mixed"`, since some Kaggle timestamps have no fractional seconds |
 | Expected file present | Fail | An output file an upstream stage should have written |
@@ -580,6 +581,8 @@ See the [bias report](reports/bias/bias_report.md) for the full slice tables, th
   1,804,874 and 97,320 twice for Civil, 21,577 identity-annotated rows.
 
 **DVC.** Git holds only the small `.dvc` pointer files; the Parquet lives in the bucket.
+There is no `dvc.yaml`: Airflow runs the pipeline, so DVC is used only to version its
+outputs (`dvc add` plus `.dvc` pointers), not as a second pipeline runner.
 
 ```bash
 dvc pull                 # fetch the data for the current commit
