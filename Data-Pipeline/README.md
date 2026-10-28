@@ -161,7 +161,7 @@ interrupted task leaves the previous output intact rather than a half-written fi
 ### Running tests locally (no Docker needed)
 ```bash
 cd Distillate/Data-Pipeline
-python3.12 -m venv .venv
+python3.12 -m venv .venv            # Windows: py -3.12 -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 pytest
@@ -333,7 +333,7 @@ python -m scripts.stage --stage dedupe
 
 Writes six raw files to `data/raw/` and a `manifest.json` with row counts and SHA-256
 checksums. A rerun verifies the files against the manifest and skips the download
-(68 s first run, under 1 s afterwards).
+(68 s first run, a few seconds afterwards).
 
 | File | Rows |
 |---|---|
@@ -586,7 +586,8 @@ There is no `dvc.yaml`: Airflow runs the pipeline, so DVC is used only to versio
 outputs (`dvc add` plus `.dvc` pointers), not as a second pipeline runner.
 
 ```bash
-dvc pull                 # fetch the data and TFDV statistics for the current commit
+pip install "dvc[gs]==3.67.1"   # skip if you ran the test install in section 2; [gs] is needed for the bucket
+dvc pull                        # fetch the data and TFDV statistics for the current commit
 ```
 
 **Access.** The remote is a private bucket (`gs://distillate-mlops-data/dvc`), so `dvc pull` and `dvc push` need a Google account that has access to it. DVC signs in with Application Default Credentials, so run this once with that account:
@@ -666,7 +667,7 @@ row counts and per-file checksums, and skips the download when it still matches:
 | `acquire` | Duration |
 |---|---|
 | Cold, first run, about 2 GB over the network | **68.7 s** |
-| Warm, manifest matches | **2.7 – 9.7 s** |
+| Warm, manifest matches | **1.3 – 9.7 s** |
 
 That is a real ~65 s saved on every rerun, and it is why `data/kaggle` is a named Docker
 volume: the cache survives `docker compose down`. To force a cold run, remove the volume.
