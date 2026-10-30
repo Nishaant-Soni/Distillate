@@ -1,0 +1,233 @@
+{
+  "source": "wiki_train_raw.parquet",
+  "shard_size": 5000,
+  "num_shards": 32,
+  "total_rows": 159571,
+  "ids_sha256": "7aa5df9b8b23164bdb96a82e914cd321cc2f143730a80dc1235632669cb95829",
+  "shards": [
+    {
+      "name": "shard_0000",
+      "row_count": 5000,
+      "first_id": "0000997932d777bf",
+      "last_id": "081afbd040dda529",
+      "ids_sha256": "ebe8ca786b2910f62ff99e723966edbac881d97d98997a5b34f1ba319bc82645"
+    },
+    {
+      "name": "shard_0001",
+      "row_count": 5000,
+      "first_id": "081b955d8944c8c8",
+      "last_id": "100666285e9a18e0",
+      "ids_sha256": "877d879d8bf7a6f50388b4737c254b024ef3b530078218995d9f130f166dd8af"
+    },
+    {
+      "name": "shard_0002",
+      "row_count": 5000,
+      "first_id": "1006c2594423ee54",
+      "last_id": "180d34d07e7f8f94",
+      "ids_sha256": "344bfeaeb3cf5ad0ee849cb520296159fb9ee88a915df9f8d0e1c20c4b6abe51"
+    },
+    {
+      "name": "shard_0003",
+      "row_count": 5000,
+      "first_id": "180dc9666e101d0f",
+      "last_id": "1ff2d6c2cd68ad01",
+      "ids_sha256": "9b6f467260cf6479604871d8f97ccb409ece1b0268498b59222741a39c474a06"
+    },
+    {
+      "name": "shard_0004",
+      "row_count": 5000,
+      "first_id": "1ff390b8954ff045",
+      "last_id": "27d6fe0530221fa9",
+      "ids_sha256": "2ff5de7d1cf46e987482bd5bb9403b557be7e3df40e7b563524cae04fe2fa6cd"
+    },
+    {
+      "name": "shard_0005",
+      "row_count": 5000,
+      "first_id": "27d74535410a7592",
+      "last_id": "2fb16f82e78b1467",
+      "ids_sha256": "302e3e5e1e5f0b02f7b9a71dc8cbdbe668ca8441502fdc2101954afdb9ec7314"
+    },
+    {
+      "name": "shard_0006",
+      "row_count": 5000,
+      "first_id": "2fb276653cb8f3e1",
+      "last_id": "37ad37127c4ecce3",
+      "ids_sha256": "3a52d5abc169e66bb855db8bbab5980b0324b6ef711962f83093118241c880ae"
+    },
+    {
+      "name": "shard_0007",
+      "row_count": 5000,
+      "first_id": "37ae3f5982e4a760",
+      "last_id": "3f80bf23067730cf",
+      "ids_sha256": "ec04218226353cae725edcb83c4acdd7a53b91ba35dae9809dc3bde246c71d82"
+    },
+    {
+      "name": "shard_0008",
+      "row_count": 5000,
+      "first_id": "3f814c36c6413dae",
+      "last_id": "479ed947e75a04b7",
+      "ids_sha256": "7559838b35cee2548c94e12cc9e999560c0d553cf3ba4cd5c2a8def987c441be"
+    },
+    {
+      "name": "shard_0009",
+      "row_count": 5000,
+      "first_id": "479f6278265d7e0b",
+      "last_id": "4fd26689fbc228d5",
+      "ids_sha256": "4b8050a647f49ff5eedbb1d4c693cfc45fd0786eaf1e3b76aa0825e78b18e85c"
+    },
+    {
+      "name": "shard_0010",
+      "row_count": 5000,
+      "first_id": "4fd2dacaa3460def",
+      "last_id": "57f62e75faab9be5",
+      "ids_sha256": "ff130f69a90bf2c17de955975589172ed64a169670f2a1194f76bfe04fe41102"
+    },
+    {
+      "name": "shard_0011",
+      "row_count": 5000,
+      "first_id": "57f633e08a6d641b",
+      "last_id": "600c2835463f14e1",
+      "ids_sha256": "2ae0f6bdd8c02103345d7bf45a355de805243f838fe0e3fbe26e97044fe855ca"
+    },
+    {
+      "name": "shard_0012",
+      "row_count": 5000,
+      "first_id": "600c33ccfcf85b00",
+      "last_id": "67f1df298a4b259d",
+      "ids_sha256": "e21e5fd0330654b7b5644210899a3998e8c61e3656aae9a3498256230a912ce1"
+    },
+    {
+      "name": "shard_0013",
+      "row_count": 5000,
+      "first_id": "67f25dc1650fa63d",
+      "last_id": "6ff0e3e3eb11667c",
+      "ids_sha256": "221589542b0786fa10bddd7988a3a9f743eca9c17a82bfc0f6cab278096fd47c"
+    },
+    {
+      "name": "shard_0014",
+      "row_count": 5000,
+      "first_id": "6ff1df1bf679c4d0",
+      "last_id": "780b8276d664335f",
+      "ids_sha256": "b0bbd326ac9086cf3dc56b606314a7bc374304035c9fb9444b9d0fb1179854c3"
+    },
+    {
+      "name": "shard_0015",
+      "row_count": 5000,
+      "first_id": "780babc75b4b548b",
+      "last_id": "8031b8793f76ac8b",
+      "ids_sha256": "fac26d63ea927bf47c0f957b11a16b65b0a79543f1e918fa2f1347f6a6789355"
+    },
+    {
+      "name": "shard_0016",
+      "row_count": 5000,
+      "first_id": "803215d18447b29f",
+      "last_id": "886d23164cb97185",
+      "ids_sha256": "287977630f6deca68a37994004fdcbb1ac6386e19196241819e63fab0953a1f0"
+    },
+    {
+      "name": "shard_0017",
+      "row_count": 5000,
+      "first_id": "886d3d894af06673",
+      "last_id": "9056b54519bc7424",
+      "ids_sha256": "9c591091095d7e7fd264d7ec09e9754e676d37eee988792c3578eed80067d909"
+    },
+    {
+      "name": "shard_0018",
+      "row_count": 5000,
+      "first_id": "9056c4ca439083c9",
+      "last_id": "985a966ac1c36af0",
+      "ids_sha256": "095b838854f3abd628bf6b2cb3d143764a374393ebdc07a4d8c60dbabb9b7d70"
+    },
+    {
+      "name": "shard_0019",
+      "row_count": 5000,
+      "first_id": "985b4b7a92ed18b7",
+      "last_id": "a0826e9f0a222426",
+      "ids_sha256": "b98abef257a0592f46495c8440829cdea31c8886acc593c0badacb2501c43859"
+    },
+    {
+      "name": "shard_0020",
+      "row_count": 5000,
+      "first_id": "a08283b34c26de80",
+      "last_id": "a88956aec9cff8d8",
+      "ids_sha256": "8b69012536f33c42d15e3f562ed0738ea1193242d981fa83e02e6ebc9bee64e3"
+    },
+    {
+      "name": "shard_0021",
+      "row_count": 5000,
+      "first_id": "a8895c1f8cf47fae",
+      "last_id": "b07d2011c53a120c",
+      "ids_sha256": "02affc5b075f00a61142da4bf75394fecc2ee68f119cc90a565077ccb8234dfe"
+    },
+    {
+      "name": "shard_0022",
+      "row_count": 5000,
+      "first_id": "b07d46124a75f618",
+      "last_id": "b8b40ce1f33c5423",
+      "ids_sha256": "c3b637fb5225aef712a6cc6cba43f2814fc3d0ce910d4102f804326a336110a4"
+    },
+    {
+      "name": "shard_0023",
+      "row_count": 5000,
+      "first_id": "b8b48c4ec47252ee",
+      "last_id": "c0cefce691281d8a",
+      "ids_sha256": "ad34df345ec4dc8fe1dea606f2efc5ef850503cbe6fd4f3fd502675add3e0207"
+    },
+    {
+      "name": "shard_0024",
+      "row_count": 5000,
+      "first_id": "c0cf0a70ebe7a64c",
+      "last_id": "c8c7c5f902375b3b",
+      "ids_sha256": "deb65c1f0569cd12f501ca5d517143978b60df1417dd08b7227154bde00b5a94"
+    },
+    {
+      "name": "shard_0025",
+      "row_count": 5000,
+      "first_id": "c8c833a5bdf68294",
+      "last_id": "d0c9322a22dd7647",
+      "ids_sha256": "f7f47c7e4c806d83e17845143d79d32ba16c6241b49762838a4b5cb5a69987d4"
+    },
+    {
+      "name": "shard_0026",
+      "row_count": 5000,
+      "first_id": "d0c9d826b73eef93",
+      "last_id": "d8b2d2e5fa1e2c6c",
+      "ids_sha256": "24c242eb00b3ca9f3da5cde2102c3c7aec6e0a2af7bce327ca18998c1197086b"
+    },
+    {
+      "name": "shard_0027",
+      "row_count": 5000,
+      "first_id": "d8b358d7658c7a18",
+      "last_id": "e0e41563e7bd51e1",
+      "ids_sha256": "8a3163f553ae90bcaa07ba6e9ddf350adc82a32ec3aa4d74aeabd73b4830dc3b"
+    },
+    {
+      "name": "shard_0028",
+      "row_count": 5000,
+      "first_id": "e0e45b8193c109b4",
+      "last_id": "e8e1ad025d9d4519",
+      "ids_sha256": "356309354bd53d4fa496490a670fd2cb3169e8c784c51038897af454eb578593"
+    },
+    {
+      "name": "shard_0029",
+      "row_count": 5000,
+      "first_id": "e8e28d1a6b3ff575",
+      "last_id": "f0dce24e10102dcf",
+      "ids_sha256": "07f85680ca01417128a07e7e050580b49c0805c4ce4df466aefe1a73b7c23328"
+    },
+    {
+      "name": "shard_0030",
+      "row_count": 5000,
+      "first_id": "f0dcf6fcc4c3683b",
+      "last_id": "f8b4cd1cc43617bd",
+      "ids_sha256": "0d98509da742ae67fed66d5a06f433b9fd9851c7989a5f01105e67f1feeb3fb4"
+    },
+    {
+      "name": "shard_0031",
+      "row_count": 4571,
+      "first_id": "f8b4e6cd6648229c",
+      "last_id": "ffffc2f890bb6fb5",
+      "ids_sha256": "28c26dc5e1fe4a9a53abe514b6f8cc77d6e966a3c9fd03ce90dceb35dc94f71f"
+    }
+  ]
+}

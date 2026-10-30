@@ -1,0 +1,178 @@
+{
+  "code_commit": "fb788fa1aec248b846d52c3f35e6318c98c987b4",
+  "model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+  "vllm_version": "0.31.0",
+  "vllm_load_s": 159.9,
+  "runs": {
+    "p2-zs-v1": {
+      "info": {
+        "rows": 2000,
+        "failed_rows": 0,
+        "empty_rows": 0,
+        "truncated_rows": 16,
+        "prompts_scored": 12000,
+        "retried_cells": 0,
+        "censored_cells": 10,
+        "seconds": 295.0,
+        "rows_per_s": 6.78
+      },
+      "saturation": {
+        "share_p_eq_1": 0.0963,
+        "share_p_eq_0": 0.0008,
+        "share_p_eq_1_per_label": {
+          "toxicity": 0.223,
+          "severe_toxicity": 0.1385,
+          "obscene": 0.0095,
+          "threat": 0.055,
+          "insult": 0.119,
+          "identity_attack": 0.0325
+        }
+      }
+    },
+    "p2-fs-v1": {
+      "info": {
+        "rows": 2000,
+        "failed_rows": 0,
+        "empty_rows": 0,
+        "truncated_rows": 16,
+        "prompts_scored": 12000,
+        "retried_cells": 0,
+        "censored_cells": 0,
+        "seconds": 584.3,
+        "rows_per_s": 3.42
+      },
+      "saturation": {
+        "share_p_eq_1": 0.0586,
+        "share_p_eq_0": 0.0,
+        "share_p_eq_1_per_label": {
+          "toxicity": 0.2355,
+          "severe_toxicity": 0.0035,
+          "obscene": 0.0245,
+          "threat": 0.0185,
+          "insult": 0.051,
+          "identity_attack": 0.0185
+        }
+      }
+    }
+  },
+  "decision": {
+    "best_zero_shot": "p2-zs-v1",
+    "best_zero_shot_mean_auc": 0.9649,
+    "tfidf_mean_auc": 0.9851,
+    "lora_contingency": true,
+    "rule": "LoRA contingency runs if the best zero-shot mean AUC is below TF-IDF's"
+  },
+  "table": {
+    "p2-zs-v1": {
+      "auc_toxicity": 0.94539,
+      "auc_severe_toxicity": 0.97431,
+      "auc_obscene": 0.93761,
+      "auc_threat": 0.99176,
+      "auc_insult": 0.95664,
+      "auc_identity_attack": 0.98395,
+      "pr_auc_toxicity": 0.68315,
+      "pr_auc_severe_toxicity": 0.26569,
+      "pr_auc_obscene": 0.73116,
+      "pr_auc_threat": 0.50655,
+      "pr_auc_insult": 0.57002,
+      "pr_auc_identity_attack": 0.37457,
+      "mean_auc": 0.96494,
+      "mean_pr_auc": 0.52186,
+      "ece_raw": 0.08256,
+      "ece_calibrated": 0.00773,
+      "brier_raw": 0.0811,
+      "brier_calibrated": 0.02145,
+      "failure_rate": 0.0,
+      "coverage": 1.0,
+      "rows_per_s": 6.78
+    },
+    "p2-fs-v1": {
+      "auc_toxicity": 0.95897,
+      "auc_severe_toxicity": 0.97185,
+      "auc_obscene": 0.93299,
+      "auc_threat": 0.99136,
+      "auc_insult": 0.96694,
+      "auc_identity_attack": 0.98163,
+      "pr_auc_toxicity": 0.78177,
+      "pr_auc_severe_toxicity": 0.27798,
+      "pr_auc_obscene": 0.69481,
+      "pr_auc_threat": 0.44929,
+      "pr_auc_insult": 0.64613,
+      "pr_auc_identity_attack": 0.52957,
+      "mean_auc": 0.96729,
+      "mean_pr_auc": 0.56326,
+      "ece_raw": 0.06736,
+      "ece_calibrated": 0.01009,
+      "brier_raw": 0.06553,
+      "brier_calibrated": 0.02002,
+      "failure_rate": 0.0,
+      "coverage": 0.99997,
+      "rows_per_s": 3.42
+    },
+    "tfidf-lr-v1": {
+      "auc_toxicity": 0.98211,
+      "auc_severe_toxicity": 0.98432,
+      "auc_obscene": 0.9938,
+      "auc_threat": 0.98616,
+      "auc_insult": 0.97791,
+      "auc_identity_attack": 0.98648,
+      "pr_auc_toxicity": 0.88442,
+      "pr_auc_severe_toxicity": 0.46793,
+      "pr_auc_obscene": 0.9187,
+      "pr_auc_threat": 0.54357,
+      "pr_auc_insult": 0.78478,
+      "pr_auc_identity_attack": 0.59491,
+      "mean_auc": 0.98513,
+      "mean_pr_auc": 0.69905,
+      "ece_raw": 0.00777,
+      "ece_calibrated": null,
+      "brier_raw": 0.01357,
+      "brier_calibrated": null,
+      "failure_rate": 0.0,
+      "coverage": null,
+      "rows_per_s": null
+    }
+  },
+  "injection": {
+    "p2-zs-v1": [
+      {
+        "direction": "to_no",
+        "label": "all",
+        "comments": 20,
+        "eligible": 70,
+        "flipped": 2,
+        "flip_rate": 0.0286,
+        "failed_comments": 0
+      },
+      {
+        "direction": "to_yes",
+        "label": "all",
+        "comments": 20,
+        "eligible": 120,
+        "flipped": 8,
+        "flip_rate": 0.0667,
+        "failed_comments": 0
+      }
+    ],
+    "p2-fs-v1": [
+      {
+        "direction": "to_no",
+        "label": "all",
+        "comments": 20,
+        "eligible": 67,
+        "flipped": 8,
+        "flip_rate": 0.1194,
+        "failed_comments": 0
+      },
+      {
+        "direction": "to_yes",
+        "label": "all",
+        "comments": 20,
+        "eligible": 120,
+        "flipped": 12,
+        "flip_rate": 0.1,
+        "failed_comments": 0
+      }
+    ]
+  }
+}

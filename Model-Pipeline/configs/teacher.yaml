@@ -1,0 +1,111 @@
+# Distillate teacher configuration.
+# Every tunable value for teacher labeling lives here; code must not hard-code any of these.
+# Prompt text is versioned in src/teacher/prompts.py, not here, because changing it
+# changes prompt_version (docs/teacher_prompts_and_shard_spec.md).
+
+seed: 42
+
+labels: [toxicity, severe_toxicity, obscene, threat, insult, identity_attack]
+
+model:
+  model_id: Qwen/Qwen3-4B-Instruct-2507
+  revision: cdbee75f17c01a7cc42f958dc650907174af0554   # pinned Oct 17, 2026
+  dtype: half                                          # T4 has no bf16
+  max_model_len: 3072
+
+data:
+  # Same rows and ids as TFDS wikipedia_toxicity_subtypes/EnglishSubtypes:0.3.1, whose
+  # download source now returns 403. Accept the competition rules on Kaggle once.
+  kaggle_competition: jigsaw-toxic-comment-classification-challenge
+  expected_rows: {train: 159571, test: 63978}
+  files: {train: wiki_train_raw.parquet, test: wiki_test_raw.parquet}
+  manifest: data_manifest.json
+
+# Relative to Model-Pipeline/. data_dir holds a local copy of 00_prepare_data's wiki/ output
+# (gitignored); pilot_dir holds the committed pilot sample, few-shot ids, and baseline results.
+paths:
+  data_dir: data
+  pilot_dir: artifacts/pilot
+  injection_set: configs/injection_set.csv   # 40 synthetic comments, no real data
+  shift_dir: artifacts/shift                 # Civil Comments shift sample ids and results
+  prompt_v2_dir: artifacts/prompt_v2         # obscene prompt follow-up (prompt_tuning.py)
+  shard_plan: artifacts/teacher_shards.json  # training-set shard plan (shards.py), committed
+  gate_ids: artifacts/gate_subset_ids.parquet   # gate subset with weights (sampling.py gate)
+  oof_dir: artifacts/oof                     # out-of-fold TF-IDF scores and stack check
+  stack_dir: artifacts/stack                 # the adopted stack and its check (soft_labels.py)
+
+prompt:
+  protocol: p2              # decision memo: P2 zero-shot (the stack and its fallback use it)
+  shots: zs
+  text_version: v2b         # obscene question from the v2 follow-up (prompts.P2_QUESTIONS)
+  comment_max_tokens: 1024
+  fewshot_max_tokens: 60
+
+scoring:
+  logprobs: 20
+  min_coverage: 0.5
+  max_retries: 1
+
+sampling:
+  pilot_size: 2000
+  pilot_enrich: {threat: 150, identity_attack: 150, severe_toxicity: 150}
+  fewshot_per_label: 2      # spec allows 2 to 3; 3 nearly fills max_model_len
+                            # examples must fit prompt.fewshot_max_tokens, so none is cut
+  gate_subset_size: 20000
+  # From wiki_test_raw, as for the pilot. Uniform, threat would get ~63 positives; its
+  # stratum has 211 rows and severe_toxicity's 204.
+  gate_enrich: {threat: 150, identity_attack: 300, severe_toxicity: 150}
+
+baseline:
+  model_version: tfidf-lr-v1
+  word_ngram_range: [1, 2]
+  char_ngram_range: [3, 5]
+  max_features: 200000      # per vectorizer
+  C: 4.0
+
+metrics:
+  ece_bins: 10              # equal-width bins over [0, 1]
+
+calibration:
+  version: platt-v1         # weighted Platt scaling on logit_<label>, never on logit(p)
+  folds: 5                  # cross-fitting, for the ECE after calibration
+
+injection:
+  threshold: 0.5            # flip = the yes/no decision at this threshold changes
+
+stack:
+  version: stack-v1         # logistic regression on logit_<label> and TF-IDF's logit(p)
+  C: 1.0
+  full_version: stack-v2    # same model fitted on all training rows (soft_labels.py)
+  max_ece_increase: 0.005   # stack-v2 is not adopted if its gate-subset ECE is worse by more
+
+# Out-of-fold TF-IDF scores for the training set (tfidf_oof.py): the stack's TF-IDF input.
+oof:
+  folds: 5
+
+# Civil Comments shift check (shift.py). Hugging Face copy, as TFDS's download returns 403.
+shift:
+  dataset: google/civil_comments
+  revision: f2970eb3a55777454c94069077cc8d9b5866312d   # pinned Oct 18, 2026
+  split: validation
+  file: data/validation-00000-of-00001.parquet
+  threshold: 0.5            # positive when at least half the raters chose the label
+  size: 3000
+  enrich: {threat: 200, obscene: 300, identity_attack: 300}
+  prompt_version: p2-zs-v2b # the teacher configuration the stack uses; equals prompt.*
+
+# Obscene prompt follow-up (prompt_tuning.py). Rules fixed before scoring; see its docstring.
+prompt_tuning:
+  label: obscene
+  candidates: [v2a, v2b, v2c]   # text versions in prompts.P2_QUESTIONS; v2b was accepted
+  baseline: p2-zs-v1            # the version the candidates were compared against
+  max_other_drop: 0.005         # rule 3c: largest allowed AUC drop for any other label
+
+labeling:
+  shard_size: 5000
+  stop_after_hours: 11
+
+storage:
+  backend: hf               # switch to gcs once the bucket exists (implementation plan, Part 1.1)
+  hf_repo: distillate-team/distillate-teacher-shards   # organization MLOps-Distillate-Project
+  gcs_bucket: null          # <team>-distillate-data, from Vaishnavi

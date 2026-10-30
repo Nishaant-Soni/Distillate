@@ -1,0 +1,163 @@
+{
+  "prompt_version": "p2-zs-v1",
+  "info": {
+    "rows": 2000,
+    "failed_rows": 0,
+    "empty_rows": 0,
+    "truncated_rows": 16,
+    "prompts_scored": 12000,
+    "retried_cells": 0,
+    "censored_cells": 10,
+    "seconds": 295.0,
+    "rows_per_s": 6.78
+  },
+  "saturation": {
+    "share_p_eq_1": 0.0963,
+    "share_p_eq_0": 0.0008,
+    "share_p_eq_1_per_label": {
+      "toxicity": 0.223,
+      "severe_toxicity": 0.1385,
+      "obscene": 0.0095,
+      "threat": 0.055,
+      "insult": 0.119,
+      "identity_attack": 0.0325
+    }
+  },
+  "raw": {
+    "toxicity": {
+      "n": 2000,
+      "n_pos": 575.0,
+      "failure_rate": 0.0,
+      "auc": 0.94539,
+      "pr_auc": 0.68315,
+      "ece": 0.14508,
+      "brier": 0.14284,
+      "coverage": 1.0
+    },
+    "severe_toxicity": {
+      "n": 2000,
+      "n_pos": 231.0,
+      "failure_rate": 0.0,
+      "auc": 0.97431,
+      "pr_auc": 0.26569,
+      "ece": 0.11114,
+      "brier": 0.10919,
+      "coverage": 1.0
+    },
+    "obscene": {
+      "n": 2000,
+      "n_pos": 419.0,
+      "failure_rate": 0.0,
+      "auc": 0.93761,
+      "pr_auc": 0.73116,
+      "ece": 0.03166,
+      "brier": 0.03161,
+      "coverage": 1.0
+    },
+    "threat": {
+      "n": 2000,
+      "n_pos": 152.0,
+      "failure_rate": 0.0,
+      "auc": 0.99176,
+      "pr_auc": 0.50655,
+      "ece": 0.02216,
+      "brier": 0.0219,
+      "coverage": 1.0
+    },
+    "insult": {
+      "n": 2000,
+      "n_pos": 420.0,
+      "failure_rate": 0.0,
+      "auc": 0.95664,
+      "pr_auc": 0.57002,
+      "ece": 0.14377,
+      "brier": 0.13976,
+      "coverage": 1.0
+    },
+    "identity_attack": {
+      "n": 2000,
+      "n_pos": 177.0,
+      "failure_rate": 0.0,
+      "auc": 0.98395,
+      "pr_auc": 0.37457,
+      "ece": 0.04156,
+      "brier": 0.04131,
+      "coverage": 1.0
+    },
+    "mean": {
+      "n": 2000,
+      "n_pos": null,
+      "failure_rate": 0.0,
+      "auc": 0.96494,
+      "pr_auc": 0.52186,
+      "ece": 0.08256,
+      "brier": 0.0811,
+      "coverage": 1.0
+    }
+  },
+  "calibrated_cross_fitted": {
+    "toxicity": {
+      "n": 2000,
+      "n_pos": 575.0,
+      "failure_rate": 0.0,
+      "auc": 0.94142,
+      "pr_auc": 0.68053,
+      "ece": 0.01819,
+      "brier": 0.05068
+    },
+    "severe_toxicity": {
+      "n": 2000,
+      "n_pos": 231.0,
+      "failure_rate": 0.0,
+      "auc": 0.97186,
+      "pr_auc": 0.23694,
+      "ece": 0.00298,
+      "brier": 0.00834
+    },
+    "obscene": {
+      "n": 2000,
+      "n_pos": 419.0,
+      "failure_rate": 0.0,
+      "auc": 0.93371,
+      "pr_auc": 0.71823,
+      "ece": 0.00875,
+      "brier": 0.02751
+    },
+    "threat": {
+      "n": 2000,
+      "n_pos": 152.0,
+      "failure_rate": 0.0,
+      "auc": 0.99051,
+      "pr_auc": 0.49939,
+      "ece": 0.00119,
+      "brier": 0.00228
+    },
+    "insult": {
+      "n": 2000,
+      "n_pos": 420.0,
+      "failure_rate": 0.0,
+      "auc": 0.95487,
+      "pr_auc": 0.56527,
+      "ece": 0.01416,
+      "brier": 0.03359
+    },
+    "identity_attack": {
+      "n": 2000,
+      "n_pos": 177.0,
+      "failure_rate": 0.0,
+      "auc": 0.98423,
+      "pr_auc": 0.35714,
+      "ece": 0.00112,
+      "brier": 0.0063
+    },
+    "mean": {
+      "n": 2000,
+      "n_pos": null,
+      "failure_rate": 0.0,
+      "auc": 0.96277,
+      "pr_auc": 0.50958,
+      "ece": 0.00773,
+      "brier": 0.02145
+    }
+  }
+}
