@@ -1,12 +1,18 @@
-"""Where shards live: a private Hugging Face dataset now, GCS later (``storage.backend``).
+"""Where shards live: the team's GCS bucket, with the private Hugging Face dataset as the
+backup (``storage.backend``: ``gcs`` or ``hf``).
 
-Both backends store files under repository-relative paths such as
-``teacher/p2-zs-v2b/shard_0000.parquet``. ``write_shard`` uploads the Parquet first and the
-manifest last, so a manifest only exists for a fully uploaded shard.
+Every backend stores files under the same relative paths, such as
+``teacher/p2-zs-v2b/shard_0000.parquet`` (in the bucket, the object name; on Hugging Face,
+the path in the dataset). ``write_shard`` uploads the Parquet first and the manifest last,
+so a manifest only exists for a fully uploaded shard.
 
 ``LocalStorage`` keeps the same layout in a folder, for tests and local dry runs.
-The Hugging Face token comes from the ``HF_TOKEN`` environment variable (Kaggle or Colab
-Secrets); it is never passed on the command line or written anywhere.
+
+Credentials are never passed on the command line or written anywhere:
+* Hugging Face: the ``HF_TOKEN`` environment variable (Kaggle or Colab Secrets).
+* GCS: the ``GCS_TEACHER_KEY`` environment variable holding a service-account key as JSON
+  (Kaggle Secrets), or else Application Default Credentials (``gcloud auth
+  application-default login`` on a laptop).
 """
 
 from __future__ import annotations
@@ -65,6 +71,20 @@ class LocalStorage:
                       if p.is_file() and not p.name.endswith(".partial"))
 
 
+def with_retries(what: str, fn, retries: int, backoff_s: float, sleep=time.sleep):
+    """``fn()``, retried with exponential backoff; the last failure is raised."""
+    for attempt in range(retries):
+        try:
+            return fn()
+        except Exception as error:   # network errors, commit conflicts between workers
+            if attempt == retries - 1:
+                raise
+            wait = backoff_s * 2 ** attempt
+            logger.warning("%s failed (%s); retrying in %.0f s", what, error, wait)
+            sleep(wait)
+    raise AssertionError("unreachable")
+
+
 class HFStorage:
     """A private Hugging Face dataset repository. Each upload is one commit."""
 
@@ -75,16 +95,7 @@ class HFStorage:
         self.retries, self.backoff_s = retries, backoff_s
 
     def _retry(self, what: str, fn):
-        for attempt in range(self.retries):
-            try:
-                return fn()
-            except Exception as error:   # network errors, commit conflicts between workers
-                if attempt == self.retries - 1:
-                    raise
-                wait = self.backoff_s * 2 ** attempt
-                logger.warning("%s failed (%s); retrying in %.0f s", what, error, wait)
-                time.sleep(wait)
-        raise AssertionError("unreachable")
+        return with_retries(what, fn, self.retries, self.backoff_s)
 
     def exists(self, path: str) -> bool:
         return self._retry(f"exists {path}", lambda: self.api.file_exists(
@@ -111,14 +122,68 @@ class HFStorage:
         return sorted(f for f in files if f.startswith(prefix))
 
 
-def get_storage(cfg: Mapping[str, Any], local_root: str | Path | None = None) -> Storage:
-    """``LocalStorage`` if ``local_root`` is given, else the configured backend."""
+GCS_KEY_ENV = "GCS_TEACHER_KEY"
+
+
+def gcs_client():
+    """A ``google.cloud.storage.Client`` from ``GCS_TEACHER_KEY`` if set, else ADC."""
+    import os
+
+    from google.cloud import storage
+
+    key = os.environ.get(GCS_KEY_ENV)
+    if key:
+        return storage.Client.from_service_account_info(json.loads(key))
+    return storage.Client()
+
+
+class GCSStorage:
+    """A GCS bucket. Object names are the store's relative paths; each upload is atomic."""
+
+    def __init__(self, bucket: str, client=None, retries: int = 4, backoff_s: float = 5.0):
+        self.client = client if client is not None else gcs_client()
+        self.bucket_name, self.bucket = bucket, self.client.bucket(bucket)
+        self.retries, self.backoff_s = retries, backoff_s
+
+    def _retry(self, what: str, fn):
+        return with_retries(what, fn, self.retries, self.backoff_s)
+
+    def exists(self, path: str) -> bool:
+        return self._retry(f"exists {path}", lambda: self.bucket.blob(path).exists())
+
+    def upload(self, local: Path, path: str) -> None:
+        self._retry(f"upload {path}",
+                    lambda: self.bucket.blob(path).upload_from_filename(str(local)))
+
+    def download(self, path: str, local_dir: Path) -> Path:
+        target = Path(local_dir) / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self._retry(f"download {path}",
+                    lambda: self.bucket.blob(path).download_to_filename(str(target)))
+        return target
+
+    def delete(self, path: str) -> None:
+        self._retry(f"delete {path}", lambda: self.bucket.blob(path).delete())
+
+    def list(self, prefix: str) -> list[str]:
+        names = self._retry(f"list {prefix}", lambda: [
+            b.name for b in self.client.list_blobs(self.bucket_name, prefix=prefix)])
+        return sorted(n for n in names if not n.endswith("/"))   # skip folder markers
+
+
+def get_storage(cfg: Mapping[str, Any], local_root: str | Path | None = None,
+                backend: str | None = None) -> Storage:
+    """``LocalStorage`` if ``local_root`` is given, else ``backend`` (default: the config's)."""
     if local_root is not None:
         return LocalStorage(local_root)
-    backend = cfg["storage"]["backend"]
+    backend = backend or cfg["storage"]["backend"]
     if backend == "hf":
         return HFStorage(cfg["storage"]["hf_repo"])
-    raise ValueError(f"storage backend {backend!r} is not implemented yet")
+    if backend == "gcs":
+        if not cfg["storage"].get("gcs_bucket"):
+            raise ValueError("storage.gcs_bucket is not set")
+        return GCSStorage(cfg["storage"]["gcs_bucket"])
+    raise ValueError(f"unknown storage backend {backend!r}")
 
 
 def shard_paths(prefix: str, name: str) -> tuple[str, str]:

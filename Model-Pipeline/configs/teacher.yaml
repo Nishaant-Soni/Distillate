@@ -106,6 +106,6 @@ labeling:
   stop_after_hours: 11
 
 storage:
-  backend: hf               # switch to gcs once the bucket exists (implementation plan, Part 1.1)
+  backend: gcs              # the team bucket; hf is the backup copy (same paths)
   hf_repo: distillate-team/distillate-teacher-shards   # organization MLOps-Distillate-Project
-  gcs_bucket: null          # <team>-distillate-data, from Vaishnavi
+  gcs_bucket: distillate-mlops-data                    # also the DVC remote (dvc/ prefix)
