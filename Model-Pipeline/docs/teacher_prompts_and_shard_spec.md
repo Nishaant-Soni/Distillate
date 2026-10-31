@@ -221,8 +221,11 @@ p           = sigmoid(logit_stack)
 | Training, 157,571 non-pilot rows (AUC / PR-AUC / ECE) | 0.990 / 0.692 / 0.003 | 0.986 / 0.660 / 0.004 (out-of-fold) | 0.975 / 0.506 / 0.076 |
 | Gate subset, 20,000 test rows (AUC / PR-AUC / ECE) | 0.982 / 0.659 / 0.010 | 0.980 / 0.623 / 0.010 | 0.959 / 0.475 / 0.086 |
 | Civil Comments shift sample, 3,000 rows (AUC) | 0.934 | 0.895 | 0.894 |
+| Civil drift stream, 40,000 rows in 20 batches (AUC / PR-AUC / ECE, unweighted) | 0.924 / 0.344 / 0.008 | 0.887 / 0.279 / 0.013 | 0.882 / 0.197 / 0.134 |
 
 Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.029, 0.044] PR-AUC.
+
+**Drift stream** (`Model-Pipeline/artifacts/stack/drift_check.json`; Civil Comments gold labels, positive at half the raters or more). The stack beats TF-IDF and the raw teacher in every one of the 20 batches; its batch mean AUC runs from 0.888 (batch 9) to 0.950 (batch 3), with no trend over time. No drift row is positive for severe_toxicity (none in the shift sample either), so Civil means are over the other five labels. Per-batch means are for trends only: a batch can hold as few as 2 threat or 4 identity_attack positives.
 
 **Caveats for anyone describing these labels:**
 * **They lean on TF-IDF.** Per unit of logit, the TF-IDF weight is about 6 to 16 times the teacher's (the teacher's logits span a wider range, so its actual share is larger than that ratio suggests). TF-IDF was trained on the gold labels, so the soft labels carry gold-label information; describe them as TF-IDF corrected by Qwen, not as independent LLM judgments.
@@ -233,7 +236,7 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 
 ## 8. Where everything lives
 
-**Shard store: the team bucket `gs://distillate-mlops-data/`** (`storage.backend: gcs`; the same bucket holds DVC's `dvc/` prefix). Every path below is an object name in the bucket. Copied from Hugging Face on Oct 30 and validated there (all four runs, 0 errors).
+**Shard store: the team bucket `gs://distillate-mlops-data/`** (`storage.backend: gcs`; the same bucket holds DVC's `dvc/` prefix). Every path below is an object name in the bucket. Copied from Hugging Face on Oct 30 and validated there (all four runs, 0 errors). The drift run's teacher shards were written to Hugging Face on Oct 31 and copied here the same day; its soft labels were written here and copied to Hugging Face. Both runs validate on both stores (0 errors).
 * **To read it:** a Google account with read access to the bucket (from Vaishnavi), then `gcloud auth login` for the command line and `gcloud auth application-default login` for Python (the validator uses Application Default Credentials). On Kaggle, the `GCS_TEACHER_KEY` secret (a service-account key, the whole JSON) instead.
 * **Command line:** `gcloud storage ls gs://distillate-mlops-data/soft_labels/stack-v1/p2-zs-v2b/`, and `gcloud storage cp -r gs://distillate-mlops-data/soft_labels/stack-v1/p2-zs-v2b <folder>` to download.
 
@@ -248,6 +251,8 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 | `teacher/p2-zs-v2b/gate/` | raw teacher, gate subset | 4 | 20,000 |
 | `soft_labels/stack-v1/p2-zs-v2b/` | **soft labels, training set (student targets)** | 32 | 159,571 |
 | `soft_labels/stack-v1/p2-zs-v2b/gate/` | soft labels, gate subset | 4 | 20,000 |
+| `teacher/p2-zs-v2b/drift/` | raw teacher, Civil drift stream (one shard per batch) | 20 | 40,000 |
+| `soft_labels/stack-v1/p2-zs-v2b/drift/` | soft labels, Civil drift stream (one shard per batch) | 20 | 40,000 |
 | `tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet` | out-of-fold TF-IDF scores for training rows, with `fold` | one file | 159,571 |
 | `teacher/p2-zs-v2b-dryrun/` | labeling dry run, Hugging Face only (not copied to GCS); ignore | 2 | 200 |
 
@@ -260,8 +265,9 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 | `artifacts/gate_subset_summary.json` | gate positives and weighted vs true prevalence per label |
 | `artifacts/stack/stack_p2-zs-v2b.json` | the frozen stack (§7) |
 | `artifacts/stack/stack_check.json` | stack comparison and soft-label metrics |
+| `artifacts/stack/drift_check.json` | drift-stream metrics, overall and per batch (§7) |
 | `artifacts/oof/tfidf_oof.manifest.json` | SHA-256, size, and ids hash of `tfidf_oof.parquet` |
-| `artifacts/oof/gate_tfidf_full.parquet`, `civil_tfidf_full.parquet` | full-train TF-IDF scores for gate and Civil rows |
+| `artifacts/oof/gate_tfidf_full.parquet`, `civil_tfidf_full.parquet`, `drift_tfidf_full.parquet` | full-train TF-IDF scores for gate, Civil shift, and drift rows |
 | `artifacts/pilot/`, `artifacts/shift/`, `artifacts/prompt_v2/` | pilot, Civil shift check, and obscene prompt results |
 | `tests/fixtures/teacher/` | synthetic shards for validator tests (`README.md` there) |
 
