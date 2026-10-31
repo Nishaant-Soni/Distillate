@@ -33,6 +33,8 @@ paths:
   gate_ids: artifacts/gate_subset_ids.parquet   # gate subset with weights (sampling.py gate)
   oof_dir: artifacts/oof                     # out-of-fold TF-IDF scores and stack check
   stack_dir: artifacts/stack                 # the adopted stack and its check (soft_labels.py)
+  drift_dir: data/civil_drift                # local copy of the data lane's drift batches
+                                             # (gitignored: comment text)
 
 prompt:
   protocol: p2              # decision memo: P2 zero-shot (the stack and its fallback use it)
@@ -100,6 +102,12 @@ prompt_tuning:
   candidates: [v2a, v2b, v2c]   # text versions in prompts.P2_QUESTIONS; v2b was accepted
   baseline: p2-zs-v1            # the version the candidates were compared against
   max_other_drop: 0.005         # rule 3c: largest allowed AUC drop for any other label
+
+# Drift stream (label_worker.py --batches, soft_labels.py --drift): the data lane's
+# data/processed/civil/drift/batch_<k>.parquet (DVC) and data/splits/civil_drift_ids.csv,
+# copied into paths.drift_dir. One shard per batch: shard_<k> is batch k.
+drift:
+  ids_file: civil_drift_ids.csv
 
 labeling:
   shard_size: 5000

@@ -13,7 +13,11 @@ same command resumes: finished shards are skipped and an interrupted one is redo
         --data /kaggle/input/.../wiki_train_raw.parquet --model-dir /kaggle/input/.../model \\
         --prefix teacher/p2-zs-v2b/
 
-The prompt comes from teacher.yaml (``prompt.*``); the Hugging Face token from ``HF_TOKEN``.
+The drift stream: ``--data`` is the folder of batch files and ``--batches`` is
+``civil_drift_ids.csv``, giving one shard per batch (``--prefix teacher/p2-zs-v2b/drift/``).
+
+The prompt comes from teacher.yaml (``prompt.*``); the store from ``storage.backend`` unless
+``--backend`` is given, with credentials from ``GCS_TEACHER_KEY`` or ``HF_TOKEN``.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ def select_rows(data_path: str | Path, ids_path: str | Path | None = None,
     """``id`` and ``text`` of the rows to label, sorted by id.
 
     ``data_path``: a Parquet with ``id`` and cleaned ``text`` (e.g. ``wiki_train_raw``).
-    ``ids_path``: optional Parquet/CSV of ids to keep (gate subset, drift). ``limit``: the
+    ``ids_path``: optional Parquet/CSV of ids to keep (gate subset). ``limit``: the
     first N sorted ids only (dry runs).
     """
     import pandas as pd
@@ -51,6 +55,41 @@ def select_rows(data_path: str | Path, ids_path: str | Path | None = None,
             raise ValueError(f"{len(keep) - len(rows)} ids are not in {data_path}")
     rows = rows.sort_values("id", kind="stable").reset_index(drop=True)
     return rows.iloc[:limit].reset_index(drop=True) if limit else rows
+
+
+def select_drift_rows(drift_dir: str | Path, batches_path: str | Path,
+                      columns: Sequence[str] = ("id", "text")):
+    """``columns`` plus ``batch`` for the drift stream, sorted by batch then id.
+
+    ``drift_dir`` holds the data lane's ``batch_<k>.parquet`` files, whose text is already
+    cleaned (it is used as is: cleaning twice is not safe, see ``PromptBuilder``).
+    ``batches_path`` is ``civil_drift_ids.csv``. Raises unless file k holds exactly the ids
+    the CSV assigns to batch k, with no duplicate and no empty text.
+    """
+    import re
+
+    import pandas as pd
+
+    from src.teacher.shards import read_batches
+
+    expected = read_batches(batches_path)
+    files = {int(m.group(1)): p for p in Path(drift_dir).glob("batch_*.parquet")
+             if (m := re.fullmatch(r"batch_(\d+)\.parquet", p.name))}
+    if sorted(files) != sorted(set(expected.values())):
+        raise ValueError(f"batch files {sorted(files)} differ from the batches in "
+                         f"{batches_path}: {sorted(set(expected.values()))}")
+    parts = []
+    for b in sorted(files):
+        part = pd.read_parquet(files[b], columns=list(columns))
+        part["id"] = part["id"].astype(str)
+        want = {i for i, k in expected.items() if k == b}
+        if set(part["id"]) != want or len(part) != len(want):
+            raise ValueError(f"{files[b].name}: ids differ from batch {b} in {batches_path}")
+        parts.append(part.assign(batch=b))
+    rows = pd.concat(parts, ignore_index=True)
+    if (rows["text"].fillna("").str.strip() == "").any():
+        raise ValueError("drift rows with empty text")
+    return rows.sort_values(["batch", "id"], kind="stable").reset_index(drop=True)
 
 
 def run_worker(rows, plan: Sequence[Sequence[str]], worker: int, num_workers: int, storage,
@@ -124,8 +163,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Teacher labeling worker.")
     parser.add_argument("--worker", type=int, required=True)
     parser.add_argument("--num-workers", type=int, default=2)
-    parser.add_argument("--data", required=True, help="Parquet with id and cleaned text")
-    parser.add_argument("--ids", default=None, help="ids to keep (gate subset, drift)")
+    parser.add_argument("--data", required=True, help="Parquet with id and cleaned text "
+                        "(with --batches: the folder of batch_<k>.parquet files)")
+    parser.add_argument("--ids", default=None, help="ids to keep (gate subset)")
+    parser.add_argument("--batches", default=None,
+                        help="civil_drift_ids.csv: one shard per drift batch")
     parser.add_argument("--prefix", required=True, help="e.g. teacher/p2-zs-v2b/")
     parser.add_argument("--model-dir", required=True)
     parser.add_argument("--plan", default=None, help="teacher_shards.json to check against")
@@ -135,6 +177,8 @@ def main() -> None:
                         help="session start (Unix time); the budget counts from here")
     parser.add_argument("--stop-after-hours", type=float, default=None)
     parser.add_argument("--local-root", default=None, help="local folder instead of the store")
+    parser.add_argument("--backend", choices=["gcs", "hf"], default=None,
+                        help="store to write (default: storage.backend)")
     parser.add_argument("--code-commit", default=None)
     parser.add_argument("--config", default=None)
     args = parser.parse_args()
@@ -148,7 +192,7 @@ def main() -> None:
 
     from src.teacher.config import load_config, model_version
     from src.teacher.prompts import PromptBuilder
-    from src.teacher.shards import check_plan, plan_shards
+    from src.teacher.shards import check_plan, plan_batches, plan_shards
     from src.teacher.storage import get_storage
 
     cfg = load_config(args.config)
@@ -156,11 +200,21 @@ def main() -> None:
     started_at = args.started_at or time.time()
     deadline = time.monotonic() + (started_at + hours * 3600 - time.time())
 
-    rows = select_rows(args.data, args.ids, args.limit)
-    plan = plan_shards(rows["id"].tolist(), args.shard_size or cfg["labeling"]["shard_size"])
+    # The rows are checked before the model loads, so a wrong input fails in seconds.
+    layout = None
+    if args.batches:
+        if args.ids or args.limit or args.shard_size or args.plan:
+            parser.error("--batches takes no --ids, --limit, --shard-size or --plan")
+        rows = select_drift_rows(args.data, args.batches)
+        plan = plan_batches(dict(zip(rows["id"], rows["batch"], strict=True)))
+        layout = "one shard per batch: shard_<k> is batch k"
+    else:
+        rows = select_rows(args.data, args.ids, args.limit)
+        plan = plan_shards(rows["id"].tolist(),
+                           args.shard_size or cfg["labeling"]["shard_size"])
     if args.plan:
         check_plan(plan, json.loads(Path(args.plan).read_text()))
-    storage = get_storage(cfg, args.local_root)
+    storage = get_storage(cfg, args.local_root, args.backend)
     tokenizer, score_fn, vllm_version = load_scorer(cfg, args.model_dir)
     builder = PromptBuilder.from_config(cfg, tokenizer)
     print(json.dumps({"worker": args.worker, "event": "ready", "rows": len(rows),
@@ -169,7 +223,8 @@ def main() -> None:
         rows, plan, args.worker, args.num_workers, storage, args.prefix, builder, score_fn,
         model_version(cfg), deadline=deadline, min_coverage=cfg["scoring"]["min_coverage"],
         max_retries=cfg["scoring"]["max_retries"],
-        extra_manifest={"code_commit": args.code_commit, "vllm_version": vllm_version})
+        extra_manifest={"code_commit": args.code_commit, "vllm_version": vllm_version,
+                        "layout": layout})
     print(json.dumps({"event": "done", **summary}))
 
 
