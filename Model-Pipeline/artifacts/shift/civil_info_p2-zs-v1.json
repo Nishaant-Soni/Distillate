@@ -1,0 +1,11 @@
+{
+  "rows": 3000,
+  "failed_rows": 0,
+  "empty_rows": 0,
+  "truncated_rows": 0,
+  "prompts_scored": 18000,
+  "retried_cells": 0,
+  "censored_cells": 1,
+  "seconds": 368.9,
+  "code_commit": "19899404983b389c625272c8b72c8571a9b0c4b8"
+}

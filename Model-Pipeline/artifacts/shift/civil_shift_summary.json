@@ -1,0 +1,48 @@
+{
+  "dataset": "google/civil_comments",
+  "revision": "f2970eb3a55777454c94069077cc8d9b5866312d",
+  "file": "data/validation-00000-of-00001.parquet",
+  "threshold": 0.5,
+  "seed": 42,
+  "rows": 3000,
+  "population": 97320,
+  "weight_sum": 97209.9,
+  "labels": {
+    "toxicity": {
+      "positives": 931,
+      "weighted_prevalence": 0.07744,
+      "true_prevalence": 0.07882
+    },
+    "severe_toxicity": {
+      "positives": 0,
+      "weighted_prevalence": 0.0,
+      "true_prevalence": 0.0
+    },
+    "obscene": {
+      "positives": 314,
+      "weighted_prevalence": 0.00545,
+      "true_prevalence": 0.00539
+    },
+    "threat": {
+      "positives": 200,
+      "weighted_prevalence": 0.0023,
+      "true_prevalence": 0.0023
+    },
+    "insult": {
+      "positives": 394,
+      "weighted_prevalence": 0.05785,
+      "true_prevalence": 0.05928
+    },
+    "identity_attack": {
+      "positives": 321,
+      "weighted_prevalence": 0.00683,
+      "true_prevalence": 0.00682
+    }
+  },
+  "strata": {
+    "rest": 2184,
+    "obscene": 308,
+    "identity_attack": 308,
+    "threat": 200
+  }
+}

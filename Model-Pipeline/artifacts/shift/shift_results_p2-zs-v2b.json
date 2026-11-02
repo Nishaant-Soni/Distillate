@@ -1,0 +1,403 @@
+{
+  "prompt_version": "p2-zs-v2b",
+  "model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+  "baseline_version": "tfidf-lr-v1",
+  "stack_version": "stack-v1",
+  "civil": {
+    "dataset": "google/civil_comments",
+    "revision": "f2970eb3a55777454c94069077cc8d9b5866312d",
+    "split": "validation",
+    "threshold": 0.5
+  },
+  "tfidf_refit_max_abs_diff": 2.115964889526367e-06,
+  "stack": {
+    "stack_version": "stack-v1",
+    "method": "weighted logistic regression",
+    "inputs": [
+      "teacher logit_<label>",
+      "baseline logit(p_<label>)"
+    ],
+    "formula": "p = sigmoid(w_teacher * logit_<label> + w_baseline * logit(clip(p_baseline, 1e-07)) + intercept)",
+    "C": 1.0,
+    "prompt_version": "p2-zs-v2b",
+    "model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+    "baseline_version": "tfidf-lr-v1",
+    "labels": {
+      "toxicity": {
+        "w_teacher": 0.05379874569501796,
+        "w_baseline": 0.8424993070012624,
+        "intercept": -0.266808384310889,
+        "n": 2000,
+        "n_pos": 575
+      },
+      "severe_toxicity": {
+        "w_teacher": 0.0982569520470514,
+        "w_baseline": 0.608975337606531,
+        "intercept": -1.8650065361859383,
+        "n": 2000,
+        "n_pos": 231
+      },
+      "obscene": {
+        "w_teacher": 0.05099362520577178,
+        "w_baseline": 0.9294811288441323,
+        "intercept": 0.39005224831474644,
+        "n": 2000,
+        "n_pos": 419
+      },
+      "threat": {
+        "w_teacher": 0.10820826341676434,
+        "w_baseline": 0.795203961097009,
+        "intercept": -0.12457446067889669,
+        "n": 2000,
+        "n_pos": 152
+      },
+      "insult": {
+        "w_teacher": 0.07961030144637575,
+        "w_baseline": 0.7049070368297156,
+        "intercept": -0.7595195427266601,
+        "n": 2000,
+        "n_pos": 420
+      },
+      "identity_attack": {
+        "w_teacher": 0.10974880188726113,
+        "w_baseline": 0.7488642549807184,
+        "intercept": -0.7515539997272103,
+        "n": 2000,
+        "n_pos": 177
+      }
+    }
+  },
+  "domains": {
+    "wikipedia_pilot": {
+      "rows": 2000,
+      "positives": {
+        "toxicity": 575,
+        "severe_toxicity": 231,
+        "obscene": 419,
+        "threat": 152,
+        "insult": 420,
+        "identity_attack": 177
+      },
+      "table": [
+        {
+          "model": "tfidf-lr-v1",
+          "auc_toxicity": 0.9821113822665896,
+          "pr_auc_toxicity": 0.8844164716763167,
+          "auc_severe_toxicity": 0.984318453082509,
+          "pr_auc_severe_toxicity": 0.46792847825740647,
+          "auc_obscene": 0.993800660781583,
+          "pr_auc_obscene": 0.9187047052758816,
+          "auc_threat": 0.9861562181504773,
+          "pr_auc_threat": 0.5435749016792273,
+          "auc_insult": 0.9779087023801731,
+          "pr_auc_insult": 0.7847847593943492,
+          "auc_identity_attack": 0.9864785919392796,
+          "pr_auc_identity_attack": 0.5949149349585153,
+          "mean_auc": 0.9851290014334353,
+          "mean_pr_auc": 0.6990540418736161,
+          "ece": 0.0077740226877769355,
+          "brier": 0.0135696431596072,
+          "failure_rate": 0.0
+        },
+        {
+          "model": "p2-zs-v2b",
+          "auc_toxicity": 0.9453811153384337,
+          "pr_auc_toxicity": 0.682815946807695,
+          "auc_severe_toxicity": 0.9743117684620419,
+          "pr_auc_severe_toxicity": 0.2666564852680837,
+          "auc_obscene": 0.9792815053519724,
+          "pr_auc_obscene": 0.8125659043512021,
+          "auc_threat": 0.9917752695749055,
+          "pr_auc_threat": 0.5078503340799285,
+          "auc_insult": 0.9566566644216231,
+          "pr_auc_insult": 0.5700453181492509,
+          "auc_identity_attack": 0.9839549539590526,
+          "pr_auc_identity_attack": 0.37457663283546533,
+          "mean_auc": 0.9718935461846715,
+          "mean_pr_auc": 0.5357517702486042,
+          "ece": 0.08210448697056781,
+          "brier": 0.0805875760982384,
+          "failure_rate": 0.0
+        },
+        {
+          "model": "p2-zs-v2b-calibrated",
+          "auc_toxicity": 0.9414527478516489,
+          "pr_auc_toxicity": 0.6806432811981894,
+          "auc_severe_toxicity": 0.9719011187987834,
+          "pr_auc_severe_toxicity": 0.23690468999465514,
+          "auc_obscene": 0.9753305526876915,
+          "pr_auc_obscene": 0.8055491004909954,
+          "auc_threat": 0.9905152243629161,
+          "pr_auc_threat": 0.4998758078054924,
+          "auc_insult": 0.9548799421457431,
+          "pr_auc_insult": 0.563779052377639,
+          "auc_identity_attack": 0.9842368645658701,
+          "pr_auc_identity_attack": 0.35715552394336614,
+          "mean_auc": 0.9697194084021087,
+          "mean_pr_auc": 0.5239845759683895,
+          "ece": 0.007379640756991664,
+          "brier": 0.02033416295111665,
+          "failure_rate": 0.0
+        },
+        {
+          "model": "stack-v1",
+          "auc_toxicity": 0.9842204709906258,
+          "pr_auc_toxicity": 0.8843844948747193,
+          "auc_severe_toxicity": 0.9876134611616071,
+          "pr_auc_severe_toxicity": 0.42887751760859005,
+          "auc_obscene": 0.9940999633440974,
+          "pr_auc_obscene": 0.9171939838995268,
+          "auc_threat": 0.9951387479117989,
+          "pr_auc_threat": 0.5922074411203004,
+          "auc_insult": 0.9822568722939868,
+          "pr_auc_insult": 0.7907368629934982,
+          "auc_identity_attack": 0.9918627552231571,
+          "pr_auc_identity_attack": 0.6080915123658273,
+          "mean_auc": 0.9891987118208788,
+          "mean_pr_auc": 0.7035819688104104,
+          "ece": 0.005753846363269227,
+          "brier": 0.013017926719049056,
+          "failure_rate": 0.0
+        }
+      ],
+      "bootstrap": {
+        "stack-v1 - tfidf-lr-v1": {
+          "labels": [
+            "toxicity",
+            "severe_toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 2000,
+          "replicates": 1000,
+          "mean_auc_diff": 0.00407,
+          "mean_auc_ci95": [
+            0.00197,
+            0.00651
+          ],
+          "mean_auc_p_gt_0": 1.0,
+          "mean_pr_auc_diff": 0.00453,
+          "mean_pr_auc_ci95": [
+            -0.01523,
+            0.02799
+          ],
+          "mean_pr_auc_p_gt_0": 0.691
+        },
+        "p2-zs-v2b - tfidf-lr-v1": {
+          "labels": [
+            "toxicity",
+            "severe_toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 2000,
+          "replicates": 1000,
+          "mean_auc_diff": -0.01324,
+          "mean_auc_ci95": [
+            -0.01864,
+            -0.00812
+          ],
+          "mean_auc_p_gt_0": 0.0,
+          "mean_pr_auc_diff": -0.1633,
+          "mean_pr_auc_ci95": [
+            -0.21533,
+            -0.10912
+          ],
+          "mean_pr_auc_p_gt_0": 0.0
+        },
+        "stack-v1 - p2-zs-v2b": {
+          "labels": [
+            "toxicity",
+            "severe_toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 2000,
+          "replicates": 1000,
+          "mean_auc_diff": 0.01731,
+          "mean_auc_ci95": [
+            0.01329,
+            0.022
+          ],
+          "mean_auc_p_gt_0": 1.0,
+          "mean_pr_auc_diff": 0.16783,
+          "mean_pr_auc_ci95": [
+            0.11835,
+            0.21902
+          ],
+          "mean_pr_auc_p_gt_0": 1.0
+        }
+      }
+    },
+    "civil_shift": {
+      "rows": 3000,
+      "positives": {
+        "toxicity": 931,
+        "severe_toxicity": 0,
+        "obscene": 314,
+        "threat": 200,
+        "insult": 394,
+        "identity_attack": 321
+      },
+      "table": [
+        {
+          "model": "tfidf-lr-v1",
+          "auc_toxicity": 0.8693946206430181,
+          "pr_auc_toxicity": 0.4955102444036611,
+          "auc_severe_toxicity": null,
+          "pr_auc_severe_toxicity": null,
+          "auc_obscene": 0.9099965247311748,
+          "pr_auc_obscene": 0.2930530092155711,
+          "auc_threat": 0.9100174554795648,
+          "pr_auc_threat": 0.19953592155409908,
+          "auc_insult": 0.8729865151983418,
+          "pr_auc_insult": 0.478060725053012,
+          "auc_identity_attack": 0.9137925915819908,
+          "pr_auc_identity_attack": 0.2056585917328807,
+          "mean_auc": 0.8952375415268181,
+          "mean_pr_auc": 0.3343636983918448,
+          "ece": 0.012934681807593273,
+          "brier": 0.018951703237055594,
+          "failure_rate": 0.0
+        },
+        {
+          "model": "p2-zs-v2b",
+          "auc_toxicity": 0.8579020596624997,
+          "pr_auc_toxicity": 0.3195013510312329,
+          "auc_severe_toxicity": null,
+          "pr_auc_severe_toxicity": null,
+          "auc_obscene": 0.8486818043679913,
+          "pr_auc_obscene": 0.11103864756062212,
+          "auc_threat": 0.9297358863686269,
+          "pr_auc_threat": 0.14776240528517268,
+          "auc_insult": 0.872847205935558,
+          "pr_auc_insult": 0.336987546600911,
+          "auc_identity_attack": 0.9593009320751656,
+          "pr_auc_identity_attack": 0.17909975994000948,
+          "mean_auc": 0.8936935776819682,
+          "mean_pr_auc": 0.21887794208358963,
+          "ece": 0.13778630786968674,
+          "brier": 0.13382999227161824,
+          "failure_rate": 0.0
+        },
+        {
+          "model": "p2-zs-v2b-calibrated",
+          "auc_toxicity": 0.8579020596624997,
+          "pr_auc_toxicity": 0.3195013510312329,
+          "auc_severe_toxicity": null,
+          "pr_auc_severe_toxicity": null,
+          "auc_obscene": 0.8486818043679913,
+          "pr_auc_obscene": 0.11103864756062212,
+          "auc_threat": 0.9297358863686269,
+          "pr_auc_threat": 0.14776240528517268,
+          "auc_insult": 0.872847205935558,
+          "pr_auc_insult": 0.336987546600911,
+          "auc_identity_attack": 0.9593009320751656,
+          "pr_auc_identity_attack": 0.17909975994000948,
+          "mean_auc": 0.8936935776819682,
+          "mean_pr_auc": 0.21887794208358963,
+          "ece": 0.01794289658781811,
+          "brier": 0.022417387999192444,
+          "failure_rate": 0.0
+        },
+        {
+          "model": "stack-v1",
+          "auc_toxicity": 0.9043127772505308,
+          "pr_auc_toxicity": 0.5446219705582694,
+          "auc_severe_toxicity": null,
+          "pr_auc_severe_toxicity": null,
+          "auc_obscene": 0.9229835760652916,
+          "pr_auc_obscene": 0.31035028434401146,
+          "auc_threat": 0.9615752582457711,
+          "pr_auc_threat": 0.24944915683945004,
+          "auc_insult": 0.9129662674290223,
+          "pr_auc_insult": 0.5247220218124798,
+          "auc_identity_attack": 0.9676008918078668,
+          "pr_auc_identity_attack": 0.26746262599266474,
+          "mean_auc": 0.9338877541596966,
+          "mean_pr_auc": 0.37932121190937507,
+          "ece": 0.007496315656196979,
+          "brier": 0.017167375312152167,
+          "failure_rate": 0.0
+        }
+      ],
+      "bootstrap": {
+        "stack-v1 - tfidf-lr-v1": {
+          "labels": [
+            "toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 3000,
+          "replicates": 1000,
+          "mean_auc_diff": 0.03865,
+          "mean_auc_ci95": [
+            0.03115,
+            0.04622
+          ],
+          "mean_auc_p_gt_0": 1.0,
+          "mean_pr_auc_diff": 0.04496,
+          "mean_pr_auc_ci95": [
+            0.02296,
+            0.0679
+          ],
+          "mean_pr_auc_p_gt_0": 1.0
+        },
+        "p2-zs-v2b - tfidf-lr-v1": {
+          "labels": [
+            "toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 3000,
+          "replicates": 1000,
+          "mean_auc_diff": -0.00154,
+          "mean_auc_ci95": [
+            -0.01564,
+            0.01269
+          ],
+          "mean_auc_p_gt_0": 0.42,
+          "mean_pr_auc_diff": -0.11549,
+          "mean_pr_auc_ci95": [
+            -0.15387,
+            -0.06796
+          ],
+          "mean_pr_auc_p_gt_0": 0.0
+        },
+        "stack-v1 - p2-zs-v2b": {
+          "labels": [
+            "toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 3000,
+          "replicates": 1000,
+          "mean_auc_diff": 0.04019,
+          "mean_auc_ci95": [
+            0.03188,
+            0.04816
+          ],
+          "mean_auc_p_gt_0": 1.0,
+          "mean_pr_auc_diff": 0.16044,
+          "mean_pr_auc_ci95": [
+            0.11847,
+            0.1961
+          ],
+          "mean_pr_auc_p_gt_0": 1.0
+        }
+      }
+    }
+  }
+}

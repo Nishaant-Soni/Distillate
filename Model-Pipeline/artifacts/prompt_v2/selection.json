@@ -1,0 +1,14 @@
+{
+  "label": "obscene",
+  "half": "A",
+  "rows": 1002,
+  "positives": 210,
+  "v1_auc": 0.93628,
+  "candidate_auc": {
+    "p2-zs-v2a": 0.9608,
+    "p2-zs-v2b": 0.98884,
+    "p2-zs-v2c": 0.98815
+  },
+  "chosen": "p2-zs-v2b",
+  "code_commit": "5770d53b7fc05b301f1ff7a81db740b67ed6616f"
+}

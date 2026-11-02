@@ -1,0 +1,141 @@
+{
+  "label": "obscene",
+  "v1": "p2-zs-v1",
+  "selection": {
+    "label": "obscene",
+    "half": "A",
+    "rows": 1002,
+    "positives": 210,
+    "v1_auc": 0.93628,
+    "candidate_auc": {
+      "p2-zs-v2a": 0.9608,
+      "p2-zs-v2b": 0.98884,
+      "p2-zs-v2c": 0.98815
+    },
+    "chosen": "p2-zs-v2b"
+  },
+  "code_commit": "5770d53b7fc05b301f1ff7a81db740b67ed6616f",
+  "chosen": "p2-zs-v2b",
+  "checks": {
+    "label": "obscene",
+    "half_b_auc": {
+      "p2-zs-v1": {
+        "toxicity": 0.95047,
+        "severe_toxicity": 0.97454,
+        "obscene": 0.93917,
+        "threat": 0.99158,
+        "insult": 0.94943,
+        "identity_attack": 0.98272
+      },
+      "p2-zs-v2b": {
+        "toxicity": 0.95047,
+        "severe_toxicity": 0.97454,
+        "obscene": 0.97013,
+        "threat": 0.99158,
+        "insult": 0.94944,
+        "identity_attack": 0.9827
+      }
+    },
+    "half_b_auc_diff": {
+      "toxicity": 0.0,
+      "severe_toxicity": 0.0,
+      "obscene": 0.03096,
+      "threat": 0.0,
+      "insult": 1e-05,
+      "identity_attack": -2e-05
+    },
+    "half_b_target": {
+      "labels": [
+        "obscene"
+      ],
+      "rows": 998,
+      "replicates": 1000,
+      "mean_auc_diff": 0.03097,
+      "mean_auc_ci95": [
+        0.00854,
+        0.06176
+      ],
+      "mean_auc_p_gt_0": 1.0,
+      "mean_pr_auc_diff": 0.09581,
+      "mean_pr_auc_ci95": [
+        0.03987,
+        0.15386
+      ],
+      "mean_pr_auc_p_gt_0": 1.0
+    },
+    "civil_target": {
+      "labels": [
+        "obscene"
+      ],
+      "rows": 3000,
+      "replicates": 1000,
+      "mean_auc_diff": 0.15987,
+      "mean_auc_ci95": [
+        0.12909,
+        0.18936
+      ],
+      "mean_auc_p_gt_0": 1.0,
+      "mean_pr_auc_diff": 0.02094,
+      "mean_pr_auc_ci95": [
+        0.00305,
+        0.06093
+      ],
+      "mean_pr_auc_p_gt_0": 0.991
+    },
+    "civil_stack": {
+      "labels": [
+        "toxicity",
+        "obscene",
+        "threat",
+        "insult",
+        "identity_attack"
+      ],
+      "rows": 3000,
+      "replicates": 1000,
+      "mean_auc_diff": 0.0012,
+      "mean_auc_ci95": [
+        0.00067,
+        0.00183
+      ],
+      "mean_auc_p_gt_0": 1.0,
+      "mean_pr_auc_diff": 0.00067,
+      "mean_pr_auc_ci95": [
+        -0.00303,
+        0.00472
+      ],
+      "mean_pr_auc_p_gt_0": 0.669
+    },
+    "unchanged_labels_max_logit_diff": {
+      "toxicity": 0.12492,
+      "severe_toxicity": 0.09571,
+      "threat": 0.21828,
+      "insult": 0.125,
+      "identity_attack": 0.09405
+    },
+    "injection_flip_rate": {
+      "p2-zs-v1": {
+        "to_no": 0.0286,
+        "to_yes": 0.0667
+      },
+      "p2-zs-v2b": {
+        "to_no": 0.0274,
+        "to_yes": 0.0667
+      }
+    }
+  },
+  "rules": {
+    "a_half_b_target_improves": true,
+    "b_civil_target_improves": true,
+    "c_no_other_label_drops": true,
+    "d_civil_stack_not_worse": true
+  },
+  "accepted": true,
+  "civil_auc": {
+    "p2-zs-v1": 0.6888084214104836,
+    "p2-zs-v2b": 0.8486818043679913
+  },
+  "civil_stack_mean_auc": {
+    "stack_v1": 0.9326869139942706,
+    "stack_v2": 0.9338877541596966
+  }
+}

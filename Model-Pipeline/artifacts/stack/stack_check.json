@@ -1,0 +1,456 @@
+{
+  "prompt_version": "p2-zs-v2b",
+  "stacks": {
+    "A": {
+      "stack_version": "stack-v1",
+      "method": "weighted logistic regression",
+      "inputs": [
+        "teacher logit_<label>",
+        "baseline logit(p_<label>)"
+      ],
+      "formula": "p = sigmoid(w_teacher * logit_<label> + w_baseline * logit(clip(p_baseline, 1e-07)) + intercept)",
+      "C": 1.0,
+      "prompt_version": "p2-zs-v2b",
+      "model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+      "baseline_version": "tfidf-lr-v1",
+      "labels": {
+        "toxicity": {
+          "w_teacher": 0.05698446343105089,
+          "w_baseline": 0.8203851646650807,
+          "intercept": -0.3314090742065722,
+          "n": 2000,
+          "n_pos": 575
+        },
+        "severe_toxicity": {
+          "w_teacher": 0.1017575715482528,
+          "w_baseline": 0.588582962676396,
+          "intercept": -2.03796102474878,
+          "n": 2000,
+          "n_pos": 231
+        },
+        "obscene": {
+          "w_teacher": 0.05596686865972241,
+          "w_baseline": 0.8989334262543208,
+          "intercept": 0.3886895917197007,
+          "n": 2000,
+          "n_pos": 419
+        },
+        "threat": {
+          "w_teacher": 0.11375237713889177,
+          "w_baseline": 0.7258826816847239,
+          "intercept": -0.8385836831828692,
+          "n": 2000,
+          "n_pos": 152
+        },
+        "insult": {
+          "w_teacher": 0.07941306574962177,
+          "w_baseline": 0.7327293020961692,
+          "intercept": -0.7044005283268604,
+          "n": 2000,
+          "n_pos": 420
+        },
+        "identity_attack": {
+          "w_teacher": 0.10849998133035053,
+          "w_baseline": 0.7459981889521438,
+          "intercept": -0.853064736082432,
+          "n": 2000,
+          "n_pos": 177
+        }
+      },
+      "baseline_scores": "tfidf-lr-v1, out-of-fold on train (5 folds); full-train model for the gate subset and drift rows",
+      "fit_on": "the 2,000 pilot rows, pilot inclusion weights"
+    },
+    "B": {
+      "stack_version": "stack-v2",
+      "method": "logistic regression",
+      "inputs": [
+        "teacher logit_<label>",
+        "baseline logit(p_<label>)"
+      ],
+      "formula": "p = sigmoid(w_teacher * logit_<label> + w_baseline * logit(clip(p_baseline, 1e-07)) + intercept)",
+      "C": 1.0,
+      "prompt_version": "p2-zs-v2b",
+      "model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+      "baseline_version": "tfidf-lr-v1",
+      "labels": {
+        "toxicity": {
+          "w_teacher": 0.07016543391744914,
+          "w_baseline": 0.8369082368460902,
+          "intercept": -0.4044305329675942,
+          "n": 159571,
+          "n_pos": 15294
+        },
+        "severe_toxicity": {
+          "w_teacher": 0.10620412179503912,
+          "w_baseline": 0.6036651300912768,
+          "intercept": -1.9772392453191983,
+          "n": 159571,
+          "n_pos": 1595
+        },
+        "obscene": {
+          "w_teacher": 0.050596804293162885,
+          "w_baseline": 0.9057890476292958,
+          "intercept": 0.6548160630460195,
+          "n": 159571,
+          "n_pos": 8449
+        },
+        "threat": {
+          "w_teacher": 0.1240384233637983,
+          "w_baseline": 0.6384171239881962,
+          "intercept": -1.3747152713480588,
+          "n": 159571,
+          "n_pos": 478
+        },
+        "insult": {
+          "w_teacher": 0.10115080004478263,
+          "w_baseline": 0.6864500382294363,
+          "intercept": -1.2332728316383,
+          "n": 159571,
+          "n_pos": 7877
+        },
+        "identity_attack": {
+          "w_teacher": 0.10812679213679144,
+          "w_baseline": 0.654909466923699,
+          "intercept": -0.929095866688177,
+          "n": 159571,
+          "n_pos": 1405
+        }
+      },
+      "fit_on": "all 159571 training rows, unweighted",
+      "baseline_scores": "tfidf-lr-v1, out-of-fold on train (5 folds); full-train model for the gate subset and drift rows"
+    }
+  },
+  "domains": {
+    "gate_subset": {
+      "table": {
+        "A": {
+          "mean_auc": 0.98224,
+          "mean_pr_auc": 0.65942,
+          "ece": 0.01043,
+          "brier": 0.01861,
+          "auc": {
+            "toxicity": 0.96719,
+            "severe_toxicity": 0.98702,
+            "obscene": 0.97741,
+            "threat": 0.99691,
+            "insult": 0.97406,
+            "identity_attack": 0.99087
+          }
+        },
+        "B": {
+          "mean_auc": 0.98198,
+          "mean_pr_auc": 0.65979,
+          "ece": 0.00981,
+          "brier": 0.01877,
+          "auc": {
+            "toxicity": 0.96689,
+            "severe_toxicity": 0.98698,
+            "obscene": 0.97752,
+            "threat": 0.99684,
+            "insult": 0.97295,
+            "identity_attack": 0.9907
+          }
+        },
+        "tfidf": {
+          "mean_auc": 0.97994,
+          "mean_pr_auc": 0.62321,
+          "ece": 0.01006,
+          "brier": 0.01909,
+          "auc": {
+            "toxicity": 0.96534,
+            "severe_toxicity": 0.98511,
+            "obscene": 0.97701,
+            "threat": 0.99388,
+            "insult": 0.97227,
+            "identity_attack": 0.98602
+          }
+        },
+        "teacher": {
+          "mean_auc": 0.95884,
+          "mean_pr_auc": 0.47523,
+          "ece": 0.08601,
+          "brier": 0.08457,
+          "auc": {
+            "toxicity": 0.92552,
+            "severe_toxicity": 0.97649,
+            "obscene": 0.93481,
+            "threat": 0.994,
+            "insult": 0.94138,
+            "identity_attack": 0.98084
+          }
+        }
+      },
+      "bootstrap": {
+        "B - A": {
+          "labels": [
+            "toxicity",
+            "severe_toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 20000,
+          "replicates": 1000,
+          "mean_auc_diff": -0.00026,
+          "mean_auc_ci95": [
+            -0.00034,
+            -0.00019
+          ],
+          "mean_auc_p_gt_0": 0.0,
+          "mean_pr_auc_diff": 0.00036,
+          "mean_pr_auc_ci95": [
+            -0.00087,
+            0.00167
+          ],
+          "mean_pr_auc_p_gt_0": 0.716
+        },
+        "B - tfidf": {
+          "labels": [
+            "toxicity",
+            "severe_toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 20000,
+          "replicates": 1000,
+          "mean_auc_diff": 0.00204,
+          "mean_auc_ci95": [
+            0.00121,
+            0.00295
+          ],
+          "mean_auc_p_gt_0": 1.0,
+          "mean_pr_auc_diff": 0.03658,
+          "mean_pr_auc_ci95": [
+            0.02895,
+            0.04567
+          ],
+          "mean_pr_auc_p_gt_0": 1.0
+        },
+        "A - tfidf": {
+          "labels": [
+            "toxicity",
+            "severe_toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 20000,
+          "replicates": 1000,
+          "mean_auc_diff": 0.00231,
+          "mean_auc_ci95": [
+            0.00152,
+            0.00317
+          ],
+          "mean_auc_p_gt_0": 1.0,
+          "mean_pr_auc_diff": 0.03621,
+          "mean_pr_auc_ci95": [
+            0.0293,
+            0.04415
+          ],
+          "mean_pr_auc_p_gt_0": 1.0
+        }
+      }
+    },
+    "civil_shift": {
+      "table": {
+        "A": {
+          "mean_auc": 0.9338,
+          "mean_pr_auc": 0.37826,
+          "ece": 0.00758,
+          "brier": 0.01712,
+          "auc": {
+            "toxicity": 0.90532,
+            "severe_toxicity": null,
+            "obscene": 0.92335,
+            "threat": 0.95947,
+            "insult": 0.91312,
+            "identity_attack": 0.96772
+          }
+        },
+        "B": {
+          "mean_auc": 0.93391,
+          "mean_pr_auc": 0.37881,
+          "ece": 0.00861,
+          "brier": 0.01723,
+          "auc": {
+            "toxicity": 0.90638,
+            "severe_toxicity": null,
+            "obscene": 0.92274,
+            "threat": 0.95998,
+            "insult": 0.91249,
+            "identity_attack": 0.96794
+          }
+        },
+        "tfidf": {
+          "mean_auc": 0.89524,
+          "mean_pr_auc": 0.33247,
+          "ece": 0.01261,
+          "brier": 0.0189,
+          "auc": {
+            "toxicity": 0.86993,
+            "severe_toxicity": null,
+            "obscene": 0.90952,
+            "threat": 0.9075,
+            "insult": 0.87438,
+            "identity_attack": 0.91487
+          }
+        },
+        "teacher": {
+          "mean_auc": 0.89369,
+          "mean_pr_auc": 0.21888,
+          "ece": 0.13779,
+          "brier": 0.13383,
+          "auc": {
+            "toxicity": 0.8579,
+            "severe_toxicity": null,
+            "obscene": 0.84868,
+            "threat": 0.92974,
+            "insult": 0.87285,
+            "identity_attack": 0.9593
+          }
+        }
+      },
+      "bootstrap": {
+        "B - A": {
+          "labels": [
+            "toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 3000,
+          "replicates": 1000,
+          "mean_auc_diff": 0.00011,
+          "mean_auc_ci95": [
+            -0.0007,
+            0.00089
+          ],
+          "mean_auc_p_gt_0": 0.601,
+          "mean_pr_auc_diff": 0.00056,
+          "mean_pr_auc_ci95": [
+            -0.00566,
+            0.00556
+          ],
+          "mean_pr_auc_p_gt_0": 0.493
+        },
+        "B - tfidf": {
+          "labels": [
+            "toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 3000,
+          "replicates": 1000,
+          "mean_auc_diff": 0.03867,
+          "mean_auc_ci95": [
+            0.03066,
+            0.04737
+          ],
+          "mean_auc_p_gt_0": 1.0,
+          "mean_pr_auc_diff": 0.04634,
+          "mean_pr_auc_ci95": [
+            0.01813,
+            0.07253
+          ],
+          "mean_pr_auc_p_gt_0": 1.0
+        },
+        "A - tfidf": {
+          "labels": [
+            "toxicity",
+            "obscene",
+            "threat",
+            "insult",
+            "identity_attack"
+          ],
+          "rows": 3000,
+          "replicates": 1000,
+          "mean_auc_diff": 0.03855,
+          "mean_auc_ci95": [
+            0.03108,
+            0.04663
+          ],
+          "mean_auc_p_gt_0": 1.0,
+          "mean_pr_auc_diff": 0.04579,
+          "mean_pr_auc_ci95": [
+            0.02166,
+            0.07024
+          ],
+          "mean_pr_auc_p_gt_0": 1.0
+        }
+      }
+    }
+  },
+  "decision": {
+    "adopt": "A",
+    "reasons": [
+      "gate_subset: B's mean AUC is significantly lower than A's"
+    ]
+  },
+  "soft_labels": {
+    "model_version": "stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554+tfidf-lr-v1",
+    "train_cross_fitted": "pilot rows only (the stack was fitted on them)",
+    "train": {
+      "mean_auc": 0.98996,
+      "mean_pr_auc": 0.71183,
+      "ece": 0.0033,
+      "brier": 0.01195,
+      "auc": {
+        "toxicity": 0.98453,
+        "severe_toxicity": 0.98924,
+        "obscene": 0.992,
+        "threat": 0.99688,
+        "insult": 0.98696,
+        "identity_attack": 0.99015
+      }
+    },
+    "train_teacher_raw": {
+      "mean_auc": 0.97479,
+      "mean_pr_auc": 0.52946,
+      "ece": 0.07627,
+      "brier": 0.07459,
+      "auc": {
+        "toxicity": 0.9579,
+        "severe_toxicity": 0.97602,
+        "obscene": 0.97222,
+        "threat": 0.99402,
+        "insult": 0.96703,
+        "identity_attack": 0.98158
+      }
+    },
+    "train_tfidf_oof": {
+      "mean_auc": 0.98546,
+      "mean_pr_auc": 0.67905,
+      "ece": 0.00441,
+      "brier": 0.01292,
+      "auc": {
+        "toxicity": 0.97942,
+        "severe_toxicity": 0.98711,
+        "obscene": 0.99019,
+        "threat": 0.98999,
+        "insult": 0.9826,
+        "identity_attack": 0.98344
+      }
+    },
+    "gate_subset": {
+      "mean_auc": 0.98224,
+      "mean_pr_auc": 0.65942,
+      "ece": 0.01043,
+      "brier": 0.01861,
+      "auc": {
+        "toxicity": 0.96719,
+        "severe_toxicity": 0.98702,
+        "obscene": 0.97741,
+        "threat": 0.99691,
+        "insult": 0.97406,
+        "identity_attack": 0.99087
+      }
+    }
+  }
+}

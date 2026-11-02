@@ -1,0 +1,71 @@
+{
+  "model_version": "tfidf-lr-v1",
+  "train_rows": 157559,
+  "pilot_rows": 2000,
+  "fit_seconds": 168.9,
+  "metrics": {
+    "toxicity": {
+      "n": 2000,
+      "n_pos": 575.0,
+      "failure_rate": 0.0,
+      "auc": 0.98211,
+      "pr_auc": 0.88442,
+      "ece": 0.01859,
+      "brier": 0.03039
+    },
+    "severe_toxicity": {
+      "n": 2000,
+      "n_pos": 231.0,
+      "failure_rate": 0.0,
+      "auc": 0.98432,
+      "pr_auc": 0.46793,
+      "ece": 0.00475,
+      "brier": 0.00725
+    },
+    "obscene": {
+      "n": 2000,
+      "n_pos": 419.0,
+      "failure_rate": 0.0,
+      "auc": 0.9938,
+      "pr_auc": 0.9187,
+      "ece": 0.00665,
+      "brier": 0.01341
+    },
+    "threat": {
+      "n": 2000,
+      "n_pos": 152.0,
+      "failure_rate": 0.0,
+      "auc": 0.98616,
+      "pr_auc": 0.54357,
+      "ece": 0.00146,
+      "brier": 0.00215
+    },
+    "insult": {
+      "n": 2000,
+      "n_pos": 420.0,
+      "failure_rate": 0.0,
+      "auc": 0.97791,
+      "pr_auc": 0.78478,
+      "ece": 0.01244,
+      "brier": 0.02294
+    },
+    "identity_attack": {
+      "n": 2000,
+      "n_pos": 177.0,
+      "failure_rate": 0.0,
+      "auc": 0.98648,
+      "pr_auc": 0.59491,
+      "ece": 0.00275,
+      "brier": 0.00528
+    },
+    "mean": {
+      "n": 2000,
+      "n_pos": null,
+      "failure_rate": 0.0,
+      "auc": 0.98513,
+      "pr_auc": 0.69905,
+      "ece": 0.00777,
+      "brier": 0.01357
+    }
+  }
+}

@@ -1,0 +1,11 @@
+# Teacher lane, CPU side: data prep, prompt building, sampling, metrics, unit tests.
+# GPU notebooks on Kaggle install vLLM and torch themselves, at versions they record.
+pandas
+pyarrow
+numpy
+pyyaml
+scikit-learn
+scipy                    # Platt scaling fit (calibrate.py)
+transformers>=4.51       # Qwen3 tokenizer and chat template
+jinja2                   # apply_chat_template
+huggingface_hub

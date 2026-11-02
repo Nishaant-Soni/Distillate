@@ -1,0 +1,31 @@
+{
+  "seed": 42,
+  "per_label": 2,
+  "max_tokens": 60,
+  "ids": {
+    "toxicity": [
+      "1711124ae0266fe1",
+      "c48f696ccbe8f6c9"
+    ],
+    "severe_toxicity": [
+      "68ef2d542230342e",
+      "6817e7d24d107bc8"
+    ],
+    "obscene": [
+      "b33b3604048c25c4",
+      "14ba8eb06f369ab0"
+    ],
+    "threat": [
+      "11a1703cf04cd84e",
+      "8da72f47e1a7a212"
+    ],
+    "insult": [
+      "bd1ed5ca6cb784f0",
+      "c2ea6826e7670813"
+    ],
+    "identity_attack": [
+      "7fae6c5ce6325caa",
+      "c92a5d13e9111933"
+    ]
+  }
+}

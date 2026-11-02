@@ -1,0 +1,43 @@
+{
+  "rows": 2000,
+  "weight_sum": 160117.9,
+  "population": 159571,
+  "labels": {
+    "toxicity": {
+      "positives": 575,
+      "weighted_prevalence": 0.10032,
+      "true_prevalence": 0.09584
+    },
+    "severe_toxicity": {
+      "positives": 231,
+      "weighted_prevalence": 0.01,
+      "true_prevalence": 0.01
+    },
+    "obscene": {
+      "positives": 419,
+      "weighted_prevalence": 0.05212,
+      "true_prevalence": 0.05295
+    },
+    "threat": {
+      "positives": 152,
+      "weighted_prevalence": 0.00296,
+      "true_prevalence": 0.003
+    },
+    "insult": {
+      "positives": 420,
+      "weighted_prevalence": 0.05335,
+      "true_prevalence": 0.04936
+    },
+    "identity_attack": {
+      "positives": 177,
+      "weighted_prevalence": 0.00837,
+      "true_prevalence": 0.0088
+    }
+  },
+  "strata": {
+    "rest": 1531,
+    "severe_toxicity": 159,
+    "identity_attack": 158,
+    "threat": 152
+  }
+}

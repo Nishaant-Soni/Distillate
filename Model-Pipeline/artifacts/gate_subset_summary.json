@@ -1,0 +1,50 @@
+{
+  "seed": 42,
+  "source": "wiki_test_raw.parquet",
+  "enrich": {
+    "threat": 150,
+    "identity_attack": 300,
+    "severe_toxicity": 150
+  },
+  "rows": 20000,
+  "weight_sum": 63977.6,
+  "population": 63978,
+  "labels": {
+    "toxicity": {
+      "positives": 2330,
+      "weighted_prevalence": 0.09818,
+      "true_prevalence": 0.09519
+    },
+    "severe_toxicity": {
+      "positives": 274,
+      "weighted_prevalence": 0.00571,
+      "true_prevalence": 0.00574
+    },
+    "obscene": {
+      "positives": 1456,
+      "weighted_prevalence": 0.05773,
+      "true_prevalence": 0.05769
+    },
+    "threat": {
+      "positives": 170,
+      "weighted_prevalence": 0.00332,
+      "true_prevalence": 0.0033
+    },
+    "insult": {
+      "positives": 1374,
+      "weighted_prevalence": 0.0534,
+      "true_prevalence": 0.05357
+    },
+    "identity_attack": {
+      "positives": 447,
+      "weighted_prevalence": 0.01108,
+      "true_prevalence": 0.01113
+    }
+  },
+  "strata": {
+    "rest": 19253,
+    "identity_attack": 411,
+    "threat": 170,
+    "severe_toxicity": 166
+  }
+}
