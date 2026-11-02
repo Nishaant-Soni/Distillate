@@ -12,22 +12,31 @@ paths:
   reports_dir: reports
   summaries_dir: reports/summaries
   identity_terms: config/identity_terms.txt
-  tfds_data_dir: /opt/airflow/tfds   # mounted volume in docker compose
+  civil_exclude_ids: config/civil_teacher_shift_ids.txt   # teacher prompt-selection rows
+  kaggle_dir: data/kaggle           # Kaggle downloads (git-ignored, not versioned)
+  cache_dir: data/cache             # full Civil train (1.8M rows): untracked, not in DVC
 
 datasets:
   wikipedia:
-    tfds_name: wikipedia_toxicity_subtypes/EnglishSubtypes:0.3.1
+    kaggle_competition: jigsaw-toxic-comment-classification-challenge
+    kaggle_files: {train: train.csv.zip, test: test.csv.zip, test_labels: test_labels.csv.zip}
     splits: [train, test]
     expected_rows: {train: 159571, test: 63978}
   civil_comments:
-    tfds_name: civil_comments/CivilComments:1.2.4
+    kaggle_competition: jigsaw-unintended-bias-in-toxicity-classification
+    kaggle_files:
+      train: train.csv
+      validation: test_public_expanded.csv
+      test: test_private_expanded.csv
     splits: [train, validation, test]
     expected_rows: {train: 1804874, validation: 97320, test: 97320}
-    dropped_columns: [parent_text]
   civil_identities:
-    tfds_name: civil_comments/CivilCommentsIdentities:1.2.4
+    # Built from civil_comments test: rows with identity_annotator_count > 0.
     splits: [test]
     expected_rows: {test: 21577}
+
+acquire:
+  csv_chunksize: 200000             # rows per chunk when reading the big Civil CSVs
 
 labels:
   names: [toxicity, severe_toxicity, obscene, threat, insult, identity_attack]
@@ -36,7 +45,8 @@ labels:
 
 preprocess:
   max_char_len_flag: 5000
-  obfuscation_nonalpha_share: 0.3   # TODO(Praniti): confirm during EDA
+  obfuscation_nonalpha_share: 0.3   # confirmed in EDA: flags 1.9% of Wikipedia train
+  batch_size: 200000                # rows per chunk when cleaning Civil train
 
 dedupe:
   jaccard_threshold: 0.9
@@ -64,6 +74,16 @@ bias:
   fpr_flag_margin_pts: 5.0
   reweight_factors: [1, 2, 3, 5]
   max_auc_drop: 0.005
+  label: toxicity                   # the baseline scores this label only; the factor is chosen on it
+  # Civil slices are reported for each of these the prediction file scores.
+  # severe_toxicity is left out: almost no Civil rows are positive at >= 0.5.
+  civil_labels: [toxicity, obscene, threat, insult, identity_attack]
+  data_gap_flag_pts: 15.0           # data level: a slice's toxic rate this far above overall is reported
+  identity_threshold: 0.5           # Civil identity attribute >= this puts a row in the slice
+  length_bands: [100, 500]          # Wikipedia val bands: <100, 100-499, 500+ characters
+  tfidf: {max_features: 50000, ngram_max: 2, min_df: 2}
+  logreg: {C: 4.0, max_iter: 1000}
+
 
 dvc:
   push: true                        # overridden by the DVC_PUSH env var

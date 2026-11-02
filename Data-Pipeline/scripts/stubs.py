@@ -20,7 +20,7 @@ import random
 from pathlib import Path
 from typing import Any
 
-from scripts.utils import atomic_path, get_logger, timed, write_summary
+from scripts.utils import atomic_path, get_logger, timed
 
 logger = get_logger(__name__)
 
@@ -134,6 +134,9 @@ def run(cfg: dict[str, Any], stage: str) -> dict[str, Any]:
             for split in ("train", "validation", "test"):
                 _write(civil_frame(n, seed, f"civil_{split}"),
                        civil_out / f"{split}_clean.parquet", summary)
+            # subsets.py builds bias_eval from the cleaned Identities test split.
+            _write(civil_frame(n, seed, "civil_identities", with_identities=True),
+                   civil_out / "identities_test_clean.parquet", summary)
         elif stage == "dedupe_wikipedia":
             _write(wikipedia_frame(n, seed, "wiki_train"),
                    wiki_out / "train_dedup.parquet", summary)
@@ -196,5 +199,7 @@ def run(cfg: dict[str, Any], stage: str) -> dict[str, Any]:
     summary["rows_out"] = sum(summary.get("files", {}).values())
     logger.warning("STUB %s wrote %s file(s) of placeholder data",
                    stage, len(summary.get("files", {})))
-    write_summary(stage, summary, cfg)
+    # No write_summary here on purpose. One stage can have several stub parts
+    # (acquire -> wikipedia + civil), and only the stage is a task. The caller
+    # writes one summary per task with these nested under "parts".
     return summary

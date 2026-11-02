@@ -57,10 +57,6 @@ def collect(cfg: dict[str, Any]) -> dict[str, Any]:
 def run(cfg: dict[str, Any]) -> dict[str, Any]:
     """Write run_summary.json and post one Slack message. Never fails the DAG."""
     report = collect(cfg)
-    target = Path(cfg["paths"]["reports_dir"]) / "run_summary.json"
-    atomic_write(target, json.dumps(report, indent=2, default=str, sort_keys=True))
-    logger.info("Wrote %s (%d tasks)", target, report["tasks_reported"])
-
     details = {
         "tasks": report["tasks_reported"],
         "rows out": f"{report['rows_out']:,}",
@@ -73,7 +69,12 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
     level = "warn" if report["stages_stubbed"] else "ok"
     title = ("data_prep_dag finished with stubbed stages" if report["stages_stubbed"]
              else "data_prep_dag finished")
+    # Alert first, then write, so the report on disk records whether Slack
+    # actually received it. send_alert never raises.
     report["slack_posted"] = send_alert(level, title, details)
+    target = Path(cfg["paths"]["reports_dir"]) / "run_summary.json"
+    atomic_write(target, json.dumps(report, indent=2, default=str, sort_keys=True))
+    logger.info("Wrote %s (%d tasks)", target, report["tasks_reported"])
     return report
 
 

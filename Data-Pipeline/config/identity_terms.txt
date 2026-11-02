@@ -1,3 +1,44 @@
-# Identity-term lexicon for Wikipedia identity slices.
-# Owner: Ruchita (bias lane). Other lanes read this file but don't edit it.
-# One lowercase term per line. Lines starting with # are ignored.
+# gender
+woman
+women
+female
+man
+men
+male
+transgender
+trans
+nonbinary
+# sexual orientation
+gay
+lesbian
+bisexual
+queer
+homosexual
+lgbt
+lgbtq
+# religion
+muslim
+islam
+christian
+jewish
+jew
+hindu
+buddhist
+atheist
+catholic
+# race / ethnicity
+black
+white
+asian
+latino
+latina
+hispanic
+african
+arab
+mexican
+# disability
+disabled
+blind
+deaf
+autistic
+mentally ill

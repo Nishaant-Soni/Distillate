@@ -13,9 +13,11 @@ def cfg(tmp_path, monkeypatch):
     monkeypatch.setattr(dvc_version, "_repo_root", lambda: tmp_path)
     for name in ("raw", "processed"):
         (tmp_path / "data" / name).mkdir(parents=True)
+    (tmp_path / "reports" / "schema" / "stats").mkdir(parents=True)
     return {
         "paths": {"raw_dir": str(tmp_path / "data" / "raw"),
                   "processed_dir": str(tmp_path / "data" / "processed"),
+                  "reports_dir": str(tmp_path / "reports"),
                   "summaries_dir": str(tmp_path / "summaries")},
         "dvc": {"push": False},
     }
@@ -35,14 +37,16 @@ def test_uninitialised_repo_skips_instead_of_failing(cfg, monkeypatch):
     assert "skipped" in summary and calls == []
 
 
-def test_tracks_both_data_directories(cfg, monkeypatch, tmp_path):
+def test_tracks_the_data_and_the_tfdv_statistics(cfg, monkeypatch, tmp_path):
     (tmp_path / ".dvc").mkdir()
     calls = []
     monkeypatch.setattr(dvc_version, "_dvc", _fake_dvc(calls))
     summary = dvc_version.run(cfg)
-    assert calls == [["add", "data/raw"], ["add", "data/processed"]]
-    assert summary["tracked"] == ["data/raw", "data/processed"]
-    assert summary["commit_reminder"] == ["data/raw.dvc", "data/processed.dvc"]
+    assert calls == [["add", "data/raw"], ["add", "data/processed"],
+                     ["add", "reports/schema/stats"]]
+    assert summary["tracked"] == ["data/raw", "data/processed", "reports/schema/stats"]
+    assert summary["commit_reminder"] == ["data/raw.dvc", "data/processed.dvc",
+                                         "reports/schema/stats.dvc"]
 
 
 def test_push_is_skipped_by_default(cfg, monkeypatch, tmp_path):
@@ -77,7 +81,8 @@ def test_a_failed_push_warns_but_keeps_the_run_green(cfg, monkeypatch, tmp_path)
     monkeypatch.setattr(dvc_version, "_dvc", add_ok_push_fails)
     summary = dvc_version.run(cfg)
     assert summary["pushed"] is False
-    assert summary["tracked"] == ["data/raw", "data/processed"]  # tracking still happened
+    # tracking still happened
+    assert summary["tracked"] == ["data/raw", "data/processed", "reports/schema/stats"]
     assert alerts == ["warn"]
 
 
@@ -98,4 +103,13 @@ def test_missing_data_directory_is_skipped_quietly(cfg, monkeypatch, tmp_path):
     Path(cfg["paths"]["processed_dir"]).rmdir()
     calls = []
     monkeypatch.setattr(dvc_version, "_dvc", _fake_dvc(calls))
-    assert dvc_version.run(cfg)["tracked"] == ["data/raw"]
+    assert dvc_version.run(cfg)["tracked"] == ["data/raw", "reports/schema/stats"]
+
+
+def test_missing_statistics_are_skipped_quietly(cfg, monkeypatch, tmp_path):
+    """While schema_stats is a stub there are no statistics; data is still versioned."""
+    (tmp_path / ".dvc").mkdir()
+    (tmp_path / "reports" / "schema" / "stats").rmdir()
+    calls = []
+    monkeypatch.setattr(dvc_version, "_dvc", _fake_dvc(calls))
+    assert dvc_version.run(cfg)["tracked"] == ["data/raw", "data/processed"]

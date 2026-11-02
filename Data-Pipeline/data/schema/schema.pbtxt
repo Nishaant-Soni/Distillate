@@ -1,0 +1,863 @@
+feature {
+  name: "id"
+  type: BYTES
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "text"
+  type: BYTES
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "toxicity"
+  type: INT
+  int_domain {
+    min: 0
+    max: 1
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "severe_toxicity"
+  type: INT
+  int_domain {
+    min: 0
+    max: 1
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "obscene"
+  type: INT
+  int_domain {
+    min: 0
+    max: 1
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "threat"
+  type: INT
+  int_domain {
+    min: 0
+    max: 1
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "insult"
+  type: INT
+  int_domain {
+    min: 0
+    max: 1
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "identity_attack"
+  type: INT
+  int_domain {
+    min: 0
+    max: 1
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "char_len"
+  type: INT
+  int_domain {
+    min: 1
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "has_identity_term"
+  type: INT
+  int_domain {
+    min: 0
+    max: 1
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "has_obfuscation"
+  type: INT
+  int_domain {
+    min: 0
+    max: 1
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "sample_weight"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "CIVIL"
+  not_in_environment: "CIVIL_BIAS"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "created_date"
+  type: BYTES
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "publication_id"
+  type: BYTES
+  int_domain {
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "article_id"
+  type: BYTES
+  int_domain {
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "toxicity_frac"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "severe_toxicity_frac"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "obscene_frac"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "threat_frac"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "insult_frac"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "identity_attack_frac"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "identity_annotator_count"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "asian"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "atheist"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "bisexual"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "black"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "buddhist"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "christian"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "female"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "heterosexual"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "hindu"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "homosexual_gay_or_lesbian"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "intellectual_or_learning_disability"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "jewish"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "latino"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "male"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "muslim"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "other_disability"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "other_gender"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "other_race_or_ethnicity"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "other_religion"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "other_sexual_orientation"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "physical_disability"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "psychiatric_or_mental_illness"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "transgender"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "white"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "WIKI"
+  not_in_environment: "WIKI_TRAIN"
+  not_in_environment: "CIVIL"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+default_environment: "WIKI"
+default_environment: "WIKI_TRAIN"
+default_environment: "CIVIL"
+default_environment: "CIVIL_BIAS"
