@@ -33,6 +33,7 @@ paths:
   gate_ids: artifacts/gate_subset_ids.parquet   # gate subset with weights (sampling.py gate)
   oof_dir: artifacts/oof                     # out-of-fold TF-IDF scores and stack check
   stack_dir: artifacts/stack                 # the adopted stack and its check (soft_labels.py)
+  calqwen_dir: artifacts/calqwen             # calibrated-Qwen soft-label check (calqwen.py)
   drift_dir: data/civil_drift                # local copy of the data lane's drift batches
                                              # (gitignored: comment text)
 
@@ -80,6 +81,12 @@ stack:
   C: 1.0
   full_version: stack-v2    # same model fitted on all training rows (soft_labels.py)
   max_ece_increase: 0.005   # stack-v2 is not adopted if its gate-subset ECE is worse by more
+
+# Calibrated-Qwen soft labels (calqwen.py): the ablation's second attribution arm. The pilot's
+# frozen Platt calibration (pilot_dir/calibration_<prompt_version>.json) on the teacher's
+# logits, no TF-IDF input; written under soft_labels/<version>/<prompt_version>/.
+calqwen:
+  version: calqwen-v1
 
 # Out-of-fold TF-IDF scores for the training set (tfidf_oof.py): the stack's TF-IDF input.
 oof:

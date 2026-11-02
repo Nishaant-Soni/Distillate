@@ -113,10 +113,12 @@ def shard_frames(pred, plan: Sequence[Sequence[str]], prompt_version: str, model
 
 def upload_shards(storage, prefix: str, frames: Sequence[Any], prompt_version: str,
                   model_version: str, stack_sha256: str, extra: Mapping[str, Any],
-                  log: Callable[[str], None] = logger.info) -> dict[str, list[str]]:
+                  log: Callable[[str], None] = logger.info,
+                  sha_field: str = "stack_sha256") -> dict[str, list[str]]:
     """Write each shard (Parquet, then manifest), skipping shards this stack already wrote.
 
-    Raises if a finished shard under ``prefix`` came from a different stack file.
+    Raises if a finished shard under ``prefix`` came from a different stack file. The hash
+    is recorded as ``sha_field`` (``calibration_sha256`` for the calibrated-Qwen labels).
     """
     from src.teacher.shards import build_manifest, shard_name
     from src.teacher.storage import shard_done, shard_paths, write_shard
@@ -127,14 +129,15 @@ def upload_shards(storage, prefix: str, frames: Sequence[Any], prompt_version: s
         if shard_done(storage, prefix, name):
             with tempfile.TemporaryDirectory() as tmp:
                 local = storage.download(shard_paths(prefix, name)[1], Path(tmp))
-                previous = json.loads(Path(local).read_text()).get("stack_sha256")
+                previous = json.loads(Path(local).read_text()).get(sha_field)
             if previous != stack_sha256:
-                raise ValueError(f"{prefix}{name} was written by another stack "
-                                 f"({previous}); remove that prefix first")
+                raise ValueError(f"{prefix}{name} was written by another "
+                                 f"{sha_field.removesuffix('_sha256')} ({previous}); "
+                                 f"remove that prefix first")
             summary["skipped"].append(name)
             continue
         manifest = build_manifest(frame, prompt_version, model_version,
-                                  stack_sha256=stack_sha256, **extra)
+                                  **{sha_field: stack_sha256}, **extra)
         write_shard(storage, prefix, name, frame, manifest)
         summary["written"].append(name)
         log(f"{prefix}{name}: {len(frame)} rows")
