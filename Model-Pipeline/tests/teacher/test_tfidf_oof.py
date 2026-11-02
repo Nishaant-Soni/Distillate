@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -55,4 +57,5 @@ def test_rows_without_a_fold_raise():
 
 def test_config():
     cfg = load_config()
-    assert cfg["oof"]["folds"] == 5 and cfg["paths"]["oof_dir"].endswith("artifacts/oof")
+    assert cfg["oof"]["folds"] == 5
+    assert Path(cfg["paths"]["oof_dir"]).as_posix().endswith("artifacts/oof")   # \ on Windows
