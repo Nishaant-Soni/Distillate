@@ -18,11 +18,15 @@ gold label: with B, each ``tfidf_oof`` fold is scored by a stack fitted on the o
 with A, non-pilot rows get A's output and pilot rows the cross-fitted pilot outputs. Gate
 rows get the adopted stack as frozen.
 
+The drift stream (``--drift``) gets the adopted stack as frozen, like the gate subset, with
+one shard per delivered batch under ``.../drift/``; nothing is refitted or re-chosen.
+
     python -m src.teacher.soft_labels            # choose the stack, write artifacts/stack/
     python -m src.teacher.soft_labels --upload   # also write the soft-label shards
+    python -m src.teacher.soft_labels --drift [--upload]
 
-``--upload`` requires the code and ``artifacts/stack/`` to be committed, and every manifest
-records the commit and the stack file's SHA-256.
+``--upload`` requires the code, ``artifacts/stack/`` and ``artifacts/oof/`` to be committed,
+and every manifest records the commit and the stack file's SHA-256.
 """
 
 from __future__ import annotations
@@ -182,20 +186,21 @@ def tfidf_oof(cfg: Mapping[str, Any], storage):
     return frame
 
 
-def gate_tfidf(cfg: Mapping[str, Any], train, gate_rows):
-    """Full-train TF-IDF scores for the gate subset, computed once (a few minutes)."""
+def full_tfidf(cfg: Mapping[str, Any], train, rows, name: str):
+    """Full-train TF-IDF scores for held-out ``rows``, computed once (a few minutes) and
+    cached as ``<oof_dir>/<name>_tfidf_full.parquet`` (ids and scores only)."""
     import pandas as pd
 
     from src.teacher.baseline_tfidf import train_predict
 
-    path = Path(cfg["paths"]["oof_dir"]) / "gate_tfidf_full.parquet"
+    path = Path(cfg["paths"]["oof_dir"]) / f"{name}_tfidf_full.parquet"
     if not path.exists():
-        train_predict(train, gate_rows[["id", "text"]], cfg["baseline"],
+        train_predict(train, rows[["id", "text"]], cfg["baseline"],
                       cfg["seed"]).to_parquet(path, index=False)
     frame = pd.read_parquet(path)
     frame["id"] = frame["id"].astype(str)
-    if set(frame["id"]) != set(gate_rows["id"]):
-        raise ValueError(f"{path} does not cover the gate subset; delete it to recompute")
+    if set(frame["id"]) != set(rows["id"]):
+        raise ValueError(f"{path} does not cover the {name} rows; delete it to recompute")
     return frame
 
 
@@ -244,7 +249,7 @@ def run(cfg: Mapping[str, Any], teacher_storage, out_storage=None, n_boot: int =
     if set(teacher["id"]) != set(train["id"]) or set(gate_teacher["id"]) != set(gate_ids["id"]):
         raise ValueError("teacher shards do not cover the training set and gate subset")
     oof = tfidf_oof(cfg, teacher_storage)
-    gate_base = gate_tfidf(cfg, train, gate_rows)
+    gate_base = full_tfidf(cfg, train, gate_rows, "gate")
 
     shift_dir, oof_dir = Path(paths["shift_dir"]), Path(paths["oof_dir"])
     civil_ids = pd.read_parquet(shift_dir / "civil_shift_ids.parquet")
@@ -355,6 +360,96 @@ def run(cfg: Mapping[str, Any], teacher_storage, out_storage=None, n_boot: int =
     return report
 
 
+def run_drift(cfg: Mapping[str, Any], teacher_storage, out_storage=None,
+              code_commit: str | None = None,
+              before_upload: Callable[[], None] | None = None) -> dict[str, Any]:
+    """Soft labels for the drift stream from the adopted stack, frozen; nothing is refitted.
+
+    Reads the data lane's batches from ``paths.drift_dir`` and the teacher's drift shards,
+    checks that ``artifacts/stack/`` holds the stack that wrote the training soft labels,
+    writes ``drift_check.json`` (teacher, TF-IDF and stack against the batches' Civil gold
+    labels, overall and per batch), and uploads one shard per batch if ``out_storage`` is
+    given.
+    """
+    import pandas as pd
+
+    from src.teacher.label_worker import select_drift_rows
+    from src.teacher.metrics import evaluate
+    from src.teacher.shards import plan_batches
+    from src.teacher.stack import apply_stack, load_stack
+    from src.teacher.storage import shard_paths
+
+    pv, bins, paths = cfg["shift"]["prompt_version"], cfg["metrics"]["ece_bins"], cfg["paths"]
+    stack_path = Path(paths["stack_dir"]) / f"stack_{pv}.json"
+    stack, stack_sha = load_stack(stack_path), sha256_file(stack_path)
+    prefix = soft_prefix(stack["stack_version"], pv)
+    with tempfile.TemporaryDirectory() as tmp:
+        local = teacher_storage.download(shard_paths(prefix, "shard_0000")[1], Path(tmp))
+        trained_sha = json.loads(Path(local).read_text()).get("stack_sha256")
+    if trained_sha != stack_sha:
+        raise ValueError(f"{stack_path} is not the stack that wrote {prefix} "
+                         f"({trained_sha}); the drift labels must come from the same stack")
+
+    drift_dir = Path(paths["drift_dir"])
+    rows = select_drift_rows(drift_dir, drift_dir / cfg["drift"]["ids_file"],
+                             ["id", "text", *LABELS])
+    teacher_prefix = f"teacher/{pv}/drift/"
+    teacher = load_teacher(teacher_storage, teacher_prefix)
+    if set(teacher["id"]) != set(rows["id"]):
+        raise ValueError(f"{teacher_prefix} does not cover the drift rows")
+    train = pd.read_parquet(Path(paths["data_dir"]) / cfg["data"]["files"]["train"])
+    train["id"] = train["id"].astype(str)
+    base = full_tfidf(cfg, train, rows, "drift")
+
+    soft = apply_stack(teacher, base, stack)
+    model_version = soft_model_version(stack)
+    frames = shard_frames(soft, plan_batches(dict(zip(rows["id"], rows["batch"], strict=True))),
+                          pv, model_version)
+    preds = {"stack": pd.concat(frames), "teacher_raw": teacher,
+             "tfidf": base.assign(status="ok")}
+    truth = rows[["id", *LABELS]]
+
+    def mean_auc(pred, part) -> float | None:
+        value = evaluate(pred, part, None, bins).loc["mean", "auc"]
+        return None if pd.isna(value) else round(float(value), 5)
+
+    per_batch = []
+    for b, part in rows.groupby("batch", sort=True):
+        per_batch.append({"batch": int(b), "rows": len(part),
+                          "positives": {k: int(part[k].sum()) for k in LABELS},
+                          **{f"{name}_mean_auc": mean_auc(p, part[["id", *LABELS]])
+                             for name, p in preds.items()}})
+    report = {
+        "stack_version": stack["stack_version"], "stack_sha256": stack_sha,
+        "model_version": model_version, "rows": len(rows), "batches": len(frames),
+        "note": "Civil Comments gold labels (positive at half the raters or more); a batch's "
+                "mean AUC skips labels with no positive in that batch",
+        "overall": {name: table(evaluate(p, truth, None, bins)) for name, p in preds.items()},
+        "per_batch": per_batch,
+    }
+    report_path = Path(paths["stack_dir"]) / "drift_check.json"
+    report_path.write_text(json.dumps(report, indent=2) + "\n")
+    logger.info("drift: stack %s, teacher %s, TF-IDF %s (mean AUC)",
+                report["overall"]["stack"]["mean_auc"],
+                report["overall"]["teacher_raw"]["mean_auc"],
+                report["overall"]["tfidf"]["mean_auc"])
+
+    if out_storage is not None:
+        if before_upload is not None:
+            before_upload()
+        extra = {"stack_version": stack["stack_version"],
+                 "stack_file": stack_path.resolve().relative_to(PIPELINE_ROOT).as_posix(),
+                 "teacher_prefix": teacher_prefix,
+                 "baseline_version": stack["baseline_version"], "code_commit": code_commit,
+                 "cross_fitted": "no (held-out rows)",
+                 "baseline_scores": "TF-IDF trained on all of train",
+                 "layout": "one shard per batch: shard_<k> is batch k"}
+        report["upload"] = {"prefix": f"{prefix}drift/",
+                            "drift": upload_shards(out_storage, f"{prefix}drift/", frames, pv,
+                                                   model_version, stack_sha, extra)}
+    return report
+
+
 def main() -> None:
     from src.teacher.storage import get_storage
 
@@ -363,25 +458,34 @@ def main() -> None:
     parser.add_argument("--teacher-root", default=None,
                         help="local copy of the teacher shards (default: the configured store)")
     parser.add_argument("--local-root", default=None, help="write shards here, not the store")
+    parser.add_argument("--drift", action="store_true",
+                        help="the drift stream, from the frozen stack (nothing is refitted)")
     parser.add_argument("--config", default=None)
     args = parser.parse_args()
     cfg = load_config(args.config)
 
-    tracked = ["src", "configs", cfg["paths"]["stack_dir"]]
+    tracked = ["src", "configs", cfg["paths"]["stack_dir"], cfg["paths"]["oof_dir"]]
     commit, dirty = git_state(tracked)
     teacher_storage = get_storage(cfg, args.teacher_root)
     def still_committed() -> None:
         if git_state(tracked)[1] and args.local_root is None:
-            raise SystemExit("artifacts/stack/ as rewritten by this run differs from the "
-                             "committed files; nothing was uploaded")
+            raise SystemExit("artifacts/stack/ or artifacts/oof/ as rewritten by this run "
+                             "differs from the committed files; nothing was uploaded")
 
     out_storage = None
     if args.upload:
         if dirty and args.local_root is None:
-            raise SystemExit("commit src/, configs/ and artifacts/stack/ before --upload")
+            raise SystemExit("commit src/, configs/, artifacts/stack/ and artifacts/oof/ "
+                             "before --upload")
         out_storage = get_storage(cfg, args.local_root)
+    before_upload = still_committed if args.upload else None
+    if args.drift:
+        report = run_drift(cfg, teacher_storage, out_storage, commit, before_upload)
+        print(json.dumps({"drift": {k: v["mean_auc"] for k, v in report["overall"].items()},
+                          "upload": report.get("upload")}, indent=2))
+        return
     report = run(cfg, teacher_storage, out_storage, code_commit=commit,
-                 before_upload=still_committed if args.upload else None)
+                 before_upload=before_upload)
     print(json.dumps({"decision": report["decision"],
                       "soft_labels": {k: v["mean_auc"] if isinstance(v, dict) else v
                                       for k, v in report["soft_labels"].items()},

@@ -1,0 +1,354 @@
+{
+  "stack_version": "stack-v1",
+  "stack_sha256": "9b2418043a97592d298e7d69209a93fc872ef2438d58073df2ce1c684c426e28",
+  "model_version": "stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554+tfidf-lr-v1",
+  "rows": 40000,
+  "batches": 20,
+  "note": "Civil Comments gold labels (positive at half the raters or more); a batch's mean AUC skips labels with no positive in that batch",
+  "overall": {
+    "stack": {
+      "mean_auc": 0.92446,
+      "mean_pr_auc": 0.34412,
+      "ece": 0.00824,
+      "brier": 0.01775,
+      "auc": {
+        "toxicity": 0.89352,
+        "severe_toxicity": null,
+        "obscene": 0.92584,
+        "threat": 0.95426,
+        "insult": 0.88939,
+        "identity_attack": 0.9593
+      }
+    },
+    "teacher_raw": {
+      "mean_auc": 0.88159,
+      "mean_pr_auc": 0.19654,
+      "ece": 0.13386,
+      "brier": 0.12997,
+      "auc": {
+        "toxicity": 0.83235,
+        "severe_toxicity": null,
+        "obscene": 0.83942,
+        "threat": 0.94409,
+        "insult": 0.84328,
+        "identity_attack": 0.94881
+      }
+    },
+    "tfidf": {
+      "mean_auc": 0.88689,
+      "mean_pr_auc": 0.27888,
+      "ece": 0.0126,
+      "brier": 0.01926,
+      "auc": {
+        "toxicity": 0.86521,
+        "severe_toxicity": null,
+        "obscene": 0.90825,
+        "threat": 0.88753,
+        "insult": 0.85526,
+        "identity_attack": 0.9182
+      }
+    }
+  },
+  "per_batch": [
+    {
+      "batch": 0,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 131,
+        "severe_toxicity": 0,
+        "obscene": 11,
+        "threat": 4,
+        "insult": 102,
+        "identity_attack": 4
+      },
+      "stack_mean_auc": 0.92303,
+      "teacher_raw_mean_auc": 0.86099,
+      "tfidf_mean_auc": 0.89719
+    },
+    {
+      "batch": 1,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 169,
+        "severe_toxicity": 0,
+        "obscene": 13,
+        "threat": 7,
+        "insult": 121,
+        "identity_attack": 11
+      },
+      "stack_mean_auc": 0.92704,
+      "teacher_raw_mean_auc": 0.87853,
+      "tfidf_mean_auc": 0.88624
+    },
+    {
+      "batch": 2,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 161,
+        "severe_toxicity": 0,
+        "obscene": 11,
+        "threat": 2,
+        "insult": 116,
+        "identity_attack": 13
+      },
+      "stack_mean_auc": 0.93241,
+      "teacher_raw_mean_auc": 0.88457,
+      "tfidf_mean_auc": 0.87911
+    },
+    {
+      "batch": 3,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 147,
+        "severe_toxicity": 0,
+        "obscene": 7,
+        "threat": 2,
+        "insult": 108,
+        "identity_attack": 12
+      },
+      "stack_mean_auc": 0.95025,
+      "teacher_raw_mean_auc": 0.83705,
+      "tfidf_mean_auc": 0.93237
+    },
+    {
+      "batch": 4,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 201,
+        "severe_toxicity": 0,
+        "obscene": 8,
+        "threat": 10,
+        "insult": 145,
+        "identity_attack": 17
+      },
+      "stack_mean_auc": 0.93783,
+      "teacher_raw_mean_auc": 0.8963,
+      "tfidf_mean_auc": 0.90024
+    },
+    {
+      "batch": 5,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 169,
+        "severe_toxicity": 0,
+        "obscene": 14,
+        "threat": 4,
+        "insult": 131,
+        "identity_attack": 15
+      },
+      "stack_mean_auc": 0.93804,
+      "teacher_raw_mean_auc": 0.90149,
+      "tfidf_mean_auc": 0.90074
+    },
+    {
+      "batch": 6,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 160,
+        "severe_toxicity": 0,
+        "obscene": 5,
+        "threat": 2,
+        "insult": 110,
+        "identity_attack": 18
+      },
+      "stack_mean_auc": 0.93501,
+      "teacher_raw_mean_auc": 0.88613,
+      "tfidf_mean_auc": 0.90858
+    },
+    {
+      "batch": 7,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 133,
+        "severe_toxicity": 0,
+        "obscene": 5,
+        "threat": 5,
+        "insult": 103,
+        "identity_attack": 11
+      },
+      "stack_mean_auc": 0.92494,
+      "teacher_raw_mean_auc": 0.86612,
+      "tfidf_mean_auc": 0.88616
+    },
+    {
+      "batch": 8,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 130,
+        "severe_toxicity": 0,
+        "obscene": 5,
+        "threat": 4,
+        "insult": 94,
+        "identity_attack": 19
+      },
+      "stack_mean_auc": 0.92307,
+      "teacher_raw_mean_auc": 0.87646,
+      "tfidf_mean_auc": 0.84592
+    },
+    {
+      "batch": 9,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 155,
+        "severe_toxicity": 0,
+        "obscene": 12,
+        "threat": 5,
+        "insult": 114,
+        "identity_attack": 12
+      },
+      "stack_mean_auc": 0.88763,
+      "teacher_raw_mean_auc": 0.83697,
+      "tfidf_mean_auc": 0.85558
+    },
+    {
+      "batch": 10,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 151,
+        "severe_toxicity": 0,
+        "obscene": 6,
+        "threat": 5,
+        "insult": 112,
+        "identity_attack": 16
+      },
+      "stack_mean_auc": 0.94302,
+      "teacher_raw_mean_auc": 0.90041,
+      "tfidf_mean_auc": 0.88503
+    },
+    {
+      "batch": 11,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 167,
+        "severe_toxicity": 0,
+        "obscene": 8,
+        "threat": 5,
+        "insult": 122,
+        "identity_attack": 8
+      },
+      "stack_mean_auc": 0.92833,
+      "teacher_raw_mean_auc": 0.87675,
+      "tfidf_mean_auc": 0.9071
+    },
+    {
+      "batch": 12,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 167,
+        "severe_toxicity": 0,
+        "obscene": 7,
+        "threat": 6,
+        "insult": 125,
+        "identity_attack": 12
+      },
+      "stack_mean_auc": 0.92574,
+      "teacher_raw_mean_auc": 0.87385,
+      "tfidf_mean_auc": 0.89284
+    },
+    {
+      "batch": 13,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 165,
+        "severe_toxicity": 0,
+        "obscene": 9,
+        "threat": 3,
+        "insult": 121,
+        "identity_attack": 10
+      },
+      "stack_mean_auc": 0.91458,
+      "teacher_raw_mean_auc": 0.90183,
+      "tfidf_mean_auc": 0.87737
+    },
+    {
+      "batch": 14,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 160,
+        "severe_toxicity": 0,
+        "obscene": 9,
+        "threat": 8,
+        "insult": 116,
+        "identity_attack": 16
+      },
+      "stack_mean_auc": 0.91572,
+      "teacher_raw_mean_auc": 0.89027,
+      "tfidf_mean_auc": 0.8575
+    },
+    {
+      "batch": 15,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 181,
+        "severe_toxicity": 0,
+        "obscene": 5,
+        "threat": 4,
+        "insult": 136,
+        "identity_attack": 28
+      },
+      "stack_mean_auc": 0.92913,
+      "teacher_raw_mean_auc": 0.89197,
+      "tfidf_mean_auc": 0.89082
+    },
+    {
+      "batch": 16,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 140,
+        "severe_toxicity": 0,
+        "obscene": 12,
+        "threat": 4,
+        "insult": 112,
+        "identity_attack": 12
+      },
+      "stack_mean_auc": 0.92147,
+      "teacher_raw_mean_auc": 0.89775,
+      "tfidf_mean_auc": 0.90599
+    },
+    {
+      "batch": 17,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 185,
+        "severe_toxicity": 0,
+        "obscene": 13,
+        "threat": 8,
+        "insult": 133,
+        "identity_attack": 18
+      },
+      "stack_mean_auc": 0.90913,
+      "teacher_raw_mean_auc": 0.87707,
+      "tfidf_mean_auc": 0.87269
+    },
+    {
+      "batch": 18,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 167,
+        "severe_toxicity": 0,
+        "obscene": 7,
+        "threat": 3,
+        "insult": 113,
+        "identity_attack": 20
+      },
+      "stack_mean_auc": 0.9126,
+      "teacher_raw_mean_auc": 0.88292,
+      "tfidf_mean_auc": 0.84971
+    },
+    {
+      "batch": 19,
+      "rows": 2000,
+      "positives": {
+        "toxicity": 160,
+        "severe_toxicity": 0,
+        "obscene": 9,
+        "threat": 4,
+        "insult": 112,
+        "identity_attack": 21
+      },
+      "stack_mean_auc": 0.94849,
+      "teacher_raw_mean_auc": 0.917,
+      "tfidf_mean_auc": 0.9173
+    }
+  ]
+}

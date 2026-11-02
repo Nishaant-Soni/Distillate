@@ -136,11 +136,13 @@ Two kinds of shards share one format: **teacher shards** (the raw teacher output
 
 **Shard plan.** The source ids are sorted and cut into consecutive shards of up to 5,000 rows, so the same ids always give the same shards. For the training set the plan is committed as `Model-Pipeline/artifacts/teacher_shards.json` (32 shards, each with its row count, first and last id, and id hash); teacher and soft-label shards follow the same plan, so `shard_0007` holds the same ids in both. Rows within a shard are sorted by id. The `gate/` and `drift/` folders are separate runs with their own plans; validate each folder on its own.
 
+**Drift stream: one shard per batch.** The drift rows arrive in batches ordered by time, not by id, so they don't use the 5,000-row cut: `shard_<k>` holds exactly batch k's ids (20 shards of 2,000 for the current stream), sorted by id within the shard. The batch of each id comes from the data lane's `Data-Pipeline/data/splits/civil_drift_ids.csv` (`id`, `batch`, `created_date`); batch numbers run from 0 with no gap. Teacher and soft-label drift shards follow the same plan, and their manifests record `"layout": "one shard per batch: shard_<k> is batch k"`. Validate with `--batches` (§6, §8).
+
 **Columns** (both kinds, in this order):
 
 | Column | Type | Teacher shards | Soft-label shards |
 |---|---|---|---|
-| `id` | string | Jigsaw comment id (the TFDS ids; data from the Kaggle competition files) | same |
+| `id` | string | Jigsaw comment id (the TFDS ids; data from the Kaggle competition files); for the drift stream, the data lane's Civil Comments id | same |
 | `p_toxicity` ... `p_identity_attack` | float32 | raw, uncalibrated, in [0, 1]; NaN when failed | the stack's calibrated probability, `sigmoid(logit_<label>)`; **the student's targets** |
 | `logit_toxicity` ... `logit_identity_attack` | float32 | raw log-odds, log P(yes) − log P(no) (§4); finite when ok, NaN when failed | the stack's log-odds |
 | `status` | string | `ok` or `failed` | the teacher row's status |
@@ -151,7 +153,7 @@ Use `logit_<label>`, not `logit(p)`, as input to any further calibration or stac
 
 **Manifest** (`shard_XXXX.manifest.json`, uploaded after the Parquet; its presence marks the shard complete, and a shard without one is redone on the next run):
 * **Required:** `row_count`, `ids_sha256` (SHA-256 of the sorted ids joined by `\n`), `prompt_version`, `model_version`.
-* **Optional, both kinds:** `created_at` (UTC), `code_commit` (the repository commit that wrote the shard).
+* **Optional, both kinds:** `created_at` (UTC), `code_commit` (the repository commit that wrote the shard), `layout` (drift shards only: one shard per batch).
 * **Optional, teacher shards:** `vllm_version`, `worker` (GPU worker index), `seconds` (scoring time), `failed_rows`, `empty_rows` (empty comments), `truncated_rows` (comments cut at 1,024 tokens), `retried_cells` (label calls retried for low coverage), `censored_cells` (bounded logits, §4), `coverage_min` (lowest coverage among ok rows).
 * **Optional, soft-label shards:** `stack_version`, `stack_file` (repository path), `stack_sha256` (SHA-256 of that file; must equal the committed file's), `teacher_prefix` and `baseline_version` (the inputs), `baseline_scores` (which TF-IDF scores were used), `cross_fitted` (how training rows avoided in-sample stack outputs, §7).
 
@@ -171,8 +173,8 @@ The same checks apply to teacher and soft-label shards; only the expected `model
 | Columns | Exactly the §5 columns, in that order |
 | Row count | Parquet rows equal `row_count` |
 | Id hash | SHA-256 of sorted ids (joined by `\n`) equals `ids_sha256` |
-| Shard plan | Each shard's ids are exactly its planned shard's ids; with `--plan`, the plan also matches `teacher_shards.json` |
-| Id membership | Every id exists in the source id list (raw train, gate subset, or drift ids) |
+| Shard plan | Each shard's ids are exactly its planned shard's ids; with `--plan`, the plan also matches `teacher_shards.json`. Drift runs (`--batches civil_drift_ids.csv`): `shard_<k>` holds exactly batch k's ids (§5) |
+| Id membership | Every id exists in the source id list (raw train, gate subset, or the ids in `civil_drift_ids.csv`) |
 | No duplicates | No id appears twice within a shard or across shards of the same run |
 | Coverage | All planned shards exist and the union of shards equals the full source id list (skipped with `--partial`, for a run still in progress) |
 | Probabilities | For `ok` rows, all six `p_<label>` are in [0, 1] and not NaN, and all six `logit_<label>` are finite; for `failed` rows all twelve are NaN |
@@ -219,8 +221,11 @@ p           = sigmoid(logit_stack)
 | Training, 157,571 non-pilot rows (AUC / PR-AUC / ECE) | 0.990 / 0.692 / 0.003 | 0.986 / 0.660 / 0.004 (out-of-fold) | 0.975 / 0.506 / 0.076 |
 | Gate subset, 20,000 test rows (AUC / PR-AUC / ECE) | 0.982 / 0.659 / 0.010 | 0.980 / 0.623 / 0.010 | 0.959 / 0.475 / 0.086 |
 | Civil Comments shift sample, 3,000 rows (AUC) | 0.934 | 0.895 | 0.894 |
+| Civil drift stream, 40,000 rows in 20 batches (AUC / PR-AUC / ECE, unweighted) | 0.924 / 0.344 / 0.008 | 0.887 / 0.279 / 0.013 | 0.882 / 0.197 / 0.134 |
 
 Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.029, 0.044] PR-AUC.
+
+**Drift stream** (`Model-Pipeline/artifacts/stack/drift_check.json`; Civil Comments gold labels, positive at half the raters or more). The stack beats TF-IDF and the raw teacher in every one of the 20 batches; its batch mean AUC runs from 0.888 (batch 9) to 0.950 (batch 3), with no trend over time. No drift row is positive for severe_toxicity (none in the shift sample either), so Civil means are over the other five labels. Per-batch means are for trends only: a batch can hold as few as 2 threat or 4 identity_attack positives.
 
 **Caveats for anyone describing these labels:**
 * **They lean on TF-IDF.** Per unit of logit, the TF-IDF weight is about 6 to 16 times the teacher's (the teacher's logits span a wider range, so its actual share is larger than that ratio suggests). TF-IDF was trained on the gold labels, so the soft labels carry gold-label information; describe them as TF-IDF corrected by Qwen, not as independent LLM judgments.
@@ -231,7 +236,7 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 
 ## 8. Where everything lives
 
-**Shard store: the team bucket `gs://distillate-mlops-data/`** (`storage.backend: gcs`; the same bucket holds DVC's `dvc/` prefix). Every path below is an object name in the bucket. Copied from Hugging Face on Oct 30 and validated there (all four runs, 0 errors).
+**Shard store: the team bucket `gs://distillate-mlops-data/`** (`storage.backend: gcs`; the same bucket holds DVC's `dvc/` prefix). Every path below is an object name in the bucket. Copied from Hugging Face on Oct 30 and validated there (all four runs, 0 errors). The drift run's teacher shards were written to Hugging Face on Oct 31 and copied here the same day; its soft labels were written here and copied to Hugging Face. Both runs validate on both stores (0 errors).
 * **To read it:** a Google account with read access to the bucket (from Vaishnavi), then `gcloud auth login` for the command line and `gcloud auth application-default login` for Python (the validator uses Application Default Credentials). On Kaggle, the `GCS_TEACHER_KEY` secret (a service-account key, the whole JSON) instead.
 * **Command line:** `gcloud storage ls gs://distillate-mlops-data/soft_labels/stack-v1/p2-zs-v2b/`, and `gcloud storage cp -r gs://distillate-mlops-data/soft_labels/stack-v1/p2-zs-v2b <folder>` to download.
 
@@ -246,6 +251,8 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 | `teacher/p2-zs-v2b/gate/` | raw teacher, gate subset | 4 | 20,000 |
 | `soft_labels/stack-v1/p2-zs-v2b/` | **soft labels, training set (student targets)** | 32 | 159,571 |
 | `soft_labels/stack-v1/p2-zs-v2b/gate/` | soft labels, gate subset | 4 | 20,000 |
+| `teacher/p2-zs-v2b/drift/` | raw teacher, Civil drift stream (one shard per batch) | 20 | 40,000 |
+| `soft_labels/stack-v1/p2-zs-v2b/drift/` | soft labels, Civil drift stream (one shard per batch) | 20 | 40,000 |
 | `tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet` | out-of-fold TF-IDF scores for training rows, with `fold` | one file | 159,571 |
 | `teacher/p2-zs-v2b-dryrun/` | labeling dry run, Hugging Face only (not copied to GCS); ignore | 2 | 200 |
 
@@ -258,8 +265,9 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 | `artifacts/gate_subset_summary.json` | gate positives and weighted vs true prevalence per label |
 | `artifacts/stack/stack_p2-zs-v2b.json` | the frozen stack (§7) |
 | `artifacts/stack/stack_check.json` | stack comparison and soft-label metrics |
+| `artifacts/stack/drift_check.json` | drift-stream metrics, overall and per batch (§7) |
 | `artifacts/oof/tfidf_oof.manifest.json` | SHA-256, size, and ids hash of `tfidf_oof.parquet` |
-| `artifacts/oof/gate_tfidf_full.parquet`, `civil_tfidf_full.parquet` | full-train TF-IDF scores for gate and Civil rows |
+| `artifacts/oof/gate_tfidf_full.parquet`, `civil_tfidf_full.parquet`, `drift_tfidf_full.parquet` | full-train TF-IDF scores for gate, Civil shift, and drift rows |
 | `artifacts/pilot/`, `artifacts/shift/`, `artifacts/prompt_v2/` | pilot, Civil shift check, and obscene prompt results |
 | `tests/fixtures/teacher/` | synthetic shards for validator tests (`README.md` there) |
 
@@ -278,6 +286,14 @@ python -m src.teacher.validate_local --prefix soft_labels/stack-v1/p2-zs-v2b/ \
     --ids data/wiki_train_raw.parquet --plan artifacts/teacher_shards.json --model-version "$MV"
 python -m src.teacher.validate_local --prefix soft_labels/stack-v1/p2-zs-v2b/gate/ \
     --ids artifacts/gate_subset_ids.parquet --model-version "$MV"
+
+# drift stream (Phase 2): --batches replaces --ids, one shard per batch
+python -m src.teacher.validate_local --prefix teacher/p2-zs-v2b/drift/ \
+    --batches data/civil_drift/civil_drift_ids.csv
+python -m src.teacher.validate_local --prefix soft_labels/stack-v1/p2-zs-v2b/drift/ \
+    --batches data/civil_drift/civil_drift_ids.csv --model-version "$MV"
 ```
+
+`data/civil_drift/` is a local copy of the data lane's drift batches and `civil_drift_ids.csv` (gitignored: comment text); any path to `civil_drift_ids.csv` works for the validator, which reads only its `id` and `batch` columns.
 
 Also check that every soft-label manifest's `stack_sha256` equals the SHA-256 of the committed `artifacts/stack/stack_p2-zs-v2b.json`.

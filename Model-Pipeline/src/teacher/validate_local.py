@@ -9,6 +9,8 @@ skipped; every shard that does exist must still match its planned ids exactly.
 
     python -m src.teacher.validate_local --prefix teacher/p2-zs-v2b/
     python -m src.teacher.validate_local --prefix teacher/p2-zs-v2b/ --partial
+    python -m src.teacher.validate_local --prefix teacher/p2-zs-v2b/drift/ \\
+        --batches data/civil_drift/civil_drift_ids.csv
 """
 
 from __future__ import annotations
@@ -29,7 +31,9 @@ from src.teacher.shards import (
     SHARD_COLUMNS,
     check_plan,
     ids_sha256,
+    plan_batches,
     plan_shards,
+    read_batches,
     read_ids,
 )
 from src.teacher.storage import Storage, get_storage
@@ -67,13 +71,23 @@ def load_run(storage: Storage, prefix: str, cache_dir: Path):
 def check_run(frames: Mapping[str, Any], manifests: Mapping[str, Mapping[str, Any]],
               schemas: Mapping[str, Any], source_ids: Sequence[str], shard_size: int,
               expected_prompt: str, expected_model: str, max_failure: float = 0.01,
-              partial: bool = False, plan_record: Mapping[str, Any] | None = None) -> list[str]:
-    """Every failed check, as ``"<shard>: <problem>"`` strings. Empty means valid."""
+              partial: bool = False, plan_record: Mapping[str, Any] | None = None,
+              batches: Mapping[str, int] | None = None) -> list[str]:
+    """Every failed check, as ``"<shard>: <problem>"`` strings. Empty means valid.
+
+    ``batches`` (``id -> batch``, the drift stream): plan one shard per batch instead of
+    ``shard_size`` cuts of the sorted ids; ``source_ids`` must be the same ids.
+    """
     import numpy as np
     import pyarrow as pa
 
     errors: list[str] = []
-    plan = plan_shards(source_ids, shard_size)
+    if batches is not None:
+        if set(batches) != set(source_ids):
+            raise ValueError("batches and source_ids hold different ids")
+        plan = plan_batches(batches)
+    else:
+        plan = plan_shards(source_ids, shard_size)
     if plan_record is not None:
         try:
             check_plan(plan, plan_record)
@@ -169,6 +183,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Validate teacher shards.")
     parser.add_argument("--prefix", required=True, help="e.g. teacher/p2-zs-v2b/")
     parser.add_argument("--ids", default=None, help="source ids (default: raw train)")
+    parser.add_argument("--batches", default=None,
+                        help="civil_drift_ids.csv: the source ids, one shard per batch")
     parser.add_argument("--plan", default=None, help="teacher_shards.json to check against")
     parser.add_argument("--shard-size", type=int, default=None)
     parser.add_argument("--limit", type=int, default=None,
@@ -184,10 +200,17 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    ids_path = args.ids or Path(cfg["paths"]["data_dir"]) / cfg["data"]["files"]["train"]
-    source = sorted(read_ids(ids_path))
-    if args.limit:
-        source = source[:args.limit]
+    batches = None
+    if args.batches:
+        if args.ids or args.limit or args.shard_size or args.plan:
+            parser.error("--batches takes no --ids, --limit, --shard-size or --plan")
+        batches = read_batches(args.batches)
+        source = sorted(batches)
+    else:
+        ids_path = args.ids or Path(cfg["paths"]["data_dir"]) / cfg["data"]["files"]["train"]
+        source = sorted(read_ids(ids_path))
+        if args.limit:
+            source = source[:args.limit]
     p = cfg["prompt"]
     expected_prompt = args.prompt_version or prompt_version(p["protocol"], p["shots"],
                                                             p.get("text_version", "v1"))
@@ -198,7 +221,7 @@ def main() -> None:
         errors += check_run(frames, manifests, schemas, source,
                             args.shard_size or cfg["labeling"]["shard_size"], expected_prompt,
                             args.model_version or model_version(cfg), partial=args.partial,
-                            plan_record=plan_record)
+                            plan_record=plan_record, batches=batches)
     summary = {"prefix": args.prefix, "shards": len(set(frames) & set(manifests)),
                "rows": sum(len(f) for f in frames.values()), "errors": len(errors)}
     print(json.dumps(summary))
