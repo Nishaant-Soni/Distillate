@@ -231,7 +231,11 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 
 ## 8. Where everything lives
 
-**Shard store:** the private Hugging Face dataset `distillate-team/distillate-teacher-shards`, in the organization MLOps-Distillate-Project, until the GCS bucket exists (then the same paths under `gs://<team>-distillate-data/`). To read it you need:
+**Shard store: the team bucket `gs://distillate-mlops-data/`** (`storage.backend: gcs`; the same bucket holds DVC's `dvc/` prefix). Every path below is an object name in the bucket. Copied from Hugging Face on Oct 30 and validated there (all four runs, 0 errors).
+* **To read it:** a Google account with read access to the bucket (from Vaishnavi), then `gcloud auth login` for the command line and `gcloud auth application-default login` for Python (the validator uses Application Default Credentials). On Kaggle, the `GCS_TEACHER_KEY` secret (a service-account key, the whole JSON) instead.
+* **Command line:** `gcloud storage ls gs://distillate-mlops-data/soft_labels/stack-v1/p2-zs-v2b/`, and `gcloud storage cp -r gs://distillate-mlops-data/soft_labels/stack-v1/p2-zs-v2b <folder>` to download.
+
+**Backup: the private Hugging Face dataset `distillate-team/distillate-teacher-shards`** (organization MLOps-Distillate-Project), with the same paths and files (`storage.backend: hf`, or `--backend hf` on the validator). To read it you need:
 1. a Hugging Face account that is a member of the organization (ask Nishaant for an invite; the read role is enough);
 2. an access token that can read the organization's repos: either a **Read** token, or a **fine-grained** token with "Read access to contents of all repos" under the organization's permissions (a fine-grained token without that sees a 404, as if the dataset didn't exist);
 3. that token on your machine: `hf auth login` (or the `HF_TOKEN` environment variable; on Kaggle or Colab, a secret named `HF_TOKEN`). Never paste it into code or a notebook cell.
@@ -243,7 +247,7 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 | `soft_labels/stack-v1/p2-zs-v2b/` | **soft labels, training set (student targets)** | 32 | 159,571 |
 | `soft_labels/stack-v1/p2-zs-v2b/gate/` | soft labels, gate subset | 4 | 20,000 |
 | `tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet` | out-of-fold TF-IDF scores for training rows, with `fold` | one file | 159,571 |
-| `teacher/p2-zs-v2b-dryrun/` | labeling dry run; ignore | 2 | 200 |
+| `teacher/p2-zs-v2b-dryrun/` | labeling dry run, Hugging Face only (not copied to GCS); ignore | 2 | 200 |
 
 **In the repository (`Model-Pipeline/`):**
 
@@ -259,7 +263,7 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 | `artifacts/pilot/`, `artifacts/shift/`, `artifacts/prompt_v2/` | pilot, Civil shift check, and obscene prompt results |
 | `tests/fixtures/teacher/` | synthetic shards for validator tests (`README.md` there) |
 
-**Validator commands** (from `Model-Pipeline/`; `--ids` is the source id list, here the local copy of the prepared data; add `--local-root <folder>` to read a local copy instead of the store):
+**Validator commands** (from `Model-Pipeline/`; `--ids` is the source id list, here the local copy of the prepared data; they read the bucket by default; add `--backend hf` to check the Hugging Face backup, or `--local-root <folder>` to read a local copy):
 
 ```bash
 # raw teacher shards

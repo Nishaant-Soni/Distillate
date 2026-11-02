@@ -9,3 +9,4 @@ scipy                    # Platt scaling fit (calibrate.py)
 transformers>=4.51       # Qwen3 tokenizer and chat template
 jinja2                   # apply_chat_template
 huggingface_hub
+google-cloud-storage     # GCS shard store (storage.py)

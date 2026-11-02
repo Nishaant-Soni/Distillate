@@ -177,6 +177,8 @@ def main() -> None:
     parser.add_argument("--model-version", default=None,
                         help="default: the teacher's; soft-label shards name their stack")
     parser.add_argument("--local-root", default=None, help="local folder instead of the store")
+    parser.add_argument("--backend", choices=["gcs", "hf"], default=None,
+                        help="store to read (default: storage.backend; hf is the backup)")
     parser.add_argument("--partial", action="store_true", help="skip the coverage check")
     parser.add_argument("--config", default=None)
     args = parser.parse_args()
@@ -190,7 +192,7 @@ def main() -> None:
     expected_prompt = args.prompt_version or prompt_version(p["protocol"], p["shots"],
                                                             p.get("text_version", "v1"))
     plan_record = json.loads(Path(args.plan).read_text()) if args.plan else None
-    storage = get_storage(cfg, args.local_root)
+    storage = get_storage(cfg, args.local_root, args.backend)
     with tempfile.TemporaryDirectory() as tmp:
         frames, manifests, schemas, errors = load_run(storage, args.prefix, Path(tmp))
         errors += check_run(frames, manifests, schemas, source,

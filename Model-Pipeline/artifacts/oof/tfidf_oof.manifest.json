@@ -9,5 +9,6 @@
   "folds": 5,
   "seed": 42,
   "baseline_version": "tfidf-lr-v1",
-  "regenerate": "python -m src.teacher.tfidf_oof"
+  "regenerate": "python -m src.teacher.tfidf_oof",
+  "gcs_uri": "gs://distillate-mlops-data/tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet"
 }
