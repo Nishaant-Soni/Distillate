@@ -4,6 +4,7 @@ The contract between the teacher lane and the data and student lanes: how the te
 
 **Start here (student and data lanes):**
 * **Train on `soft_labels/stack-v1/p2-zs-v2b/`**, columns `p_<label>`: the stack's calibrated probabilities (§7). Never train on the `p_*` of the raw `teacher/` shards; they are uncalibrated (raw `p_toxicity` averages 0.22 against a 0.10 positive rate; the soft labels average 0.096).
+* **Ablation only:** `soft_labels/calqwen-v1/p2-zs-v2b/` holds calibrated-Qwen labels (Qwen alone, no TF-IDF input), the second attribution arm (§7). Not the student's main targets.
 * **Validate before use** with `validate_local.py` (§6, commands in §8).
 * **Gate subset metrics must be weighted** with `artifacts/gate_subset_ids.parquet` (§8).
 
@@ -16,6 +17,7 @@ The contract between the teacher lane and the data and student lanes: how the te
 | TF-IDF baseline | `tfidf-lr-v1` |
 | Stack | `stack-v1` (`Model-Pipeline/artifacts/stack/stack_p2-zs-v2b.json`) |
 | Soft-label `model_version` | `stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554+tfidf-lr-v1` |
+| Calibrated Qwen (ablation) | `calqwen-v1`: Platt calibration `platt-v1` (`Model-Pipeline/artifacts/pilot/calibration_p2-zs-v2b.json`); `model_version` `calqwen-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554` |
 
 Changing any prompt text below means a new text version, because `prompt_version` is recorded in every shard. `p2-zs-v2b` is v1 with one change, the obscene question (§3); the system message and the other five questions are identical to v1.
 
@@ -134,6 +136,8 @@ Two kinds of shards share one format: **teacher shards** (the raw teacher output
 | Gate subset | `teacher/<prompt_version>/gate/shard_XXXX.parquet` | `soft_labels/<stack_version>/<prompt_version>/gate/shard_XXXX.parquet` |
 | Drift stream (Phase 2) | `teacher/<prompt_version>/drift/shard_XXXX.parquet` | `soft_labels/<stack_version>/<prompt_version>/drift/shard_XXXX.parquet` |
 
+The calibrated-Qwen labels (§7, ablation only) are soft-label shards too, with `calqwen-v1` in place of the stack version: `soft_labels/calqwen-v1/<prompt_version>/` and its `gate/` folder, on the same plans.
+
 **Shard plan.** The source ids are sorted and cut into consecutive shards of up to 5,000 rows, so the same ids always give the same shards. For the training set the plan is committed as `Model-Pipeline/artifacts/teacher_shards.json` (32 shards, each with its row count, first and last id, and id hash); teacher and soft-label shards follow the same plan, so `shard_0007` holds the same ids in both. Rows within a shard are sorted by id. The `gate/` and `drift/` folders are separate runs with their own plans; validate each folder on its own.
 
 **Drift stream: one shard per batch.** The drift rows arrive in batches ordered by time, not by id, so they don't use the 5,000-row cut: `shard_<k>` holds exactly batch k's ids (20 shards of 2,000 for the current stream), sorted by id within the shard. The batch of each id comes from the data lane's `Data-Pipeline/data/splits/civil_drift_ids.csv` (`id`, `batch`, `created_date`); batch numbers run from 0 with no gap. Teacher and soft-label drift shards follow the same plan, and their manifests record `"layout": "one shard per batch: shard_<k> is batch k"`. Validate with `--batches` (§6, §8).
@@ -149,13 +153,15 @@ Two kinds of shards share one format: **teacher shards** (the raw teacher output
 | `prompt_version` | string | e.g. `p2-zs-v2b` | the teacher prompt the stack's input came from |
 | `model_version` | string | `Qwen/Qwen3-4B-Instruct-2507@<revision>` | `<stack_version>+<teacher model_version>+<baseline_version>` |
 
+For calibrated-Qwen shards, `p_<label>` and `logit_<label>` are the calibrated probability and log-odds (`slope * teacher logit_<label> + intercept`), and `model_version` is `calqwen-v1+<teacher model_version>`.
+
 Use `logit_<label>`, not `logit(p)`, as input to any further calibration or stacking.
 
 **Manifest** (`shard_XXXX.manifest.json`, uploaded after the Parquet; its presence marks the shard complete, and a shard without one is redone on the next run):
 * **Required:** `row_count`, `ids_sha256` (SHA-256 of the sorted ids joined by `\n`), `prompt_version`, `model_version`.
 * **Optional, both kinds:** `created_at` (UTC), `code_commit` (the repository commit that wrote the shard), `layout` (drift shards only: one shard per batch).
 * **Optional, teacher shards:** `vllm_version`, `worker` (GPU worker index), `seconds` (scoring time), `failed_rows`, `empty_rows` (empty comments), `truncated_rows` (comments cut at 1,024 tokens), `retried_cells` (label calls retried for low coverage), `censored_cells` (bounded logits, §4), `coverage_min` (lowest coverage among ok rows).
-* **Optional, soft-label shards:** `stack_version`, `stack_file` (repository path), `stack_sha256` (SHA-256 of that file; must equal the committed file's), `teacher_prefix` and `baseline_version` (the inputs), `baseline_scores` (which TF-IDF scores were used), `cross_fitted` (how training rows avoided in-sample stack outputs, §7).
+* **Optional, soft-label shards:** `stack_version`, `stack_file` (repository path), `stack_sha256` (SHA-256 of that file; must equal the committed file's), `teacher_prefix` and `baseline_version` (the inputs), `baseline_scores` (which TF-IDF scores were used), `cross_fitted` (how training rows avoided in-sample stack outputs, §7). Calibrated-Qwen shards have no stack or baseline: they record `calqwen_version`, `calibration_version`, `calibration_file`, `calibration_sha256` (SHA-256 of that file; must equal the committed file's), `teacher_prefix`, and `cross_fitted`.
 
 Validators must ignore fields they don't know.
 
@@ -232,11 +238,27 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 * **The teacher is weaker on the test split** than on train (AUC 0.959 vs 0.975), mostly toxicity, obscene, and insult. Report test-split numbers, not training-set ones.
 * **Rare labels have low PR-AUC** (severe_toxicity, threat, identity_attack: 0.3 to 1% positives), though the stack improves them.
 
+**Calibrated Qwen: the ablation's second attribution arm** (`soft_labels/calqwen-v1/p2-zs-v2b/`, plus `gate/`; not the student's main targets). Qwen alone, with no TF-IDF input: the pilot's frozen Platt calibration on the teacher's logits, one slope and intercept per label,
+
+```text
+logit_calqwen = slope * logit_<label> + intercept
+p             = sigmoid(logit_calqwen)
+```
+
+fitted by weighted logistic regression on the 2,000 pilot rows with their inclusion weights (`Model-Pipeline/artifacts/pilot/calibration_p2-zs-v2b.json`, the same rows and weights as the stack). The 157,571 non-pilot training rows and the gate subset get the frozen calibration; the 2,000 pilot rows get five-fold cross-fitted values (seed 42), as for the stack. Platt scaling is monotone per label, so the ranking is raw Qwen's and only the calibration changes:
+
+| Rows | Calibrated Qwen | Raw teacher | Soft labels (stack) |
+|---|---|---|---|
+| Training, 157,571 non-pilot rows (AUC / PR-AUC / ECE) | 0.975 / 0.506 / 0.008 | 0.975 / 0.506 / 0.076 | 0.990 / 0.692 / 0.003 |
+| Gate subset, 20,000 test rows (AUC / PR-AUC / ECE, weighted) | 0.959 / 0.475 / 0.011 | 0.959 / 0.475 / 0.086 | 0.982 / 0.659 / 0.010 |
+
+On the gate subset calibrated Qwen is about as well calibrated as the stack (ECE 0.011 vs 0.010), so the stack's lead (+0.023 AUC, +0.18 PR-AUC) comes from its TF-IDF input, not from calibration. Full report: `Model-Pipeline/artifacts/calqwen/calqwen_check.json`.
+
 ---
 
 ## 8. Where everything lives
 
-**Shard store: the team bucket `gs://distillate-mlops-data/`** (`storage.backend: gcs`; the same bucket holds DVC's `dvc/` prefix). Every path below is an object name in the bucket. Copied from Hugging Face on Oct 30 and validated there (all four runs, 0 errors). The drift run's teacher shards were written to Hugging Face on Oct 31 and copied here the same day; its soft labels were written here and copied to Hugging Face. Both runs validate on both stores (0 errors).
+**Shard store: the team bucket `gs://distillate-mlops-data/`** (`storage.backend: gcs`; the same bucket holds DVC's `dvc/` prefix). Every path below is an object name in the bucket. Copied from Hugging Face on Oct 30 and validated there (all four runs, 0 errors). The drift run's teacher shards were written to Hugging Face on Oct 31 and copied here the same day; its soft labels were written here and copied to Hugging Face. Both runs validate on both stores (0 errors). The calibrated-Qwen labels were written here on Nov 2 and copied to Hugging Face (byte-identical); both runs validate on both stores (0 errors).
 * **To read it:** a Google account with read access to the bucket (from Vaishnavi), then `gcloud auth login` for the command line and `gcloud auth application-default login` for Python (the validator uses Application Default Credentials). On Kaggle, the `GCS_TEACHER_KEY` secret (a service-account key, the whole JSON) instead.
 * **Command line:** `gcloud storage ls gs://distillate-mlops-data/soft_labels/stack-v1/p2-zs-v2b/`, and `gcloud storage cp -r gs://distillate-mlops-data/soft_labels/stack-v1/p2-zs-v2b <folder>` to download.
 
@@ -253,6 +275,8 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 | `soft_labels/stack-v1/p2-zs-v2b/gate/` | soft labels, gate subset | 4 | 20,000 |
 | `teacher/p2-zs-v2b/drift/` | raw teacher, Civil drift stream (one shard per batch) | 20 | 40,000 |
 | `soft_labels/stack-v1/p2-zs-v2b/drift/` | soft labels, Civil drift stream (one shard per batch) | 20 | 40,000 |
+| `soft_labels/calqwen-v1/p2-zs-v2b/` | calibrated Qwen, training set (ablation arm, §7) | 32 | 159,571 |
+| `soft_labels/calqwen-v1/p2-zs-v2b/gate/` | calibrated Qwen, gate subset | 4 | 20,000 |
 | `tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet` | out-of-fold TF-IDF scores for training rows, with `fold` | one file | 159,571 |
 | `teacher/p2-zs-v2b-dryrun/` | labeling dry run, Hugging Face only (not copied to GCS); ignore | 2 | 200 |
 
@@ -266,6 +290,8 @@ Stack minus TF-IDF on the gate subset: +0.0023 [0.0015, 0.0032] AUC, +0.036 [0.0
 | `artifacts/stack/stack_p2-zs-v2b.json` | the frozen stack (§7) |
 | `artifacts/stack/stack_check.json` | stack comparison and soft-label metrics |
 | `artifacts/stack/drift_check.json` | drift-stream metrics, overall and per batch (§7) |
+| `artifacts/pilot/calibration_p2-zs-v2b.json` | the frozen Platt calibration behind calibrated Qwen (§7) |
+| `artifacts/calqwen/calqwen_check.json` | calibrated-Qwen metrics next to the raw teacher (§7) |
 | `artifacts/oof/tfidf_oof.manifest.json` | SHA-256, size, and ids hash of `tfidf_oof.parquet` |
 | `artifacts/oof/gate_tfidf_full.parquet`, `civil_tfidf_full.parquet`, `drift_tfidf_full.parquet` | full-train TF-IDF scores for gate, Civil shift, and drift rows |
 | `artifacts/pilot/`, `artifacts/shift/`, `artifacts/prompt_v2/` | pilot, Civil shift check, and obscene prompt results |
@@ -292,8 +318,15 @@ python -m src.teacher.validate_local --prefix teacher/p2-zs-v2b/drift/ \
     --batches data/civil_drift/civil_drift_ids.csv
 python -m src.teacher.validate_local --prefix soft_labels/stack-v1/p2-zs-v2b/drift/ \
     --batches data/civil_drift/civil_drift_ids.csv --model-version "$MV"
+
+# calibrated Qwen (ablation arm)
+CQ="calqwen-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554"
+python -m src.teacher.validate_local --prefix soft_labels/calqwen-v1/p2-zs-v2b/ \
+    --ids data/wiki_train_raw.parquet --plan artifacts/teacher_shards.json --model-version "$CQ"
+python -m src.teacher.validate_local --prefix soft_labels/calqwen-v1/p2-zs-v2b/gate/ \
+    --ids artifacts/gate_subset_ids.parquet --model-version "$CQ"
 ```
 
 `data/civil_drift/` is a local copy of the data lane's drift batches and `civil_drift_ids.csv` (gitignored: comment text); any path to `civil_drift_ids.csv` works for the validator, which reads only its `id` and `batch` columns.
 
-Also check that every soft-label manifest's `stack_sha256` equals the SHA-256 of the committed `artifacts/stack/stack_p2-zs-v2b.json`.
+Also check that every stack soft-label manifest's `stack_sha256` equals the SHA-256 of the committed `artifacts/stack/stack_p2-zs-v2b.json`, and every calibrated-Qwen manifest's `calibration_sha256` equals that of `artifacts/pilot/calibration_p2-zs-v2b.json`.

@@ -99,6 +99,25 @@ def test_calibration_round_trip_and_apply(tmp_path):
     assert ece_after < ece_before
 
 
+def test_log_odds_are_the_calibrated_probabilities_before_the_sigmoid():
+    from scipy.special import expit
+
+    from src.teacher.calibrate import cross_fit_log_odds, log_odds
+
+    pred, truth, weights = overconfident(n=500)
+    pred.loc[3, "status"] = "failed"
+    pred.loc[3, [f"logit_{label}" for label in LABELS]] = np.nan
+    cal = fit_calibration(pred, truth, weights, "platt-v1", "p2-zs-v1", "m@r")
+    frozen, applied = log_odds(pred, cal), apply_calibration(pred, cal)
+    oof, cross = cross_fit_log_odds(pred, truth, weights), cross_fit(pred, truth, weights)
+    for label in LABELS:
+        np.testing.assert_array_equal(expit(frozen[label]).astype("float32"),
+                                      applied[f"p_{label}"])
+        np.testing.assert_array_equal(expit(oof[label]).astype("float32"),
+                                      cross[f"p_{label}"])
+    assert np.isnan(oof["toxicity"][3]) and np.isnan(frozen["toxicity"][3])
+
+
 def test_refuses_p_only_frames():
     # Never calibrate on logit(p): without logit columns, fitting and applying both fail.
     pred, truth, weights = overconfident(n=200)

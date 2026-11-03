@@ -12,6 +12,8 @@ logit columns.
 * ``cross_fit``: five-fold out-of-fold calibrated probabilities, for an honest ECE after
   calibration (each row is calibrated by a fit that did not see it).
 * ``fit_calibration``: one fit on all pilot rows, saved as ``calibration.json``.
+* ``cross_fit_log_odds`` and ``log_odds``: the calibrated log-odds ``slope * logit +
+  intercept`` behind both, for shards that carry ``logit_<label>`` (``calqwen.py``).
 """
 
 from __future__ import annotations
@@ -79,30 +81,42 @@ def _labeled_rows(pred, truth, weights):
     return frame.reset_index(drop=True)
 
 
-def cross_fit(pred, truth, weights, folds: int = 5, seed: int = 42):
-    """Out-of-fold calibrated ``p_<label>`` for every ``pred`` row (NaN for failed rows).
-
-    Folds are stratified per label, so every fold has positives of the rare labels.
-    The result has ``id``, ``p_<label>``, and ``status``, ready for ``metrics.evaluate``.
-    """
+def cross_fit_log_odds(pred, truth, weights, folds: int = 5, seed: int = 42):
+    """Out-of-fold calibrated log-odds per label, aligned with ``pred``'s rows (NaN for
+    failed rows). Folds are stratified per label, so every fold has positives of the rare
+    labels."""
     import numpy as np
     from sklearn.model_selection import StratifiedKFold
 
     rows = _labeled_rows(pred, truth, weights)
-    out = pred[["id"]].copy()
-    out["status"] = pred["status"] if "status" in pred else "ok"
-    position = {i: k for k, i in enumerate(out["id"])}
+    position = {i: k for k, i in enumerate(pred["id"])}
     where = np.array([position[i] for i in rows["id"]])
+    scores = {}
     for label in LABELS:
         z, y, w = rows[f"logit_{label}"], rows[label].to_numpy(), rows["weight"]
         calibrated = np.full(len(rows), np.nan)
         splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=seed)
         for fit_idx, test_idx in splitter.split(np.zeros(len(y)), y):
             slope, intercept = fit_platt(z.iloc[fit_idx], y[fit_idx], w.iloc[fit_idx])
-            calibrated[test_idx] = platt(z.iloc[test_idx], slope, intercept)
-        column = np.full(len(out), np.nan)
+            calibrated[test_idx] = (slope * z.iloc[test_idx].to_numpy(dtype="float64")
+                                    + intercept)
+        column = np.full(len(pred), np.nan)
         column[where] = calibrated
-        out[f"p_{label}"] = column.astype("float32")
+        scores[label] = column
+    return scores
+
+
+def cross_fit(pred, truth, weights, folds: int = 5, seed: int = 42):
+    """Out-of-fold calibrated ``p_<label>`` for every ``pred`` row (NaN for failed rows).
+
+    The result has ``id``, ``p_<label>``, and ``status``, ready for ``metrics.evaluate``.
+    """
+    from scipy.special import expit
+
+    out = pred[["id"]].copy()
+    out["status"] = pred["status"] if "status" in pred else "ok"
+    for label, s in cross_fit_log_odds(pred, truth, weights, folds, seed).items():
+        out[f"p_{label}"] = expit(s).astype("float32")
     return out
 
 
@@ -126,12 +140,7 @@ def fit_calibration(pred, truth, weights, version: str, prompt_version: str,
     }
 
 
-def apply_calibration(pred, calibration: Mapping[str, Any]):
-    """Replace ``p_<label>`` with calibrated probabilities computed from ``logit_<label>``.
-
-    Raises if the frame has no logit columns (``p``-only frames cannot be calibrated
-    correctly) or if its prompt or model version differs from the calibration's.
-    """
+def _check_applicable(pred, calibration: Mapping[str, Any]) -> None:
     if calibration.get("input") != INPUT:
         raise ValueError(f"calibration input must be {INPUT!r}, got {calibration.get('input')!r}")
     missing = [f"logit_{label}" for label in LABELS if f"logit_{label}" not in pred]
@@ -140,6 +149,26 @@ def apply_calibration(pred, calibration: Mapping[str, Any]):
     for key in ("prompt_version", "model_version"):
         if key in pred and (pred[key] != calibration[key]).any():
             raise ValueError(f"{key} of the predictions differs from the calibration's")
+
+
+def log_odds(pred, calibration: Mapping[str, Any]):
+    """Calibrated log-odds ``slope * logit_<label> + intercept`` per label, as float64 arrays
+    aligned with ``pred``'s rows; same checks as ``apply_calibration``."""
+    import numpy as np
+
+    _check_applicable(pred, calibration)
+    return {label: calibration["labels"][label]["slope"]
+            * pred[f"logit_{label}"].to_numpy(dtype=np.float64)
+            + calibration["labels"][label]["intercept"] for label in LABELS}
+
+
+def apply_calibration(pred, calibration: Mapping[str, Any]):
+    """Replace ``p_<label>`` with calibrated probabilities computed from ``logit_<label>``.
+
+    Raises if the frame has no logit columns (``p``-only frames cannot be calibrated
+    correctly) or if its prompt or model version differs from the calibration's.
+    """
+    _check_applicable(pred, calibration)
     out = pred.copy()
     for label in LABELS:
         c = calibration["labels"][label]
