@@ -23,3 +23,6 @@ class LabelError(ValueError):
 
 class DataQualityError(RuntimeError):
     """Too many rows were dropped or invalid for the pipeline to continue."""
+
+class TeacherShardError(RuntimeError):
+    """Teacher or soft-label shards failed validation."""
