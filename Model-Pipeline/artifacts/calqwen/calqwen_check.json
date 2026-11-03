@@ -1,0 +1,125 @@
+{
+  "calqwen_version": "calqwen-v1",
+  "model_version": "calqwen-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+  "prompt_version": "p2-zs-v2b",
+  "calibration_file": "artifacts/pilot/calibration_p2-zs-v2b.json",
+  "calibration_sha256": "6bf408983125b851271fffc65736d81648779e308df2ce8a8a3850bf2b6d1713",
+  "calibration": {
+    "calibration_version": "platt-v1",
+    "method": "weighted Platt scaling",
+    "input": "logit",
+    "formula": "p = sigmoid(slope * logit_<label> + intercept)",
+    "prompt_version": "p2-zs-v2b",
+    "model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+    "labels": {
+      "toxicity": {
+        "slope": 0.15383959981126638,
+        "intercept": -2.4385381560450785,
+        "n": 2000,
+        "n_pos": 575
+      },
+      "severe_toxicity": {
+        "slope": 0.22296667356885633,
+        "intercept": -5.650074581190293,
+        "n": 2000,
+        "n_pos": 231
+      },
+      "obscene": {
+        "slope": 0.1588639383987048,
+        "intercept": -1.1705082136323606,
+        "n": 2000,
+        "n_pos": 419
+      },
+      "threat": {
+        "slope": 0.18710227968779533,
+        "intercept": -4.81569551368521,
+        "n": 2000,
+        "n_pos": 152
+      },
+      "insult": {
+        "slope": 0.1731799701184285,
+        "intercept": -3.294828592805473,
+        "n": 2000,
+        "n_pos": 420
+      },
+      "identity_attack": {
+        "slope": 0.18619468241318585,
+        "intercept": -3.94926923873848,
+        "n": 2000,
+        "n_pos": 177
+      }
+    }
+  },
+  "train_cross_fitted": "pilot rows only (the calibration was fitted on them): 5 folds (seed 42)",
+  "train": {
+    "mean_auc": 0.97472,
+    "mean_pr_auc": 0.52935,
+    "ece": 0.0077,
+    "brier": 0.01906,
+    "auc": {
+      "toxicity": 0.95785,
+      "severe_toxicity": 0.97587,
+      "obscene": 0.97213,
+      "threat": 0.99381,
+      "insult": 0.96702,
+      "identity_attack": 0.98166
+    }
+  },
+  "train_non_pilot": {
+    "mean_auc": 0.97472,
+    "mean_pr_auc": 0.50592,
+    "ece": 0.00751,
+    "brier": 0.01843,
+    "auc": {
+      "toxicity": 0.95724,
+      "severe_toxicity": 0.97649,
+      "obscene": 0.97144,
+      "threat": 0.99478,
+      "insult": 0.96712,
+      "identity_attack": 0.98122
+    }
+  },
+  "train_teacher_raw": {
+    "mean_auc": 0.97479,
+    "mean_pr_auc": 0.52946,
+    "ece": 0.07627,
+    "brier": 0.07459,
+    "auc": {
+      "toxicity": 0.9579,
+      "severe_toxicity": 0.97602,
+      "obscene": 0.97222,
+      "threat": 0.99402,
+      "insult": 0.96703,
+      "identity_attack": 0.98158
+    }
+  },
+  "gate_subset": {
+    "mean_auc": 0.95884,
+    "mean_pr_auc": 0.47523,
+    "ece": 0.01077,
+    "brier": 0.02445,
+    "auc": {
+      "toxicity": 0.92552,
+      "severe_toxicity": 0.97649,
+      "obscene": 0.93481,
+      "threat": 0.994,
+      "insult": 0.94138,
+      "identity_attack": 0.98084
+    }
+  },
+  "gate_subset_teacher_raw": {
+    "mean_auc": 0.95884,
+    "mean_pr_auc": 0.47523,
+    "ece": 0.08601,
+    "brier": 0.08457,
+    "auc": {
+      "toxicity": 0.92552,
+      "severe_toxicity": 0.97649,
+      "obscene": 0.93481,
+      "threat": 0.994,
+      "insult": 0.94138,
+      "identity_attack": 0.98084
+    }
+  },
+  "note": "gate subset weighted by its inclusion weights; training rows unweighted"
+}
