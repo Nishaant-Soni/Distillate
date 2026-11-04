@@ -123,12 +123,16 @@ def truncation_sweep(scorer: Scorer, frame: pd.DataFrame, max_lengths: Sequence[
 
 def obfuscation_sweep(scorer: Scorer, frame: pd.DataFrame, rates: Sequence[float],
                       table: Mapping[str, str], seed: int, thresholds: Mapping[str, float],
-                      bins: int = 10) -> pd.DataFrame:
-    """Per rate and label; ``missed``: share of positives flagged when clean, not at ``rate``."""
+                      bins: int = 10, clean: np.ndarray | None = None) -> pd.DataFrame:
+    """Per rate and label; ``missed``: share of positives flagged when clean, not at ``rate``.
+
+    ``clean``: the rows' probabilities at the model's own length, if already computed.
+    """
     check_frame(frame)
     texts = frame["text"].fillna("").astype(str).tolist()
     ids = frame["id"].astype(str).tolist()
-    clean = scorer.probabilities(texts)
+    if clean is None:
+        clean = scorer.probabilities(texts)
     caught = {label: (clean[:, k] >= thresholds[label]) & (frame[label].to_numpy() == 1)
               for k, label in enumerate(LABELS)}
     out = []

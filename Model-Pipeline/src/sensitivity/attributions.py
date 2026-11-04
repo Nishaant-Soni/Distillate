@@ -122,7 +122,7 @@ def explain(scorer: Scorer, texts: Sequence[str], max_evals: int,
 def token_table(selection: pd.DataFrame, attributions: Mapping[str, Attribution],
                 doc_freq: Mapping[str, int], min_doc_freq: int, min_occurrences: int,
                 top_k: int) -> pd.DataFrame:
-    """Per label and group, the ``top_k`` words by mean value toward the label.
+    """Per label and group, the ``top_k`` words by mean value toward the label (positive only).
 
     A word ranks only if it occurs ``min_occurrences`` times in the group's comments and in at
     least ``min_doc_freq`` validation comments.
@@ -137,7 +137,8 @@ def token_table(selection: pd.DataFrame, attributions: Mapping[str, Attribution]
                 values.setdefault(normalize(word), []).append(float(value))
         ranked = sorted(
             ((w, float(np.mean(v)), len(v)) for w, v in values.items()
-             if len(v) >= min_occurrences and doc_freq.get(w, 0) >= min_doc_freq),
+             if len(v) >= min_occurrences and doc_freq.get(w, 0) >= min_doc_freq
+             and np.mean(v) > 0),
             key=lambda item: item[1], reverse=True)
         rows += [{"label": label, "group": group, "correct": CORRECT[group], "rank": rank,
                   "word": w, "mean_value": mean, "occurrences": n, "comments": len(part)}

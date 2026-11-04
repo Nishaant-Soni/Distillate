@@ -16,3 +16,5 @@ torch                    # runs a save_pretrained student
 onnxruntime              # runs a CONTRACTS.md §5 package (model.onnx)
 shap                     # token attributions
 optuna                   # hyperparameter importance from the shared study
+matplotlib               # the report's plots
+mlflow                   # plots and metrics logged with the run

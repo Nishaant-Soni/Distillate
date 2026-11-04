@@ -11,6 +11,7 @@ model:
   device: auto              # auto = cuda, then mps, then cpu
   fp16: true                # used on CUDA only
   threshold: 0.5            # per-label decision threshold if the model has no thresholds.json
+  max_length: null          # only if the model's meta.json has none
 
 data:
   sample: null              # score only N validation rows (quick runs); null = all of them
@@ -52,7 +53,17 @@ optuna:
   evaluators: [fanova, mdi]
   min_trials: 10
 
+mlflow:
+  enabled: true             # MLFLOW_TRACKING_URI if set (the VM), else the local SQLite store
+  experiment: distillate-sensitivity
+
 paths:
   val: ../Data-Pipeline/data/processed/wikipedia/val.parquet
   data_pipeline: ../Data-Pipeline          # for the substitution table (scripts/obfuscate.py)
-  out_dir: outputs/sensitivity             # gitignored scratch; the report goes to reports/
+  report: reports/sensitivity.md           # committed: numbers, plots, masked examples; no text
+  report_dir: reports/sensitivity          # its plots and results.json
+  findings: reports/sensitivity_findings.md  # hand-written findings, included if present
+  summary: reports/summaries/sensitivity.json
+  out_dir: outputs/sensitivity             # gitignored scratch: the SHAP selection with ids
+  mlflow_db: mlruns/mlflow.db
+  mlflow_artifacts: mlruns/artifacts
