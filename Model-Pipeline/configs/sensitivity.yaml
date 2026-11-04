@@ -29,6 +29,18 @@ truncation:
 obfuscation:
   rates: [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]
 
+# SHAP token attributions (partition explainer, text masker) on validation comments: per label,
+# up to per_group comments of each outcome (caught, missed, false alarm): at most 6 x 3 x 12.
+shap:
+  per_group: 12
+  max_evals: 500            # model calls per comment
+  batch_size: 64
+  top_k: 15                 # words per label and outcome table
+  min_occurrences: 2        # times a word occurs in that outcome's comments to rank
+  min_doc_freq: 5           # validation comments a word must occur in to be shown at all
+  examples_per_group: 2     # masked example lines per label and outcome
+  visible_words: 4          # words left visible in each masked example
+
 paths:
   val: ../Data-Pipeline/data/processed/wikipedia/val.parquet
   data_pipeline: ../Data-Pipeline          # for the substitution table (scripts/obfuscate.py)

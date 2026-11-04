@@ -11,6 +11,7 @@ from src.teacher.config import LABELS
 WORDS = ("the", "page", "edit", "article", "talk", "thanks", "please", "idiot", "stupid", "kill",
          "hate", "you", "are", "an", "this", "is")
 SPECIAL_TOKENS = ("[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]")
+PIECES = ("##ic",)        # so "idiotic" splits into word pieces, as with a real WordPiece vocab
 MODEL_VERSION = "tiny-student-test"
 
 
@@ -25,7 +26,7 @@ def tiny_model(tmp_path, labels=LABELS):
 
     vocab = tmp_path / "vocab"
     vocab.mkdir(parents=True, exist_ok=True)
-    (vocab / "vocab.txt").write_text("\n".join((*SPECIAL_TOKENS, *WORDS)) + "\n")
+    (vocab / "vocab.txt").write_text("\n".join((*SPECIAL_TOKENS, *WORDS, *PIECES)) + "\n")
     tokenizer = BertTokenizerFast.from_pretrained(vocab)
     torch.manual_seed(0)
     config = DistilBertConfig(vocab_size=len(tokenizer), dim=32, n_layers=1, n_heads=2,
