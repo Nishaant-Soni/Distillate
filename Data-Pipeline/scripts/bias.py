@@ -578,6 +578,18 @@ def _sensitivity(result: dict[str, Any]) -> list[str]:
     ]
 
 
+def wikipedia_slice_note(bias_cfg: dict[str, Any]) -> str:
+    """Say what the Wikipedia slices measure, so they aren't confused with other analyses."""
+    edges = sorted(bias_cfg["length_bands"])
+    middle = [f"{lo}-{hi - 1}" for lo, hi in zip(edges, edges[1:], strict=False)]
+    bands = ", ".join([f"<{edges[0]}", *middle, f"{edges[-1]}+"])
+    return (f"Length bands are in **characters** (`char_len`: {bands}), not tokens. The "
+            "`obfuscation` slice is validation comments whose `has_obfuscation` flag is set "
+            "(natural non-alphabetic text, from preprocessing). It is not the synthetic "
+            "`obfuscation.parquet` set built from gate comments, and not the sensitivity "
+            "analysis's substitution sweep.")
+
+
 def build_report(result: dict[str, Any], bias_cfg: dict[str, Any]) -> str:
     """Markdown report, interpretation included, generated from the results."""
     label = result["label"]
@@ -626,6 +638,7 @@ def build_report(result: dict[str, Any], bias_cfg: dict[str, Any]) -> str:
         "## 3. Data-level and model-level slices before mitigation",
         *slice_sections,
         "### Wikipedia validation",
+        wikipedia_slice_note(bias_cfg),
         _overall_line(result["wiki_before"]["overall"]),
         _slice_table(result["wiki_before"]["table"]),
         "## 4. Mitigation",

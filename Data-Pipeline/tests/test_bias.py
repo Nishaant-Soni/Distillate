@@ -334,3 +334,10 @@ def test_run_without_planted_bias_needs_no_reweighting(tmp_path):
     assert "**No reweighting needed by the selection rule.**" in report
     assert "Chosen factor" not in report
     assert "### Sensitivity: factor 2 (information only)" in report
+
+
+def test_wikipedia_slice_note_names_units_and_obfuscation_source():
+    note = bias.wikipedia_slice_note({"length_bands": [500, 100]})
+    assert "<100, 100-499, 500+" in note
+    assert "characters" in note and "not tokens" in note
+    assert "obfuscation.parquet" in note
