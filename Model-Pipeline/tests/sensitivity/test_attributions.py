@@ -81,6 +81,15 @@ def test_masked_example_shows_only_top_common_words():
     assert "zzname" not in line
 
 
+def test_masked_example_shows_at_most_a_third_of_the_words():
+    freq = dict.fromkeys(["you", "are", "an", "idiot", "so", "stupid"], 10)
+    six = attribution(["you", "are", "an", "idiot", "so", "stupid"], [1, 2, 3, 4, 5, 6])
+    shown = [w for w in masked_example(six, "toxicity", 4, freq, 5).split() if w[:2] == "**"]
+    assert shown == ["**so**", "**stupid**"]                  # 6 words: 2 visible, not 4
+    two = attribution(["you", "idiot"], [1, 2])
+    assert masked_example(two, "toxicity", 4, freq, 5) == MASK  # under 3 words: none
+
+
 def test_explain_on_the_tiny_student(student_dir):
     scorer = load_scorer(student_dir)
     first = explain(scorer, ["you are an idiotic", "thanks"], max_evals=100, batch_size=50)
@@ -112,9 +121,9 @@ def test_examples_take_the_first_rows_per_group():
     selection = pd.DataFrame({"id": ["a", "b", "c"], "label": "toxicity",
                               "group": ["caught", "caught", "missed"], "p": [0.9, 0.8, 0.1],
                               "y": 1})
-    attributions = {i: attribution(["idiot"], [1.0]) for i in "abc"}
-    out = examples(selection, attributions, per_group=1, visible=1, doc_freq={"idiot": 9},
-                   min_doc_freq=1)
+    attributions = {i: attribution(["you", "are", "idiot"], [0.0, 0.0, 1.0]) for i in "abc"}
+    out = examples(selection, attributions, per_group=1, visible=1,
+                   doc_freq={"you": 9, "are": 9, "idiot": 9}, min_doc_freq=1)
     assert out["group"].tolist() == ["caught", "missed"]
     assert out["correct"].tolist() == [True, False]
-    assert out.loc[0, "masked"] == "**idiot** (+1.00)"
+    assert out.loc[0, "masked"] == f"{MASK} **idiot** (+1.00)"

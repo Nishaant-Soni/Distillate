@@ -40,7 +40,7 @@ shap:
   min_occurrences: 2        # times a word occurs in that outcome's comments to rank
   min_doc_freq: 5           # validation comments a word must occur in to be shown at all
   examples_per_group: 2     # masked example lines per label and outcome
-  visible_words: 4          # words left visible in each masked example
+  visible_words: 4          # words left visible per masked example (and at most a third of it)
 
 # Hyperparameter importance from the shared Optuna study. storage and study_name come from
 # Shivam's sweep (e.g. a database URL on the VM); objective: the index to explain if the study

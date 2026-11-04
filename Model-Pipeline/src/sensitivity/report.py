@@ -93,8 +93,8 @@ def shap_section(results: Mapping[str, Any], plots: Mapping[str, str]) -> str:
            f"toxic); {shap['explained']} comments explained in all. Word pieces are merged "
            "into words. No comment text is shown: a word appears only if it occurs in at "
            f"least {cfg['min_doc_freq']} validation comments, and in the examples only the "
-           f"top {cfg['visible_words']} words are visible (`▒▒▒` is any run of hidden "
-           "words).\n\n")
+           f"top {cfg['visible_words']} words are visible, never more than a third of a "
+           "comment's words (`▒▒▒` is any run of hidden words).\n\n")
     pivot = (counts.pivot_table(index="label", columns="group", values="n", aggfunc="sum")
              .reindex(index=LABELS, columns=list(GROUP_NAMES)).fillna(0).astype(int))
     out += "Comments per label and outcome:\n\n" + md_table(

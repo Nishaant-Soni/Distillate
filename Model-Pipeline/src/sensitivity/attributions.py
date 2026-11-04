@@ -12,7 +12,7 @@
 
   * ``token_table``: per label and outcome, the words that push hardest toward the label;
   * ``masked_example``: a few comments per label and outcome with only their top words
-    visible, everything else masked (``▒``).
+    visible (never more than a third of a comment's words), everything else masked (``▒``).
 
   A word is shown only if it occurs in at least ``min_doc_freq`` validation comments, so a rare
   string (a username, say) never reaches the report, even as a top attribution.
@@ -149,14 +149,17 @@ def token_table(selection: pd.DataFrame, attributions: Mapping[str, Attribution]
 
 def masked_example(attribution: Attribution, label: str, visible: int,
                    doc_freq: Mapping[str, int], min_doc_freq: int) -> str:
-    """The comment with only its ``visible`` top words toward ``label`` shown, with values.
+    """The comment with only its top words toward ``label`` shown, with values.
 
-    Every run of hidden words becomes one ``▒▒▒``, so the line doesn't give away the length.
+    At most ``visible`` words, and never more than a third of the comment's words, so a short
+    comment can't be read off its top words. Every run of hidden words becomes one ``▒▒▒``, so
+    the line doesn't give away the length.
     """
     values = attribution.values[:, LABELS.index(label)]
     allowed = [i for i, w in enumerate(attribution.words)
                if doc_freq.get(normalize(w), 0) >= min_doc_freq and values[i] > 0]
-    shown = set(sorted(allowed, key=lambda i: values[i], reverse=True)[:visible])
+    cap = min(visible, len(attribution.words) // 3)
+    shown = set(sorted(allowed, key=lambda i: values[i], reverse=True)[:cap])
     parts: list[str] = []
     for i, word in enumerate(attribution.words):
         if i in shown:
