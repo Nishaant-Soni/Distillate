@@ -36,6 +36,8 @@ paths:
   calqwen_dir: artifacts/calqwen             # calibrated-Qwen soft-label check (calqwen.py)
   drift_dir: data/civil_drift                # local copy of the data lane's drift batches
                                              # (gitignored: comment text)
+  mlflow_db: mlruns/mlflow.db                # local MLflow store until the VM's (gitignored)
+  mlflow_artifacts: mlruns/artifacts
 
 prompt:
   protocol: p2              # decision memo: P2 zero-shot (the stack and its fallback use it)
@@ -124,3 +126,12 @@ storage:
   backend: gcs              # the team bucket; hf is the backup copy (same paths)
   hf_repo: distillate-team/distillate-teacher-shards   # organization MLOps-Distillate-Project
   gcs_bucket: distillate-mlops-data                    # also the DVC remote (dvc/ prefix)
+
+# The teacher lane's runs in MLflow (mlflow_log.py), logged from the committed records and the
+# shard manifests; nothing is rerun. MLFLOW_TRACKING_URI if set (the VM), else paths.mlflow_db.
+mlflow:
+  experiment: distillate-teacher
+  labeling:                 # the raw teacher's shard runs, by store prefix
+    train: teacher/p2-zs-v2b/
+    gate: teacher/p2-zs-v2b/gate/
+    drift: teacher/p2-zs-v2b/drift/
