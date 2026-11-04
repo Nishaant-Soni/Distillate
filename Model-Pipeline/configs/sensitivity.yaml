@@ -41,6 +41,17 @@ shap:
   examples_per_group: 2     # masked example lines per label and outcome
   visible_words: 4          # words left visible in each masked example
 
+# Hyperparameter importance from the shared Optuna study. storage and study_name come from
+# Shivam's sweep (e.g. a database URL on the VM); objective: the index to explain if the study
+# has several objectives.
+optuna:
+  storage: null
+  study_name: null
+  objective: null
+  params: null              # null: every parameter present in all completed trials
+  evaluators: [fanova, mdi]
+  min_trials: 10
+
 paths:
   val: ../Data-Pipeline/data/processed/wikipedia/val.parquet
   data_pipeline: ../Data-Pipeline          # for the substitution table (scripts/obfuscate.py)
