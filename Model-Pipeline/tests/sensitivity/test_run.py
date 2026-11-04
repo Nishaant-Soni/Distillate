@@ -93,9 +93,11 @@ def test_sample_and_missing_model(tmp_path, student_dir):
         run(cfg)
 
 
-def test_with_the_study_and_mlflow(tmp_path, student_dir):
+def test_with_the_study_and_mlflow(tmp_path, student_dir, monkeypatch):
     pytest.importorskip("mlflow")
     optuna = pytest.importorskip("optuna")
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.chdir(tmp_path)              # anything written to ./mlruns would show up here
     from tests.sensitivity.test_hyperparameters import make_study
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -118,6 +120,11 @@ def test_with_the_study_and_mlflow(tmp_path, student_dir):
                                                                    "sensitivity")}
     assert "sensitivity/sensitivity.md" in names
     assert "sensitivity/shap_selection.parquet" not in names
+    # Artifacts in the configured local folder, not in ./mlruns of the working directory.
+    artifacts = (tmp_path / "mlruns" / "artifacts").as_uri()
+    assert mlflow.get_experiment_by_name("distillate-sensitivity").artifact_location == artifacts
+    assert logged.info.artifact_uri.startswith(artifacts)
+    assert not any((tmp_path / "mlruns").glob("[0-9]*"))   # MLflow's default artifact folders
 
 
 def test_headline_leaves_out_nan():

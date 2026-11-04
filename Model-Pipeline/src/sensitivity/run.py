@@ -193,7 +193,9 @@ def log_to_mlflow(cfg: Mapping[str, Any], results: Mapping[str, Any],
     """
     import mlflow
 
-    uri = os.environ.get("MLFLOW_TRACKING_URI")
+    # Read before set_tracking_uri, which writes MLFLOW_TRACKING_URI into the environment.
+    server = os.environ.get("MLFLOW_TRACKING_URI")
+    uri = server
     if not uri:
         db = Path(cfg["paths"]["mlflow_db"])
         db.parent.mkdir(parents=True, exist_ok=True)
@@ -201,8 +203,8 @@ def log_to_mlflow(cfg: Mapping[str, Any], results: Mapping[str, Any],
     mlflow.set_tracking_uri(uri)
     name = cfg["mlflow"]["experiment"]
     if mlflow.get_experiment_by_name(name) is None:
-        artifacts = None if os.environ.get("MLFLOW_TRACKING_URI") else \
-            Path(cfg["paths"]["mlflow_artifacts"]).resolve().as_uri()
+        # A server stores artifacts where it's configured to; the local store next to its db.
+        artifacts = None if server else Path(cfg["paths"]["mlflow_artifacts"]).resolve().as_uri()
         mlflow.create_experiment(name, artifact_location=artifacts)
     mlflow.set_experiment(name)
     setup = results["setup"]
