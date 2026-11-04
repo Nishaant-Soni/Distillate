@@ -10,3 +10,9 @@ transformers>=4.51       # Qwen3 tokenizer and chat template
 jinja2                   # apply_chat_template
 huggingface_hub
 google-cloud-storage     # GCS shard store (storage.py)
+
+# Sensitivity analysis (src/sensitivity), on the selected student.
+torch                    # runs a save_pretrained student
+onnxruntime              # runs a CONTRACTS.md §5 package (model.onnx)
+shap                     # token attributions
+optuna                   # hyperparameter importance from the shared study
