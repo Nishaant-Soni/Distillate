@@ -1,0 +1,28 @@
+# Gate rule for model candidates (Ruchita). Used by CI (model-ci.yml) and retrain_dag.
+# PLACEHOLDER TOLERANCES: the team fixes these values by Sun Nov 8 (work plan 5.1).
+
+# File stems in the --candidate, --production and --gold folders (<stem>.parquet).
+splits:
+  validation: val
+  gate: gate
+  bias: bias
+
+# Optional per-split weights (id, weight[, stratum]). Leave null for the full gate set;
+# point gate at artifacts/gate_subset_ids.parquet only when scoring the 20,000-row subset.
+design:
+  gate: null
+
+validation:                 # on the Wikipedia validation split
+  min_mean_auc: 0.95
+  min_pr_auc: 0.30          # every label; or a mapping such as {threat: 0.2, toxicity: 0.6}
+
+regression:                 # on the gate set, against the production model
+  max_mean_auc_drop: 0.005
+  max_pr_auc_drop: 0.02     # every label; or a per-label mapping
+
+bias:                       # on the Civil bias set (identity-annotated test rows)
+  label: toxicity           # one of the five Civil labels; FPR at its tuned threshold
+  identity_threshold: 0.5   # identity attribute >= this puts a row in the slice
+  min_slice_size: 100
+  max_fpr_gap_pts: 10.0     # slice FPR minus overall FPR; null disables this check
+  max_fpr_rise_pts: 2.0     # slice FPR minus production's for the same slice; null disables
