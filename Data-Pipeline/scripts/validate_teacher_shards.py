@@ -106,14 +106,17 @@ def kind_expectations(
     return expected
 
 
-def skip(summary: dict[str, Any], reason: str, required: bool) -> dict[str, Any]:
-    """The store can't be reached: fail if required, otherwise warn and skip."""
+def skip(
+    summary: dict[str, Any], reason: str, required: bool, report: Path
+) -> dict[str, Any]:
+    """The store can't be reached: fail if required, otherwise warn, record the skip, and skip."""
     if required:
         raise TeacherShardError(f"teacher shard store unavailable: {reason}")
     logger.warning("Skipping teacher shard validation: %s", reason)
     send_alert("warn", "validate_teacher_shards skipped: store unavailable", {"reason": reason})
     summary["skipped"] = True
     summary["skip_reason"] = reason
+    atomic_write(report, json.dumps(summary, indent=2, default=str))
     return summary
 
 
@@ -140,8 +143,10 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
             storage = mods["storage"].get_storage(
                 mcfg, resolve(tcfg.get("local_root")), tcfg.get("backend")
             )
+        except ImportError:  # a missing package is a setup error, not an unreachable store
+            raise
         except Exception as err:  # no credentials or project: the store is unreachable
-            return skip(summary, f"{type(err).__name__}: {err}", required)
+            return skip(summary, f"{type(err).__name__}: {err}", required, resolve(tcfg["report"]))
 
         failed_runs = []
         for index, run_cfg in enumerate(tcfg["runs"]):
@@ -153,9 +158,14 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
                     frames, manifests, schemas, errors = mods["validate"].load_run(
                         storage, prefix, Path(tmp)
                     )
+                except ImportError:
+                    raise
                 except Exception as err:
                     if index == 0:  # nothing read yet: treat as an unreachable store
-                        return skip(summary, f"{type(err).__name__}: {err}", required)
+                        return skip(
+                            summary, f"{type(err).__name__}: {err}", required,
+                            resolve(tcfg["report"]),
+                        )
                     raise
                 errors += mods["validate"].check_run(
                     frames,
