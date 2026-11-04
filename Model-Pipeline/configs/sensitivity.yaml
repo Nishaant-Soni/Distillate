@@ -1,0 +1,35 @@
+# Distillate sensitivity analysis of the selected student (reports/sensitivity.md).
+# Every tunable value lives here. Relative paths resolve against Model-Pipeline/.
+
+seed: 42
+
+labels: [toxicity, severe_toxicity, obscene, threat, insult, identity_attack]
+
+model:
+  dir: null                 # the selected student: a save_pretrained folder or a §5 package
+  batch_size: 64
+  device: auto              # auto = cuda, then mps, then cpu
+  fp16: true                # used on CUDA only
+  threshold: 0.5            # per-label decision threshold if the model has no thresholds.json
+
+data:
+  sample: null              # score only N validation rows (quick runs); null = all of them
+
+metrics:
+  ece_bins: 10
+
+# Input length: score validation truncated at each max_length; and split the rows by their
+# untruncated token length, at these band edges (<=64, 65-128, 129-256, >256).
+truncation:
+  max_lengths: [64, 128, 256]
+  band_edges: [64, 128, 256]
+
+# Obfuscation strength: the data pipeline's substitution table (idiot -> 1d10t) applied to every
+# validation comment, each eligible character with probability `rate`, seeded per comment id.
+obfuscation:
+  rates: [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]
+
+paths:
+  val: ../Data-Pipeline/data/processed/wikipedia/val.parquet
+  data_pipeline: ../Data-Pipeline          # for the substitution table (scripts/obfuscate.py)
+  out_dir: outputs/sensitivity             # gitignored scratch; the report goes to reports/
