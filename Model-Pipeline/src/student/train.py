@@ -144,16 +144,23 @@ def evaluate_split(model, tokenizer, frame, cfg: Mapping[str, Any], device,
 def _mlflow_start(cfg: Mapping[str, Any], run_name: str):
     import mlflow
 
-    uri = os.environ.get("MLFLOW_TRACKING_URI")
-    if not uri:
+    # Read once, before set_tracking_uri: MLflow writes the URI it is given into
+    # MLFLOW_TRACKING_URI, so a later read would always look like a server.
+    server = os.environ.get("MLFLOW_TRACKING_URI")
+    if server:
+        uri = server
+    else:
         db = Path(cfg["paths"]["mlflow_db"])
         db.parent.mkdir(parents=True, exist_ok=True)
         uri = f"sqlite:///{db}"
     mlflow.set_tracking_uri(uri)
+    if not server:
+        # MLflow keeps the URI itself; drop the copy so the next run in this process
+        # (a sweep, the tests) does not mistake this run's SQLite store for a server.
+        os.environ.pop("MLFLOW_TRACKING_URI", None)
     name = cfg["mlflow"]["experiment"]
     if mlflow.get_experiment_by_name(name) is None:
-        artifacts = None if os.environ.get("MLFLOW_TRACKING_URI") else \
-            Path(cfg["paths"]["mlflow_artifacts"]).resolve().as_uri()
+        artifacts = None if server else Path(cfg["paths"]["mlflow_artifacts"]).resolve().as_uri()
         mlflow.create_experiment(name, artifact_location=artifacts)
     mlflow.set_experiment(name)
     return mlflow.start_run(run_name=run_name)

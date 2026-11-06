@@ -38,8 +38,11 @@ teacher lane's cleaning and keeps the text in `/tmp`, so no text is saved as out
 
 * `paths.raw_train`: `wiki_train_raw.parquet` (`id`, `text`, six int8 labels), the output of
   `kaggle/00_prepare_data.ipynb` or the notebook's first step. Comment text never goes into git.
-* Mixed and soft runs also need Hugging Face read access to `distillate-team/distillate-teacher-shards`
-  (`hf auth login`, or `HF_TOKEN`). Gold-only runs never read the soft labels.
+* Mixed and soft runs also need read access to the team bucket `gs://distillate-mlops-data/`
+  (`storage.backend: gcs`): `gcloud auth application-default login` locally, or the
+  `GCS_TEACHER_KEY` secret (a service-account key, the whole JSON) on Kaggle. The Hugging Face
+  dataset `distillate-team/distillate-teacher-shards` is a backup with the same paths
+  (`--set storage.backend=hf`, with `HF_TOKEN`). Gold-only runs never read the soft labels.
 
 ## The loss
 
