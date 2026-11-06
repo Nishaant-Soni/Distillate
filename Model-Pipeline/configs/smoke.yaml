@@ -84,6 +84,23 @@ mlflow:
   log_model: false
   tags: {}
 
+# Per-label decision thresholds on validation (src/student/thresholds.py), written next to the
+# model as thresholds.json on every run.
+thresholds:
+  method: max_f1            # each label's F1-maximizing cut-off on the validation split
+  min: 0.01
+  max: 0.99
+
+# The §2.5 model package (src/student/package.py): model.onnx, tokenizer/, thresholds.json,
+# meta.json, built into <run>/package/ after training when enabled (the candidate runs, not
+# every sweep trial). The ONNX export is checked against PyTorch at these lengths and batches.
+package:
+  enabled: false
+  opset: 18
+  parity_lengths: [16, 64, 128, 256]
+  parity_batch_sizes: [1, 4]
+  max_abs_logit_diff: 1.0e-3
+
 sweep:
   study_name: smoke
   storage: null

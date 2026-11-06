@@ -98,7 +98,10 @@ Each run writes `outputs/student/<run_name>-<UTC time>/` (gitignored):
 | Path | What |
 |---|---|
 | `model/` | weights and tokenizer (`save_pretrained`) from the epoch with the best validation mean AUC |
-| `model/meta.json` | lineage: `model_version`, model id, `max_length`, `alpha`, `temperature`, `teacher_version`, `teacher_model_version`, `prompt_version`, `stack_sha256`, training-data SHA-256, seed, code commit, MLflow run id |
+| `model/meta.json` | lineage: `model_version`, model id, `max_length`, `labels`, `alpha`, `temperature`, `teacher_version`, `teacher_model_version`, `prompt_version`, `stack_sha256`, soft-label arm and check, training-data SHA-256, seed, code commit, MLflow run id |
+| `model/thresholds.json` | per-label decision thresholds chosen on validation: `{"toxicity": 0.41, ...}` and nothing else (the format the gate, sensitivity analysis, and serving read) |
+| `model/thresholds_report.json` | the method, and per label F1, precision, recall, and flag rate at the threshold and at 0.5 |
+| `package/` | with `package.enabled: true`: the §2.5 model package (below) |
 | `predictions/val.parquet` | prediction file per CONTRACTS.md §2.2: `id`, `p_<label>` ×6, `model_version` |
 | `splits/{train,val}_ids.txt` | the exact rows used |
 | `metrics.json`, `summary.json` | per-label AUC, PR-AUC, ECE, and Brier on validation; run summary with history |
@@ -108,6 +111,35 @@ metrics, and the files above (not the weights, unless `mlflow.log_model: true`) 
 SQLite store (`mlruns/mlflow.db`). When `MLFLOW_TRACKING_URI` is set, it uses that server
 instead, which will be the team VM in Phase 2. To browse the local store:
 `mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db`.
+
+## Thresholds and the model package
+
+**Thresholds** (`src/student/thresholds.py`, `thresholds:` in the config): for each label, the
+cut-off that maximizes F1 on the validation split, searched over the predicted scores within
+[0.01, 0.99]. Ties go to the higher threshold. Validation sets thresholds (v4 §5.1); the gate set
+never does. To recompute for any prediction file:
+`python -m src.student.thresholds --pred <val predictions> --gold <val parquet> --out <folder>`.
+
+**Package** (`src/student/package.py`, work plan v4 §2.5), built from a run's `model/` folder:
+
+| File | What |
+|---|---|
+| `model.onnx` | one self-contained file; inputs `input_ids`, `attention_mask` (int64, dynamic batch and sequence, up to the model's 512 positions), output `logits` (batch, 6) in label order; torch's dynamo exporter, opset 18 |
+| `tokenizer/` | the `save_pretrained` tokenizer |
+| `thresholds.json` | copied from the run |
+| `meta.json` | the §2.5 fields (`model_version`, `training_data_dvc_hash`, `alpha`, `temperature`, `teacher_version`, `teacher_model_version`, `prompt_version`, `stack_sha256`) plus `max_length`, `labels`, `thresholds`, the ONNX export record with its parity check, and the SHA-256 of every other file |
+
+The build compares ONNX Runtime with PyTorch on the same inputs at lengths 16, 64, 128 and 256,
+batch sizes 1 and 4, and stops if any logit differs by more than 1e-3. A pretrained DistilBERT
+exports to a 256 MB `model.onnx` in about 8 seconds on a laptop CPU, with a maximum difference of
+4e-7. Because the sequence axis is dynamic, the package scores at any length up to 512, not only
+the training `max_length` (the sensitivity analysis's truncation sweep). `verify_package()`
+rechecks the hashes, for example after a registry download. int8 quantization is Phase 3.
+
+```bash
+python -m src.student.package --run-dir outputs/student/<run> --out outputs/packages/<run>
+python -m src.student.predict --model-dir outputs/packages/<run> --input X.parquet --output Y.parquet
+```
 
 `model_version` is `student-<run_name>-<UTC time>`, for example
 `student-distilbert-gold-20261022T150000Z`.
