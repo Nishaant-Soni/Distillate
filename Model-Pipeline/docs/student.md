@@ -26,6 +26,9 @@ pytest tests/student
 | Mixed: gold + stack soft labels | `python -m src.student.train --set run_name=distilbert-mixed loss.alpha=0.5 loss.temperature=2` |
 | Soft labels only | `python -m src.student.train --set run_name=distilbert-soft loss.alpha=0` |
 | Another student | `--set model.name=minilm` or `model.name=modernbert` |
+| An attribution arm (TF-IDF or calibrated-Qwen soft labels) | `--set soft_labels.arm=tfidf` or `soft_labels.arm=calqwen` |
+| The official split without DVC | `--set data.source=ids` (raw train restricted to `Data-Pipeline/data/splits/{train,val}_ids.txt`) |
+| Optuna sweep, ablation grid | `python -m src.student.sweep`, see [tuning.md](tuning.md); on Kaggle `kaggle/11_student_runs.ipynb` |
 | Truncation share at 64/128/256/512 tokens | `python -m src.student.token_lengths` |
 | Prediction file for any Parquet with `id`, `text` | `python -m src.student.predict --model-dir <run>/model --input X.parquet --output Y.parquet` |
 
@@ -62,16 +65,29 @@ Unit tests in `tests/student/test_loss.py` check each of these points.
 * `data.source: temp` (Phase 1): a seeded (42) multilabel iterative stratification of raw train
   into 85% train and 15% validation, the same method as `Data-Pipeline/scripts/split.py`.
   Rows with empty text are dropped. The split ids are saved with every run.
+* `data.source: ids` (Phase 2 sweeps and ablations): raw train restricted to the data pipeline's
+  official split ids (`Data-Pipeline/data/splits/train_ids.txt`, 132,388 rows; `val_ids.txt`,
+  21,363 rows), so Kaggle runs use the official split without DVC. Raw train has the teacher
+  lane's cleaning and no `sample_weight`. More than 0.1% of either list missing from raw train
+  is an error.
 * `data.source: official` (Phase 2): the data pipeline's `train.parquet` and `val.parquet`.
   Reported numbers are rerun on these.
 * The gate set is never read. The run fails if any training or validation id is in
   `artifacts/gate_subset_ids.parquet`.
 
+**Soft-label arms** (`soft_labels.arm`; the arm's entry in `soft_labels.arms` replaces the stack's values):
+
+| Arm | Store path | Integrity check |
+|---|---|---|
+| `stack` (main targets) | `soft_labels/stack-v1/p2-zs-v2b/` | each manifest's `stack_sha256` = SHA-256 of `artifacts/stack/stack_p2-zs-v2b.json` |
+| `calqwen` (ablation) | `soft_labels/calqwen-v1/p2-zs-v2b/` | each manifest's `calibration_sha256` = SHA-256 of `artifacts/pilot/calibration_p2-zs-v2b.json` |
+| `tfidf` (ablation) | `tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet` | the file's SHA-256 = `artifacts/oof/tfidf_oof.manifest.json`; `p_<label>` becomes `logit_<label>` (clipped at 1e-6) |
+
 **Soft-label checks before training:**
 * the `model_version` and `prompt_version` named in the config;
-* every manifest's `stack_sha256` equal to the SHA-256 of the committed `artifacts/stack/stack_p2-zs-v2b.json`;
+* the arm's integrity check above;
 * a failure rate of at most 1%;
-* with `temp`, which has every raw train id, the teacher validator's full §6 checks: plan, ids, coverage, and types.
+* with `temp` and `ids`, which read raw train and so know every raw train id: the teacher validator's full §6 checks (plan, ids, coverage, and types) for shards, and full id coverage for the TF-IDF file.
 
 Any failure stops the run before training.
 
