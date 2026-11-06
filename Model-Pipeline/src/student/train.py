@@ -4,7 +4,9 @@ One run: load the split (``data.py``), join the soft labels by id when ``alpha <
 with the distillation loss (``loss.py``), keep the epoch with the best validation mean AUC,
 and write to ``paths.out_dir/<run>/``:
 
-* ``model/``: weights and tokenizer (``save_pretrained``) plus ``meta.json`` (lineage);
+* ``model/``: weights and tokenizer (``save_pretrained``) plus ``meta.json`` (lineage) and
+  ``thresholds.json`` (per label, on validation, ``thresholds.py``);
+* ``package/``: the §2.5 model package (``package.py``), when ``package.enabled``;
 * ``predictions/val.parquet``: the validation prediction file (CONTRACTS.md §2.2);
 * ``splits/{train,val}_ids.txt``, ``metrics.json``, ``summary.json``.
 
@@ -307,6 +309,11 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
 
         best_pred = pd.read_parquet(run_dir / "predictions" / "val.parquet")
         check_prediction_frame(best_pred)
+        from src.student import thresholds as thresholds_mod
+
+        thresholds, threshold_report = thresholds_mod.choose(best_pred, val_df,
+                                                             cfg.get("thresholds"))
+        thresholds_mod.write(thresholds, threshold_report, run_dir / "model")
         meta = {
             "model_version": model_version, "model_id": model_id, "max_length": max_length,
             "labels": list(LABELS), "alpha": alpha, "temperature": temperature,
@@ -326,6 +333,12 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
             "mlflow_run_id": mlflow_run.info.run_id if mlflow_run else None,
         }
         (run_dir / "model" / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
+        package_meta = None
+        if (cfg.get("package") or {}).get("enabled"):
+            from src.student.package import build_package
+
+            sample = val_df["text"].head(64).tolist()   # parity inputs; nothing is saved
+            package_meta = build_package(run_dir, run_dir / "package", cfg["package"], sample)
         metrics = json.loads(best_table.round(6).to_json(orient="index"))
         (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
 
@@ -337,6 +350,11 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
             "truncated_share_train": round(train_rows.truncated_share, 5),
             "steps": step, "best_epoch": best_epoch, "best_val_mean_auc": best_auc,
             "best_val_mean_pr_auc": float(best_table.loc["mean", "pr_auc"]),
+            "thresholds": thresholds, "val_mean_f1_at_thresholds": threshold_report["mean_f1"],
+            "val_mean_f1_at_0.5": threshold_report["mean_f1_at_0.5"],
+            "package": None if package_meta is None else {
+                "dir": str(run_dir / "package"),
+                "onnx_parity": package_meta["onnx"]["parity"]["max_abs_logit_diff"]},
             "history": history, "run_dir": str(run_dir),
             "mlflow_run_id": meta["mlflow_run_id"],
             "duration_s": round(time.perf_counter() - start_time, 1),
@@ -351,7 +369,12 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
                                 "truncated_share_train": train_rows.truncated_share})
             for name in ("summary.json", "metrics.json"):
                 mlflow.log_artifact(str(run_dir / name))
-            mlflow.log_artifact(str(run_dir / "model" / "meta.json"), "model")
+            mlflow.log_metrics({"val_mean_f1_at_thresholds": threshold_report["mean_f1"],
+                                **{f"threshold_{k}": v for k, v in thresholds.items()}})
+            for name in ("meta.json", "thresholds.json", "thresholds_report.json"):
+                mlflow.log_artifact(str(run_dir / "model" / name), "model")
+            if package_meta is not None:
+                mlflow.log_artifacts(str(run_dir / "package"), "package")
             mlflow.log_artifacts(str(run_dir / "predictions"), "predictions")
             mlflow.log_artifacts(str(run_dir / "splits"), "splits")
             if cfg["mlflow"]["log_model"]:

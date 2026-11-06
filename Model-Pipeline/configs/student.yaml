@@ -101,6 +101,23 @@ mlflow:
   log_model: false          # model weights stay in the run folder in Phase 1
   tags: {}                  # extra run tags (the sweep sets study and trial)
 
+# Per-label decision thresholds on validation (src/student/thresholds.py), written next to the
+# model as thresholds.json on every run.
+thresholds:
+  method: max_f1            # each label's F1-maximizing cut-off on the validation split
+  min: 0.01
+  max: 0.99
+
+# The §2.5 model package (src/student/package.py): model.onnx, tokenizer/, thresholds.json,
+# meta.json, built into <run>/package/ after training when enabled (the candidate runs, not
+# every sweep trial). The ONNX export is checked against PyTorch at these lengths and batches.
+package:
+  enabled: false
+  opset: 18
+  parity_lengths: [16, 64, 128, 256]
+  parity_batch_sizes: [1, 4]
+  max_abs_logit_diff: 1.0e-3
+
 # Optuna sweep (src/student/sweep.py, docs/tuning.md): TPE over alpha, T, lr, epochs and
 # max_length on DistilBERT mixed loss, tuned once and reused for the other arms (v4 §5).
 # Each trial is one train.run() with the base config plus the sampled values; the objective
