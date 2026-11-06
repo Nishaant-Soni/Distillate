@@ -12,7 +12,7 @@ Distillate trains a small toxicity classifier that runs on CPU by distilling kno
 
 ```mermaid
 flowchart LR
-  A[TFDS datasets] --> B[data_prep_dag: clean, dedupe, validate, split]
+  A[Kaggle datasets] --> B[data_prep_dag: clean, dedupe, validate, split]
   B --> C[Teacher LLM on Kaggle GPUs: soft labels]
   C --> D[Student training, tracked in MLflow]
   D --> E{CI/CD gate}
@@ -36,48 +36,62 @@ flowchart LR
 
 ## Data
 
-| Dataset | Role | Version | License |
+| Dataset | Kaggle competition | Role | Rows |
 |---|---|---|---|
-| [`wikipedia_toxicity_subtypes`](https://www.tensorflow.org/datasets/catalog/wikipedia_toxicity_subtypes) | Training, validation, gate set | 0.3.1 | CC0 (per TFDS) |
-| [`civil_comments`](https://www.tensorflow.org/datasets/catalog/civil_comments) | Shifted-domain test, drift stream, bias evaluation | 1.2.4 | CC0 (per TFDS) |
+| Wikipedia toxicity | [`jigsaw-toxic-comment-classification-challenge`](https://www.kaggle.com/c/jigsaw-toxic-comment-classification-challenge) | Training, validation, gate set | 159,571 train; 63,978 scored test |
+| Civil Comments | [`jigsaw-unintended-bias-in-toxicity-classification`](https://www.kaggle.com/c/jigsaw-unintended-bias-in-toxicity-classification) | Shifted-domain test, drift stream, bias evaluation | 1,804,874 train; 97,320 per test file |
+
+The TFDS copies of both datasets began returning HTTP 403, so the pipeline downloads the
+original Kaggle competition files they were built from; ids and row counts are identical.
+**Every teammate must accept both competitions' rules on Kaggle before downloading.** The
+rules permit academic use and forbid redistributing the data, so raw text stays in private
+storage and the repository holds only ids, scores, and metrics.
 
 Raw text lives in a private GCS bucket and is pulled with DVC; Git holds only pointer files. Please cite Wulczyn, Thain, and Dixon (2017), "Ex Machina: Personal Attacks Seen at Scale", and Borkan et al. (2019), "Nuanced Metrics for Measuring Unintended Bias with Real Data for Text Classification".
 
 ## Repository layout
 
 ```text
-.github/workflows/   CI/CD: tests, data checks, gate, build, deploy, rollback
-dags/                Airflow: data_prep_dag, drift_ingest_dag, retrain_dag
-docker/              Images for ingestion, serving, and the demo app
-frontend/            Streamlit demo app
-kaggle/              Teacher labeling and student training notebooks
-src/                 data, teacher, student, analysis, eval, serving
-monitoring/          Alert rules, canary replay, drift checks, dashboards
-deploy/              Cloud Run service definition and GCP setup script
+Data-Pipeline/       Phase 1: dags/, scripts/, config/, data/, reports/, tests/
+Model-Pipeline/      Phase 2: src/teacher, src/student, src/eval, kaggle/, artifacts/
+Deployment/          Phase 3: serving/, monitoring/, frontend/, deploy/, dags/
 docs/                Model card, data card, risk log, cost assumptions
-tests/               Unit tests (pytest)
+.github/workflows/   CI/CD: tests, data checks, gate, build, deploy, rollback
+.env.example         Project-wide template; each phase folder keeps its own copy
 ```
+
+Each phase folder is self-contained and runs its own `docker compose`, which reads
+`.env` only from its own folder. The authoritative file formats and interfaces are in
+[Data-Pipeline/CONTRACTS.md](Data-Pipeline/CONTRACTS.md).
 
 ## Installation
 
-**Prerequisites:** Python 3.12, Docker, the `gcloud` CLI, and read access to the team's GCS bucket.
+**Prerequisites:** Docker Desktop with 8 GB of memory, Git, and a Kaggle account that has
+accepted both competitions' rules. The `gcloud` CLI is needed only to push data to GCS.
+
+Each phase folder runs its own `docker compose`, so **every command below is run from inside
+that folder, not the repository root.** There is no compose file at the root; running
+`docker compose up -d` there fails with *"no configuration file provided: not found"*.
+
+Phase 1, the data pipeline:
 
 ```bash
 git clone https://github.com/Nishaant-Soni/Distillate.git
-cd distillate
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env        # set GCP project, bucket, and MLflow tracking URI
-gcloud auth application-default login
-dvc pull                    # fetch versioned data and split manifests
-docker compose up -d        # local API, Prometheus, Grafana, Airflow
+cd Distillate/Data-Pipeline      # the compose file lives here
+cp .env.example .env             # then add your Kaggle credentials
+docker compose build             # 20-40 min the first time
+docker compose up -d
 ```
 
-Local services: API at `localhost:8000`, Airflow at `localhost:8080`, Grafana at `localhost:3000`.
+Airflow is then at `localhost:8080`. Full setup, credentials and troubleshooting are in
+[Data-Pipeline/README.md](Data-Pipeline/README.md); start there rather than here.
+
+Phase 2 and Phase 3 each have their own folder and their own README, added as those
+phases land.
 
 ## Usage
 
-**1. Prepare data.** Trigger `data_prep_dag` from the Airflow UI, or:
+**1. Prepare data.** Trigger `data_prep_dag` from the Airflow UI, or from `Data-Pipeline/`:
 ```bash
 docker compose exec airflow-scheduler airflow dags trigger data_prep_dag
 ```

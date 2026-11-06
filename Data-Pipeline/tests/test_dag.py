@@ -58,7 +58,7 @@ def test_acquisition_retries_twice_with_a_two_minute_delay():
 
 
 def test_only_tensorflow_stages_use_the_tfenv_interpreter():
-    assert {t.task_id for t in graph.TASKS if t.env == graph.TFENV} == {"acquire", "schema_stats"}
+    assert {t.task_id for t in graph.TASKS if t.env == graph.TFENV} == {"schema_stats"}
 
 
 def test_optimized_graph_actually_parallelises():
@@ -86,9 +86,12 @@ def test_a_cycle_is_detected(monkeypatch):
 @pytest.fixture(scope="module")
 def dagbag():
     pytest.importorskip("airflow", reason="Airflow is only installed in the Docker image")
-    from airflow.models.dagbag import DagBag
+    try:
+        from airflow.dag_processing.dagbag import DagBag
+    except ImportError:  # older Airflow
+        from airflow.models.dagbag import DagBag
 
-    bag = DagBag(dag_folder="dags", include_examples=False)
+    bag = DagBag(dag_folder="dags")
     assert not bag.import_errors, bag.import_errors
     return bag
 
@@ -102,9 +105,18 @@ def test_dag_has_the_expected_task_ids(dagbag):
 
 
 def test_dag_dependencies_match_the_declared_graph(dagbag):
+    """The wiring must match whichever mode the DAG was built in.
+
+    Regression: this asserted "optimized" outright, so running the DAG in
+    baseline mode for the Gantt comparison -- a documented, supported mode --
+    failed the suite.
+    """
+    import os
+
+    mode = os.environ.get("PIPELINE_MODE", "optimized")
     dag = dagbag.dags["data_prep_dag"]
     wired = {(u, d) for u in dag.task_ids for d in dag.get_task(u).downstream_task_ids}
-    assert wired == set(graph.edges("optimized"))
+    assert wired == set(graph.edges(mode)), f"DAG does not match the {mode} graph"
 
 
 def test_dag_is_manual_only_and_never_backfills(dagbag):

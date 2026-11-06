@@ -1,8 +1,7 @@
-.venv/
+.venv*/
 .env
 .DS_Store
 __pycache__/
 .idea/
 .pytest_cache/
 .ruff_cache/
-/docs/

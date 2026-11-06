@@ -1,0 +1,523 @@
+feature {
+  name: "id"
+  type: BYTES
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "text"
+  type: BYTES
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "toxicity"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "severe_toxicity"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "obscene"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "threat"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "insult"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "identity_attack"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "created_date"
+  type: BYTES
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "RAW_WIKI"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "publication_id"
+  type: BYTES
+  int_domain {
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "RAW_WIKI"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "article_id"
+  type: BYTES
+  int_domain {
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "RAW_WIKI"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "sexual_explicit"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+    max: 1.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "RAW_WIKI"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "identity_annotator_count"
+  type: FLOAT
+  float_domain {
+    min: 0.0
+  }
+  presence {
+    min_fraction: 1.0
+    min_count: 1
+  }
+  not_in_environment: "RAW_WIKI"
+  shape {
+    dim {
+      size: 1
+    }
+  }
+}
+feature {
+  name: "asian"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "atheist"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "bisexual"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "black"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "buddhist"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "christian"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "female"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "heterosexual"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "hindu"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "homosexual_gay_or_lesbian"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "intellectual_or_learning_disability"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "jewish"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "latino"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "male"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "muslim"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "other_disability"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "other_gender"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "other_race_or_ethnicity"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "other_religion"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "other_sexual_orientation"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "physical_disability"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "psychiatric_or_mental_illness"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "transgender"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+feature {
+  name: "white"
+  value_count {
+    min: 1
+    max: 1
+  }
+  type: FLOAT
+  presence {
+    min_fraction: 0.0
+    min_count: 0
+  }
+  not_in_environment: "RAW_WIKI"
+}
+default_environment: "RAW_WIKI"
+default_environment: "RAW_CIVIL"

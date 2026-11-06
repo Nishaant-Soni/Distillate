@@ -1,8 +1,49 @@
 import json
+import logging
 
 import pytest
 
 from scripts import utils
+
+
+def test_only_errors_go_to_stderr(capsys):
+    """Airflow 3 labels task output by stream, so the split has to be at ERROR.
+
+    Regression: a bare StreamHandler sent everything to stderr, so even routine
+    progress showed up red in the Airflow UI. Splitting at WARNING was not
+    enough either -- warnings still turned a healthy run red. Only genuine
+    errors belong on stderr; the level is in the message text regardless.
+    """
+    logger = utils.get_logger("test_stream_split")
+    logger.info("routine progress")
+    logger.warning("something worth noticing")
+    logger.error("a real failure")
+
+    captured = capsys.readouterr()
+    for message in ("routine progress", "something worth noticing"):
+        assert message in captured.out, message
+        assert message not in captured.err, message
+    assert "a real failure" in captured.err
+    assert "a real failure" not in captured.out
+
+
+def test_logger_is_configured_once(capsys):
+    """Repeat calls must not stack handlers and duplicate every line."""
+    first = utils.get_logger("test_no_duplicate_handlers")
+    second = utils.get_logger("test_no_duplicate_handlers")
+    assert first is second
+    assert len(first.handlers) == 2  # one stdout, one stderr
+
+    first.info("said once")
+    assert capsys.readouterr().out.count("said once") == 1
+
+
+def test_log_level_follows_the_environment(monkeypatch, capsys):
+    monkeypatch.setenv("DISTILLATE_LOG_LEVEL", "WARNING")
+    logger = utils.get_logger("test_env_level")
+    assert logger.level == logging.WARNING
+    logger.info("filtered out")
+    assert "filtered out" not in capsys.readouterr().out
 
 
 def test_load_config_resolves_paths_against_pipeline_root():

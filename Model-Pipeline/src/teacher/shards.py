@@ -5,6 +5,9 @@ rows, so the same ids always give the same shards. ``teacher_shards.json`` recor
 shard's row count, first and last id, and id hash; it is small enough to commit, and the
 worker recomputes the plan from the source ids and checks it against the file.
 
+The drift stream is the exception: one shard per delivered batch (``plan_batches``), so each
+batch's labels can be read on their own.
+
 A shard is complete when its manifest exists. The worker uploads the Parquet first and the
 manifest last, so a crash in between leaves no manifest and the shard is redone.
 
@@ -46,6 +49,31 @@ def plan_shards(ids: Sequence[str], shard_size: int) -> list[list[str]]:
     if len(set(ordered)) != len(ordered):
         raise ValueError("source ids contain duplicates")
     return [ordered[k:k + shard_size] for k in range(0, len(ordered), shard_size)]
+
+
+def plan_batches(batches: Mapping[str, int]) -> list[list[str]]:
+    """One shard per batch: shard k holds batch k's ids, sorted (the drift stream).
+
+    ``batches`` maps each id to its batch number; the numbers must run 0 to n-1 with no gap,
+    so shard names and batch numbers always agree.
+    """
+    numbers = sorted(set(batches.values()))
+    if numbers != list(range(len(numbers))):
+        raise ValueError(f"batch numbers must run 0 to n-1 with no gap, got {numbers}")
+    plan: list[list[str]] = [[] for _ in numbers]
+    for i, b in batches.items():
+        plan[b].append(str(i))
+    return [sorted(ids) for ids in plan]
+
+
+def read_batches(path: str | Path) -> dict[str, int]:
+    """``id -> batch`` from a CSV with ``id`` and ``batch`` columns (``civil_drift_ids.csv``)."""
+    import pandas as pd
+
+    frame = pd.read_csv(path, dtype={"id": str}, keep_default_na=False)
+    if frame["id"].duplicated().any():
+        raise ValueError(f"{path}: duplicate ids")
+    return dict(zip(frame["id"], frame["batch"].astype(int), strict=True))
 
 
 def plan_record(plan: Sequence[Sequence[str]], source: str, shard_size: int) -> dict[str, Any]:

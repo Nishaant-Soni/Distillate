@@ -20,7 +20,7 @@ distillate/
 
 | Column | Type | Notes |
 |---|---|---|
-| `id` | string | TFDS id, unique |
+| `id` | string | Kaggle id (same ids as the TFDS copies), unique |
 | `text` | string | cleaned (NFKC, HTML entities, whitespace) |
 | `toxicity`, `severe_toxicity`, `obscene`, `threat`, `insult`, `identity_attack` | int8 | 0 or 1 |
 | `char_len` | int32 | |
@@ -41,7 +41,7 @@ distillate/
 
 **`data/processed/obfuscation.parquet`:** same columns as Wikipedia, `id` = `<original_id>_obf`.
 
-**Teacher label shards** (`gs://<bucket>/teacher/<prompt_version>/shard_XXXX.parquet`): `id`, `p_toxicity`, `p_severe_toxicity`, `p_obscene`, `p_threat`, `p_insult`, `p_identity_attack` (float32 in [0,1]), `status` (`ok` / `failed`), `prompt_version`, `model_version`. Each shard has a sibling `shard_XXXX.manifest.json` with `row_count`, `ids_sha256`, `prompt_version`, `model_version`.
+**Teacher label shards** (`gs://distillate-mlops-data/`; Hugging Face `distillate-team/distillate-teacher-shards` is a backup with the same paths). Two kinds share one format: raw teacher shards `teacher/<prompt_version>/shard_XXXX.parquet` and **soft-label shards** `soft_labels/<stack_version>/<prompt_version>/shard_XXXX.parquet`, the stack's output and **the student's targets** (never train on raw `teacher/` probabilities). Calibrated-Qwen labels for the ablation's second attribution arm use the same format under `soft_labels/calqwen-v1/<prompt_version>/`. Gate and drift runs sit under `gate/` and `drift/` in each. Columns: `id`, `p_toxicity`, `p_severe_toxicity`, `p_obscene`, `p_threat`, `p_insult`, `p_identity_attack` (float32 in [0,1]), `logit_<label>` for each label (float32), `status` (`ok` / `failed`), `prompt_version`, `model_version`. Each shard has a sibling `shard_XXXX.manifest.json` with `row_count`, `ids_sha256`, `prompt_version`, `model_version` (validators ignore other fields). Training and gate shards are sorted ids cut into shards of up to 5,000 rows; **drift shards are one per batch** (`shard_<k>` holds exactly the ids of batch k in `data/splits/civil_drift_ids.csv`). Full spec: `Model-Pipeline/docs/teacher_prompts_and_shard_spec.md`.
 
 **Prediction files** (any model, any eval set): `id`, `p_<label>` for all six labels, `model_version`. This is the only thing the evaluation and bias code reads, so it works the same for the TF-IDF baseline, every student, the teacher, and Llama Guard.
 

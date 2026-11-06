@@ -30,7 +30,9 @@ from scripts.alerts import task_failure_callback
 from scripts.pipeline_graph import BY_ID, TASKS, TFENV, edges
 
 PIPELINE_MODE = os.environ.get("PIPELINE_MODE", "optimized")
-PIPELINE_DIR = "/opt/airflow/pipeline"
+# Where Data-Pipeline sits inside the container. The repo root is mounted one
+# level above it so .dvc and .git are visible to the dvc_version task.
+PIPELINE_DIR = os.environ.get("PIPELINE_DIR", "/opt/airflow/repo/Data-Pipeline")
 CONFIG = "config/pipeline.yaml"
 
 

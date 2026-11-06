@@ -1,5 +1,5 @@
-# Main Airflow environment (Python 3.12), used by every task except the two that
-# need TensorFlow (acquire.py, schema_stats.py) -- those run in /opt/tfenv from
+# Main Airflow environment (Python 3.12), used by every task except the one that
+# needs TensorFlow (schema_stats.py, for TFDV) -- it runs in /opt/tfenv from
 # requirements-tf.txt.
 #
 # Installed with the official Airflow constraints file, so anything Airflow
@@ -21,9 +21,11 @@ pyyaml
 
 # --- Lane-specific libraries ----------------------------------------------
 datasketch==2.0.0                       # Praniti: MinHash LSH near-duplicate detection
+  kaggle==1.8.2                           # Praniti: Kaggle API for acquire (replaces TFDS)
 iterative-stratification==0.1.9         # Sai: seeded multilabel stratified split
 scikit-learn                            # Ruchita: TF-IDF + logistic regression baseline
 fairlearn==0.15.0                       # Ruchita: MetricFrame bias metrics
 
 # --- Reproducibility -------------------------------------------------------
 dvc[gs]==3.67.1                         # data versioning with a GCS remote
+

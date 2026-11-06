@@ -1,0 +1,5 @@
+[core]
+    remote = storage
+    analytics = false
+['remote "storage"']
+    url = gs://distillate-mlops-data/dvc

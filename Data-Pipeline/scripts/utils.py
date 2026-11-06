@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -24,16 +25,40 @@ DEFAULT_CONFIG = PIPELINE_ROOT / "config" / "pipeline.yaml"
 LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 
 
-def get_logger(name: str) -> logging.Logger:
-    """Return a logger with the pipeline's standard format.
+class _BelowLevel(logging.Filter):
+    """Pass only records below ``level``, so each stream carries one severity band."""
 
-    Airflow captures stdout/stderr into task logs, so a stream handler is enough.
+    def __init__(self, level: int) -> None:
+        super().__init__()
+        self.level = level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno < self.level
+
+
+def get_logger(name: str) -> logging.Logger:
+    """Return a logger whose stream matches how Airflow reads severity.
+
+    Airflow 3 captures task output by redirecting the streams, and labels
+    everything on stderr as an error. There is no in-process handler to hand
+    records to instead, so the stream choice *is* the severity signal.
+
+    So the split is at ERROR, not at WARNING: INFO and WARNING go to stdout,
+    ERROR and above to stderr. A warning then reads as a warning in the Airflow
+    UI rather than turning a healthy run red, while a real error still stands
+    out. The level is in the message text either way.
     """
     logger = logging.getLogger(name)
     if not logger.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter(LOG_FORMAT))
-        logger.addHandler(handler)
+        formatter = logging.Formatter(LOG_FORMAT)
+        to_stdout = logging.StreamHandler(sys.stdout)
+        to_stdout.setFormatter(formatter)
+        to_stdout.addFilter(_BelowLevel(logging.ERROR))
+        to_stderr = logging.StreamHandler(sys.stderr)
+        to_stderr.setFormatter(formatter)
+        to_stderr.setLevel(logging.ERROR)
+        logger.addHandler(to_stdout)
+        logger.addHandler(to_stderr)
         logger.setLevel(os.environ.get("DISTILLATE_LOG_LEVEL", "INFO"))
         logger.propagate = False
     return logger
