@@ -68,7 +68,9 @@ def hyperparameter_section(results: Mapping[str, Any], plots: Mapping[str, str])
     out += (f"Study `{s['study_name']}`: {s['completed']} completed trials of {s['trials']}, "
             f"objective {s['direction']}d. Best trial {s['best_trial']}: "
             f"{fmt(float(s['best_value']), 4)} with "
-            + ", ".join(f"{k} = {fmt(v, 4)}" for k, v in s["best_params"].items()) + ".\n\n")
+            # Significant digits, not decimals: a learning rate of 7.9e-5 isn't 0.0001.
+            + ", ".join(f"{k} = {v:.4g}" if isinstance(v, float) else f"{k} = {v}"
+                        for k, v in s["best_params"].items()) + ".\n\n")
     out += md_table([[p, *row] for p, row in zip(importances.index,
                                                  importances.to_numpy().tolist(), strict=True)],
                     ["parameter", *importances.columns])

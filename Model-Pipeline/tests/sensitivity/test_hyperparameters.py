@@ -74,6 +74,25 @@ def test_trials_table_and_summary():
     assert info["ranking"][0] == "alpha"
 
 
+def test_log_params_and_best_params_in_the_report():
+    from src.sensitivity.report import hyperparameter_section
+
+    def with_lr(trial):
+        lr = trial.suggest_float("lr", 1e-5, 1e-4, log=True)
+        return objective(trial) + lr
+
+    study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=0))
+    study.optimize(with_lr, n_trials=12)
+    table = importances(study, ["fanova"], 42)
+    info = summary(study, table)
+    assert info["log_params"] == ["lr"]
+    results = {"hyperparameters": {"summary": info,
+                                   "importances": table.reset_index().to_dict("records")}}
+    text = hyperparameter_section(results, {"importance": "i.png", "trials": "t.png"})
+    # Significant digits: a learning rate such as 7.9e-05 isn't rounded to 0.0001.
+    assert f"lr = {info['best_params']['lr']:.4g}" in text and "e-05" in text
+
+
 def test_reads_the_study_from_storage(tmp_path):
     storage = f"sqlite:///{tmp_path / 'optuna.db'}"
     make_study(storage=storage, name="distilbert-mixed")

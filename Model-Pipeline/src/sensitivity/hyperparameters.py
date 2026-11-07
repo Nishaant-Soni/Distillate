@@ -89,10 +89,14 @@ def summary(study, table: pd.DataFrame, objective: int | None = None) -> dict[st
     direction = study.directions[index].name.lower()
     values = [t.values[index] for t in trials]
     best = trials[values.index(max(values) if direction == "maximize" else min(values))]
+    # Parameters sampled on a log scale (the learning rate), so plots can use a log axis.
+    log_params = sorted({name for t in trials for name, dist in t.distributions.items()
+                         if getattr(dist, "log", False)})
     return {"study_name": study.study_name, "trials": len(study.trials),
             "completed": len(trials), "direction": direction,
             "best_trial": best.number, "best_value": best.values[index],
-            "best_params": best.params, "ranking": list(table.index)}
+            "best_params": best.params, "ranking": list(table.index),
+            "log_params": log_params}
 
 
 def hyperparameter_analysis(cfg: Mapping[str, Any], seed: int) -> dict[str, Any]:

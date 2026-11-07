@@ -168,7 +168,8 @@ def write_outputs(cfg: Mapping[str, Any], results: Mapping[str, Any],
         importances = pd.DataFrame(hyper["importances"]).set_index("param")
         pngs["importance"] = plots.importance_plot(importances, report_dir / "importance.png")
         pngs["trials"] = plots.trials_plot(pd.DataFrame(hyper["trials"]),
-                                           list(importances.index), report_dir / "trials.png")
+                                           list(importances.index), report_dir / "trials.png",
+                                           hyper["summary"].get("log_params", ()))
     files |= {f"plot_{k}": v for k, v in pngs.items()}
 
     findings_path = Path(paths["findings"])

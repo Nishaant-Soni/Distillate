@@ -132,15 +132,18 @@ def importance_plot(importances: pd.DataFrame, path: Path) -> Path:
     return _save(fig, path)
 
 
-def trials_plot(trials: pd.DataFrame, params: Sequence[str], path: Path) -> Path:
-    """The objective against each parameter, one small panel each."""
+def trials_plot(trials: pd.DataFrame, params: Sequence[str], path: Path,
+                log_params: Sequence[str] = ()) -> Path:
+    """The objective against each parameter, one small panel each (log axis where sampled so)."""
     plt = _pyplot()
     fig, axes = plt.subplots(1, len(params), figsize=(3.0 * len(params), 3.0), sharey=True,
                              squeeze=False)
     for ax, param in zip(axes[0], params, strict=True):
         ax.scatter(trials[param], trials["value"], s=16, color=SERIES[0], alpha=0.8,
                    edgecolors=SURFACE, linewidths=0.5)
-        ax.set_xlabel(param)
+        if param in log_params:
+            ax.set_xscale("log")
+        ax.set_xlabel(param + (" (log)" if param in log_params else ""))
     axes[0][0].set_ylabel("objective")
     fig.suptitle("Objective by hyperparameter, completed trials", color=INK, fontsize=11)
     return _save(fig, path)
