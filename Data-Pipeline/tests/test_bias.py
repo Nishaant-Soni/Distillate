@@ -341,3 +341,8 @@ def test_wikipedia_slice_note_names_units_and_obfuscation_source():
     assert "<100, 100-499, 500+" in note
     assert "characters" in note and "not tokens" in note
     assert "obfuscation.parquet" in note
+
+
+def test_wikipedia_slice_note_states_the_obfuscation_threshold():
+    note = bias.wikipedia_slice_note({"length_bands": [100, 500]}, obfuscation_share=0.3)
+    assert "non-alphabetic share above 0.3" in note
