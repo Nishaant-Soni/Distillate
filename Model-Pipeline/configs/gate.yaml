@@ -1,11 +1,13 @@
 # Gate rule for model candidates (Ruchita). Used by CI (model-ci.yml) and retrain_dag.
-# PLACEHOLDER TOLERANCES: the team fixes these values by Sun Nov 8 (work plan 5.1).
+# Tolerances proposed Nov 7 (team sign-off by Sun Nov 8, work plan 5.1). The PR-AUC
+# tolerances follow Nishaant's paired-bootstrap noise on the gate subset (threat about
+# +/-0.034, identity_attack +/-0.021, severe_toxicity +/-0.015, others under +/-0.007).
 
 # File stems in the --candidate, --production and --gold folders (<stem>.parquet).
 splits:
   validation: val
   gate: gate
-  bias: bias
+  bias: bias_eval
 
 # Optional per-split weights (id, weight[, stratum]). Leave null for the full gate set;
 # point gate at artifacts/gate_subset_ids.parquet only when scoring the 20,000-row subset.
@@ -14,11 +16,18 @@ design:
 
 validation:                 # on the Wikipedia validation split
   min_mean_auc: 0.95
-  min_pr_auc: 0.30          # every label; or a mapping such as {threat: 0.2, toxicity: 0.6}
+  min_pr_auc: 0.30          # INTERIM: per-label floors from the gold-only baseline's
+                            # validation PR-AUC minus a margin replace this
 
 regression:                 # on the gate set, against the production model
   max_mean_auc_drop: 0.005
-  max_pr_auc_drop: 0.02     # every label; or a per-label mapping
+  max_pr_auc_drop:          # per label, above each label's paired-bootstrap noise
+    toxicity: 0.02
+    obscene: 0.02
+    insult: 0.02
+    severe_toxicity: 0.05
+    identity_attack: 0.05
+    threat: 0.05
 
 bias:                       # on the Civil bias set (identity-annotated test rows)
   label: toxicity           # one of the five Civil labels; FPR at its tuned threshold
@@ -26,3 +35,4 @@ bias:                       # on the Civil bias set (identity-annotated test row
   min_slice_size: 100
   max_fpr_gap_pts: 10.0     # slice FPR minus overall FPR; null disables this check
   max_fpr_rise_pts: 2.0     # slice FPR minus production's for the same slice; null disables
+  report_flag_pts: 5.0      # the bias report's flag level; shown in the gate report only

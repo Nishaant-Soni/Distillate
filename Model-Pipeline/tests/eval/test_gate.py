@@ -41,9 +41,9 @@ def _pred(gold: pd.DataFrame, seed: int, noise: float, version: str,
 def write_run(folder: Path, noise: float, version: str, seed: int = 1,
               biased_column: str | None = None) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
-    golds = {"val": _gold(1500, 1), "gate": _gold(1500, 2), "bias": _gold(1500, 3, True)}
+    golds = {"val": _gold(1500, 1), "gate": _gold(1500, 2), "bias_eval": _gold(1500, 3, True)}
     for stem, gold in golds.items():
-        bias_col = biased_column if stem == "bias" else None
+        bias_col = biased_column if stem == "bias_eval" else None
         _pred(gold, seed + len(stem), noise, version, bias_col).to_parquet(
             folder / f"{stem}.parquet")
     return folder
@@ -53,7 +53,7 @@ def write_gold(folder: Path) -> Path:
     folder.mkdir(parents=True, exist_ok=True)
     _gold(1500, 1).to_parquet(folder / "val.parquet")
     _gold(1500, 2).to_parquet(folder / "gate.parquet")
-    _gold(1500, 3, True).to_parquet(folder / "bias.parquet")
+    _gold(1500, 3, True).to_parquet(folder / "bias_eval.parquet")
     return folder
 
 
@@ -147,6 +147,76 @@ def test_cli_exit_codes_and_reports(tmp_path):
 def test_missing_split_file_is_an_error(tmp_path, cfg):
     gold = write_gold(tmp_path / "gold")
     cand = write_run(tmp_path / "cand", noise=0.0, version="cand")
-    (cand / "bias.parquet").unlink()
-    with pytest.raises(FileNotFoundError, match="bias.parquet"):
+    (cand / "bias_eval.parquet").unlink()
+    with pytest.raises(FileNotFoundError, match="bias_eval.parquet"):
         gate.run_gate(cfg, cand, gold)
+
+
+def test_per_label_pr_auc_drop_tolerances(tmp_path, cfg):
+    gold = write_gold(tmp_path / "gold")
+    prod = write_run(tmp_path / "prod", noise=0.0, version="prod")
+    report = gate.run_gate(cfg, prod, gold, production=prod)
+    checks = {c["name"]: c for c in report["checks"]}
+    prod_pr = report["production_metrics"]["gate"]["per_label"]
+    threat = checks["gate set: PR-AUC threat vs production"]
+    toxicity = checks["gate set: PR-AUC toxicity vs production"]
+    assert threat["limit"] == pytest.approx(prod_pr["threat"]["pr_auc"] - 0.05)
+    assert toxicity["limit"] == pytest.approx(prod_pr["toxicity"]["pr_auc"] - 0.02)
+
+
+def test_report_explains_flag_versus_block(tmp_path, cfg):
+    gold = write_gold(tmp_path / "gold")
+    cand = write_run(tmp_path / "cand", noise=0.0, version="cand")
+    markdown = gate.render_markdown(gate.run_gate(cfg, cand, gold))
+    assert "flags a slice 5+ points above overall" in markdown
+    assert "blocks only above 10 points" in markdown
+    assert "rises more than 2 points over production" in markdown
+
+
+def _bias_files(tmp_path, biased_column=None):
+    gold = write_gold(tmp_path / "gold")
+    prod = write_run(tmp_path / "prod", noise=0.0, version="prod")
+    cand = write_run(tmp_path / "cand", noise=0.0, version="cand",
+                     biased_column=biased_column)
+    read = gate.read_frame
+    return (read(cand / "bias_eval.parquet"), read(prod / "bias_eval.parquet"),
+            read(gold / "bias_eval.parquet"))
+
+
+def test_rise_bootstrap_is_zero_for_the_same_model(tmp_path):
+    _, prod, gold = _bias_files(tmp_path)
+    out = gate.fpr_rise_bootstrap(prod, prod, gold, "toxicity", 0.5, 0.5, 0.5, 100, n_boot=50)
+    for s in out["slices"].values():
+        if s["n_negatives"]:
+            assert s["rise_pts"] == 0.0
+            assert s["ci95_pts"] == [0.0, 0.0]
+
+
+def test_rise_bootstrap_detects_a_slice_rise(tmp_path):
+    cand, prod, gold = _bias_files(tmp_path, biased_column="muslim")
+    out = gate.fpr_rise_bootstrap(cand, prod, gold, "toxicity", 0.5, 0.5, 0.5, 100,
+                                  n_boot=200, seed=1)
+    muslim = out["slices"]["religion:muslim"]
+    assert muslim["judged"]
+    assert muslim["ci95_pts"][0] > 0                   # rise clearly above zero
+    assert out["max_half_width_pts_judged"] is not None
+
+
+def test_cli_rise_bootstrap_needs_production(tmp_path):
+    gold = write_gold(tmp_path / "gold")
+    cand = write_run(tmp_path / "cand", noise=0.0, version="cand")
+    with pytest.raises(SystemExit):
+        gate.main(["--config", str(CONFIG), "--gold", str(gold), "--candidate", str(cand),
+                   "--out", str(tmp_path / "o"), "--rise-bootstrap", "10"])
+
+
+def test_cli_rise_bootstrap_writes_json(tmp_path):
+    gold = write_gold(tmp_path / "gold")
+    prod = write_run(tmp_path / "prod", noise=0.0, version="prod")
+    cand = write_run(tmp_path / "cand", noise=0.5, version="cand", seed=3)
+    gate.main(["--config", str(CONFIG), "--gold", str(gold), "--candidate", str(cand),
+               "--production", str(prod), "--out", str(tmp_path / "o"),
+               "--rise-bootstrap", "20"])
+    noise = json.loads((tmp_path / "o" / "fpr_rise_bootstrap.json").read_text())
+    assert noise["replicates"] == 20
+    assert "religion:muslim" in noise["slices"]
