@@ -578,7 +578,22 @@ def _sensitivity(result: dict[str, Any]) -> list[str]:
     ]
 
 
-def build_report(result: dict[str, Any], bias_cfg: dict[str, Any]) -> str:
+def wikipedia_slice_note(bias_cfg: dict[str, Any], obfuscation_share: float | None = None) -> str:
+    """Say what the Wikipedia slices measure, so they aren't confused with other analyses."""
+    rule = (f"non-alphabetic share above {obfuscation_share:g}" if obfuscation_share is not None
+            else "natural non-alphabetic text")
+    edges = sorted(bias_cfg["length_bands"])
+    middle = [f"{lo}-{hi - 1}" for lo, hi in zip(edges, edges[1:], strict=False)]
+    bands = ", ".join([f"<{edges[0]}", *middle, f"{edges[-1]}+"])
+    return (f"Length bands are in **characters** (`char_len`: {bands}), not tokens. The "
+            "`obfuscation` slice is validation comments whose `has_obfuscation` flag is set "
+            f"({rule}, set in preprocessing). It is not the synthetic "
+            "`obfuscation.parquet` set built from gate comments, and not the sensitivity "
+            "analysis's substitution sweep.")
+
+
+def build_report(result: dict[str, Any], bias_cfg: dict[str, Any],
+                 obfuscation_share: float | None = None) -> str:
     """Markdown report, interpretation included, generated from the results."""
     label = result["label"]
     status = result["mitigation_status"]
@@ -626,6 +641,7 @@ def build_report(result: dict[str, Any], bias_cfg: dict[str, Any]) -> str:
         "## 3. Data-level and model-level slices before mitigation",
         *slice_sections,
         "### Wikipedia validation",
+        wikipedia_slice_note(bias_cfg, obfuscation_share),
         _overall_line(result["wiki_before"]["overall"]),
         _slice_table(result["wiki_before"]["table"]),
         "## 4. Mitigation",
@@ -785,7 +801,8 @@ def run(cfg: dict[str, Any]) -> dict[str, Any]:
         with atomic_path(train_path) as tmp:
             train_file.to_parquet(tmp, index=False)
 
-        atomic_write(out_dir / "bias_report.md", build_report(result, bias_cfg))
+        share = cfg.get("preprocess", {}).get("obfuscation_nonalpha_share")
+        atomic_write(out_dir / "bias_report.md", build_report(result, bias_cfg, share))
         def as_json(entry: dict[str, Any]) -> dict[str, Any]:
             return {"overall": entry["overall"], "slices": _records(entry["table"])}
 
