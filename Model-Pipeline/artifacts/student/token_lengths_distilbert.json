@@ -1,0 +1,19 @@
+{
+  "model_id": "distilbert-base-uncased",
+  "source": "wiki_train_raw.parquet",
+  "rows": 159571,
+  "percentiles": {
+    "50": 52,
+    "75": 104,
+    "90": 207,
+    "95": 311,
+    "99": 801
+  },
+  "max": 4950,
+  "truncated_share": {
+    "64": 0.41437,
+    "128": 0.19295,
+    "256": 0.06933,
+    "512": 0.02208
+  }
+}

@@ -10,3 +10,8 @@ transformers>=4.51       # Qwen3 tokenizer and chat template
 jinja2                   # apply_chat_template
 huggingface_hub
 google-cloud-storage     # GCS shard store (storage.py)
+
+# Student lane: training harness (src/student). CI installs the CPU build of torch first.
+torch
+mlflow
+iterative-stratification  # temporary seeded split, same method as Data-Pipeline/scripts/split.py
