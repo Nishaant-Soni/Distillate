@@ -16,3 +16,6 @@ torch
 mlflow
 iterative-stratification  # temporary seeded split, same method as Data-Pipeline/scripts/split.py
 optuna                    # student sweep (src/student/sweep.py)
+onnx                      # model package export (src/student/package.py)
+onnxscript                # torch's dynamo ONNX exporter
+onnxruntime               # ONNX parity check and package predictions

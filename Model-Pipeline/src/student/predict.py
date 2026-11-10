@@ -5,6 +5,9 @@ writes one. No text goes into the file.
 
     python -m src.student.predict --model-dir outputs/student/<run>/model \
         --input data/some_split.parquet --output outputs/student/<run>/predictions/x.parquet
+
+``--model-dir`` is a training run's ``model/`` folder (PyTorch) or a §2.5 package
+(``model.onnx`` and ``tokenizer/``, run with ONNX Runtime on CPU).
 """
 
 from __future__ import annotations
@@ -38,6 +41,20 @@ def predict_logits(model, tokenizer, texts: Sequence[str], max_length: int, batc
             with torch.autocast("cuda", dtype=torch.float16, enabled=use_amp):
                 logits = model(**batch).logits
             out.append(logits.float().cpu().numpy())
+    return np.concatenate(out) if out else np.zeros((0, len(LABELS)), dtype="float32")
+
+
+def predict_onnx_logits(session, tokenizer, texts: Sequence[str], max_length: int,
+                        batch_size: int):
+    """``(rows, 6)`` float32 logits from a package's ``model.onnx``, in input order."""
+    import numpy as np
+
+    out = []
+    for start in range(0, len(texts), batch_size):
+        batch = tokenizer(list(texts[start:start + batch_size]), truncation=True,
+                          max_length=max_length, padding=True, return_tensors="np")
+        feed = {name: batch[name].astype("int64") for name in ("input_ids", "attention_mask")}
+        out.append(np.asarray(session.run(["logits"], feed)[0], dtype="float32"))
     return np.concatenate(out) if out else np.zeros((0, len(LABELS)), dtype="float32")
 
 
@@ -82,13 +99,25 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=128)
     args = parser.parse_args()
 
-    meta = json.loads((Path(args.model_dir) / "meta.json").read_text())
-    model, tokenizer = load_trained(args.model_dir)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+    model_dir = Path(args.model_dir)
+    meta = json.loads((model_dir / "meta.json").read_text())
     rows = pd.read_parquet(args.input, columns=["id", "text"])
-    logits = predict_logits(model, tokenizer, rows["text"].fillna("").tolist(),
-                            meta["max_length"], args.batch_size, device)
+    texts = rows["text"].fillna("").tolist()
+    if (model_dir / "model.onnx").exists():
+        import onnxruntime
+        from transformers import AutoTokenizer
+
+        session = onnxruntime.InferenceSession(str(model_dir / "model.onnx"),
+                                               providers=["CPUExecutionProvider"])
+        tokenizer = AutoTokenizer.from_pretrained(model_dir / "tokenizer")
+        logits = predict_onnx_logits(session, tokenizer, texts, meta["max_length"],
+                                     args.batch_size)
+    else:
+        model, tokenizer = load_trained(model_dir)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model.to(device)
+        logits = predict_logits(model, tokenizer, texts, meta["max_length"], args.batch_size,
+                                device)
     frame = prediction_frame(rows["id"].astype(str), logits, meta["model_version"])
     check_prediction_frame(frame)
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
