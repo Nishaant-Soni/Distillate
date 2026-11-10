@@ -67,10 +67,11 @@ def code_commit() -> str | None:
 
 
 def flatten(cfg: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
-    """``{"loss.alpha": 1.0, ...}`` for MLflow params; paths and model ids are left out."""
+    """``{"loss.alpha": 1.0, ...}`` for MLflow params; paths, model ids, the unused arms, and
+    the sweep settings are left out (a trial's sampled values are in loss and train)."""
     out: dict[str, Any] = {}
     for key, value in cfg.items():
-        if key in ("paths", "models", "labels", "storage"):
+        if key in ("paths", "models", "labels", "storage", "arms", "sweep", "tags"):
             continue
         name = f"{prefix}{key}"
         if isinstance(value, Mapping):
@@ -194,9 +195,9 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
     soft = uses_soft_labels(cfg)
     soft_info = None
     if soft:
-        # temp has every raw train id, so the teacher validator's full checks can run.
-        source_ids = read_ids(cfg["paths"]["raw_train"]) if cfg["data"]["source"] == "temp" \
-            else None
+        # temp and ids read raw train, which has every raw train id, so the full checks run.
+        source_ids = read_ids(cfg["paths"]["raw_train"]) \
+            if cfg["data"]["source"] in ("temp", "ids") else None
         labels, soft_info = data_mod.load_soft_labels(cfg, source_ids)
         train_df = data_mod.attach_soft_labels(train_df, labels)
     for name, frame in (("train", train_df), ("val", val_df)):
@@ -237,7 +238,9 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
         mlflow.log_params({**flatten(cfg), "model_id": model_id,
                            "train_rows": len(train_df), "val_rows": len(val_df)})
         mlflow.set_tags({"model_version": model_version, "code_commit": code_commit() or "",
-                         "data_source": data_info["source"], "lane": "student"})
+                         "data_source": data_info["source"], "lane": "student",
+                         "soft_label_arm": cfg["soft_labels"]["arm"] if soft else "none",
+                         **{str(k): str(v) for k, v in (cfg["mlflow"].get("tags") or {}).items()}})
 
     history: list[dict[str, Any]] = []
     best_auc, best_epoch, bad_epochs, step = -1.0, -1, 0, 0
@@ -312,6 +315,10 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
             else None,
             "prompt_version": cfg["soft_labels"]["prompt_version"] if soft else None,
             "stack_sha256": soft_info["stack_sha256"] if soft else None,
+            "soft_label_arm": soft_info["arm"] if soft else None,
+            "soft_label_prefix": soft_info["prefix"] if soft else None,
+            "soft_label_check": {soft_info["check_field"]: soft_info["check_sha256"]}
+            if soft else None,
             "soft_label_model_version": cfg["soft_labels"]["model_version"] if soft else None,
             "data_source": data_info["source"], "training_data_sha256":
             data_info["source_sha256"], "training_data_dvc_hash": None,   # set in Phase 2

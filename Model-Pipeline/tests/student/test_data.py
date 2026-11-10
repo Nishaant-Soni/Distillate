@@ -110,6 +110,7 @@ def test_attach_requires_a_label_for_every_row():
 
 
 def test_synthetic_manifest_carries_committed_stack_hash(synthetic_root):
-    manifest = json.loads(next((synthetic_root / "store").rglob("*.manifest.json")).read_text())
+    stack_dir = synthetic_root / "store" / "soft_labels" / "stack-v1"
+    manifest = json.loads(next(stack_dir.rglob("*.manifest.json")).read_text())
     assert manifest["stack_sha256"] == data.file_sha256(smoke_cfg(synthetic_root)["paths"]
                                                         ["stack_file"])

@@ -44,14 +44,34 @@ data:
   limit: null
 
 soft_labels:
+  arm: stack
+  format: shards
   prefix: soft_labels/stack-v1/p2-zs-v2b/
   prompt_version: p2-zs-v2b
   model_version: stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554+tfidf-lr-v1
   teacher_version: stack-v1
   teacher_model_version: Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554
+  check_field: stack_sha256
+  check_file: artifacts/stack/stack_p2-zs-v2b.json
   shard_size: 5000
   max_failure: 0.01
   local_root: outputs/synthetic/store
+  arms:                     # the synthetic store has all three (src/student/synthetic.py)
+    calqwen:
+      prefix: soft_labels/calqwen-v1/p2-zs-v2b/
+      model_version: calqwen-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554
+      teacher_version: calqwen-v1
+      check_field: calibration_sha256
+      check_file: artifacts/pilot/calibration_p2-zs-v2b.json
+    tfidf:
+      format: oof
+      prefix: tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet
+      prompt_version: null
+      model_version: tfidf-lr-v1
+      teacher_version: tfidf-lr-v1
+      teacher_model_version: tfidf-lr-v1
+      check_field: sha256
+      check_file: outputs/synthetic/tfidf_oof.manifest.json   # written by synthetic.py
 
 storage:
   backend: gcs              # the team bucket; hf is the backup copy (same paths)
@@ -62,10 +82,28 @@ mlflow:
   enabled: true
   experiment: distillate-student-smoke
   log_model: false
+  tags: {}
+
+sweep:
+  study_name: smoke
+  storage: null
+  n_trials: 2
+  worker: 0
+  timeout_h: null
+  n_startup_trials: 1
+  keep_models: best
+  enqueue_default: false
+  space:
+    alpha: {low: 0.1, high: 0.9}
+    temperature: {low: 1.0, high: 5.0}
+    lr: {low: 1.0e-3, high: 5.0e-3, log: true}
+    epochs: {low: 1, high: 2}
+    max_length: [16, 32]
 
 paths:
   raw_train: outputs/synthetic/wiki_train_raw.parquet
   official_dir: ../Data-Pipeline/data/processed/wikipedia
+  split_ids_dir: ../Data-Pipeline/data/splits
   gate_ids: artifacts/gate_subset_ids.parquet
   stack_file: artifacts/stack/stack_p2-zs-v2b.json
   out_dir: outputs/student
