@@ -1,0 +1,46 @@
+# Model-Pipeline CI: lint and tests (teacher and student lanes) on every PR and push to main.
+# Same shape as data-pipeline-ci.yml. The student smoke tests train a tiny offline model on
+# synthetic data, so no network, GPU, or secrets are needed.
+name: model-pipeline-ci
+
+on:
+  pull_request:
+    paths: ["Model-Pipeline/**", ".github/workflows/model-pipeline-ci.yml"]
+  push:
+    branches: [main]
+    paths: ["Model-Pipeline/**", ".github/workflows/model-pipeline-ci.yml"]
+
+concurrency:
+  group: model-pipeline-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: Model-Pipeline
+
+jobs:
+  lint-test:
+    name: lint-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: Model-Pipeline/requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # CPU torch first, so requirements.txt does not pull the CUDA build.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check src tests
+
+      - name: Tests (pytest)
+        run: pytest -q
