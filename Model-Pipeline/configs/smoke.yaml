@@ -54,8 +54,9 @@ soft_labels:
   local_root: outputs/synthetic/store
 
 storage:
-  backend: hf
+  backend: gcs              # the team bucket; hf is the backup copy (same paths)
   hf_repo: distillate-team/distillate-teacher-shards
+  gcs_bucket: distillate-mlops-data
 
 mlflow:
   enabled: true

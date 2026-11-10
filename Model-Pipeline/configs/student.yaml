@@ -58,11 +58,12 @@ soft_labels:
   teacher_model_version: Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554
   shard_size: 5000
   max_failure: 0.01
-  local_root: null          # a local copy of the store instead of Hugging Face (tests, offline)
+  local_root: null          # a local copy of the store instead of the bucket (tests, offline)
 
 storage:
-  backend: hf
+  backend: gcs              # the team bucket; hf is the backup copy (same paths)
   hf_repo: distillate-team/distillate-teacher-shards
+  gcs_bucket: distillate-mlops-data
 
 mlflow:
   enabled: true
