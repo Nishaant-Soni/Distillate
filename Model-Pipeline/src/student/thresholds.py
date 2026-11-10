@@ -2,8 +2,9 @@
 validation; saved as thresholds.json").
 
 Each label's threshold maximizes F1 on the validation prediction file against the gold
-labels, searched over the distinct predicted scores (bounded to ``[min, max]`` so a rare
-label can't end at an extreme). Ties go to the higher threshold (fewer false positives).
+labels, searched over the distinct predicted scores inside ``[min, max]`` and the two bounds
+(so a rare label can't end at an extreme, and a best cut above ``max`` is capped at ``max``).
+Ties go to the higher threshold (fewer false positives). Thresholds are stored unrounded.
 
 Two files:
 
@@ -46,25 +47,28 @@ def _counts(y, p, threshold: float) -> dict[str, float]:
 
 
 def best_f1_threshold(y, p, low: float = 0.01, high: float = 0.99) -> float:
-    """The score cut-off in ``[low, high]`` with the highest F1 (``p >= t`` flags)."""
+    """The cut-off ``t`` in ``[low, high]`` with the highest F1 (``p >= t`` flags).
+
+    Candidates are every distinct score inside the bounds plus the bounds themselves, so a
+    label whose best cut lies above ``high`` gets ``high`` (flagging every score at or above
+    it), not a lower score. The value returned is the exact candidate, unrounded: rounding
+    could move it past the row it was chosen at.
+    """
     import numpy as np
 
     y = np.asarray(y).astype(int)
     p = np.asarray(p, dtype="float64")
     if y.sum() == 0:
-        return high                      # no positives: flag as little as possible
-    order = np.argsort(-p, kind="stable")
-    p_sorted, y_sorted = p[order], y[order]
-    # Candidate cut-offs: each distinct score, flagging that score and everything above.
-    last_of_value = np.r_[p_sorted[1:] != p_sorted[:-1], True]
-    tp = np.cumsum(y_sorted)[last_of_value]
-    flagged = np.arange(1, len(p_sorted) + 1)[last_of_value]
-    cuts = p_sorted[last_of_value]
+        return float(high)               # no positives: flag as little as possible
+    order = np.argsort(p, kind="stable")
+    p_asc, y_asc = p[order], y[order]
+    positives_from = np.r_[np.cumsum(y_asc[::-1])[::-1], 0]    # positives in p_asc[i:]
+    inside = np.unique(p[(p >= low) & (p <= high)])
+    cuts = np.unique(np.r_[inside, float(low), float(high)])
+    start = np.searchsorted(p_asc, cuts, side="left")          # first row flagged by each cut
+    tp = positives_from[start]
+    flagged = len(p) - start
     f1 = 2 * tp / (flagged + y.sum())
-    inside = (cuts >= low) & (cuts <= high)
-    if not inside.any():
-        return float(np.clip(0.5, low, high))
-    f1 = np.where(inside, f1, -1.0)
     best = np.flatnonzero(f1 == f1.max())
     return float(cuts[best].max())       # ties: the higher threshold
 
@@ -82,8 +86,8 @@ def choose(pred, gold, settings: Mapping[str, Any] | None = None) -> tuple[dict,
     for label in LABELS:
         y, p = merged[label].to_numpy(), merged[f"p_{label}"].to_numpy()
         t = best_f1_threshold(y, p, float(s["min"]), float(s["max"]))
-        thresholds[label] = round(t, 6)
-        per_label[label] = {"threshold": thresholds[label], "positives": int(y.sum()),
+        thresholds[label] = t            # exact: JSON keeps every digit of a float
+        per_label[label] = {"threshold": t, "positives": int(y.sum()),
                             "at_threshold": _counts(y, p, t), "at_0.5": _counts(y, p, 0.5)}
     report = {"method": s["method"], "bounds": [s["min"], s["max"]], "rows": len(merged),
               "split": "validation", "labels": per_label,

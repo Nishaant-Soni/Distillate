@@ -169,6 +169,27 @@ def _mlflow_start(cfg: Mapping[str, Any], run_name: str):
     return mlflow.start_run(run_name=run_name)
 
 
+def write_summary(summary: Mapping[str, Any], run_dir: Path, cfg: Mapping[str, Any]) -> None:
+    text = json.dumps(summary, indent=2) + "\n"
+    (run_dir / "summary.json").write_text(text)
+    reports = Path(cfg["paths"]["reports_dir"])
+    reports.mkdir(parents=True, exist_ok=True)
+    (reports / f"{TASK_ID}.json").write_text(text)
+
+
+def package_run(run_dir: Path, settings: Mapping[str, Any], texts) -> dict[str, Any]:
+    """Build the §2.5 package; the summary's ``package`` entry, with the error if it failed."""
+    from src.student.package import build_package
+
+    try:
+        meta = build_package(run_dir, run_dir / "package", settings, texts)
+    except Exception as error:   # export, parity, or a missing dependency: record, don't lose
+        logger.exception("package build failed for %s", run_dir.name)
+        return {"status": "failed", "error": f"{type(error).__name__}: {error}"}
+    return {"status": "ok", "dir": str(run_dir / "package"),
+            "onnx_parity": meta["onnx"]["parity"]["max_abs_logit_diff"]}
+
+
 def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
     """Train one student; return the JSON summary (also written to reports/summaries/)."""
     import pandas as pd
@@ -197,9 +218,11 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
     soft = uses_soft_labels(cfg)
     soft_info = None
     if soft:
-        # temp and ids read raw train, which has every raw train id, so the full checks run.
-        source_ids = read_ids(cfg["paths"]["raw_train"]) \
-            if cfg["data"]["source"] in ("temp", "ids") else None
+        # Raw train's ids, for the coverage check: temp and ids read raw train; the official
+        # source uses it when it is on this machine (the per-row checks run either way).
+        raw_train = cfg["paths"].get("raw_train")
+        source_ids = read_ids(raw_train) if raw_train and (
+            cfg["data"]["source"] in ("temp", "ids") or Path(raw_train).exists()) else None
         labels, soft_info = data_mod.load_soft_labels(cfg, source_ids)
         train_df = data_mod.attach_soft_labels(train_df, labels)
     for name, frame in (("train", train_df), ("val", val_df)):
@@ -333,12 +356,7 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
             "mlflow_run_id": mlflow_run.info.run_id if mlflow_run else None,
         }
         (run_dir / "model" / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
-        package_meta = None
-        if (cfg.get("package") or {}).get("enabled"):
-            from src.student.package import build_package
-
-            sample = val_df["text"].head(64).tolist()   # parity inputs; nothing is saved
-            package_meta = build_package(run_dir, run_dir / "package", cfg["package"], sample)
+        package_on = bool((cfg.get("package") or {}).get("enabled"))
         metrics = json.loads(best_table.round(6).to_json(orient="index"))
         (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
 
@@ -352,17 +370,12 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
             "best_val_mean_pr_auc": float(best_table.loc["mean", "pr_auc"]),
             "thresholds": thresholds, "val_mean_f1_at_thresholds": threshold_report["mean_f1"],
             "val_mean_f1_at_0.5": threshold_report["mean_f1_at_0.5"],
-            "package": None if package_meta is None else {
-                "dir": str(run_dir / "package"),
-                "onnx_parity": package_meta["onnx"]["parity"]["max_abs_logit_diff"]},
+            "package": {"status": "pending"} if package_on else None,
             "history": history, "run_dir": str(run_dir),
             "mlflow_run_id": meta["mlflow_run_id"],
             "duration_s": round(time.perf_counter() - start_time, 1),
         }
-        (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-        reports = Path(cfg["paths"]["reports_dir"])
-        reports.mkdir(parents=True, exist_ok=True)
-        (reports / f"{TASK_ID}.json").write_text(json.dumps(summary, indent=2) + "\n")
+        write_summary(summary, run_dir, cfg)
         if mlflow_on:
             mlflow.log_metrics({"best_val_mean_auc": best_auc,
                                 "best_val_mean_pr_auc": summary["best_val_mean_pr_auc"],
@@ -373,12 +386,22 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
                                 **{f"threshold_{k}": v for k, v in thresholds.items()}})
             for name in ("meta.json", "thresholds.json", "thresholds_report.json"):
                 mlflow.log_artifact(str(run_dir / "model" / name), "model")
-            if package_meta is not None:
-                mlflow.log_artifacts(str(run_dir / "package"), "package")
             mlflow.log_artifacts(str(run_dir / "predictions"), "predictions")
             mlflow.log_artifacts(str(run_dir / "splits"), "splits")
             if cfg["mlflow"]["log_model"]:
                 mlflow.log_artifacts(str(run_dir / "model"), "model")
+        # Last, so a failed export or parity check can't lose the run's results: the error is
+        # recorded in summary.json and MLflow, and the run returns normally.
+        if package_on:
+            summary["package"] = package_run(run_dir, cfg["package"],
+                                             val_df["text"].head(64).tolist())
+            write_summary(summary, run_dir, cfg)
+            if mlflow_on:
+                mlflow.set_tag("package_status", summary["package"]["status"])
+                if summary["package"]["status"] == "ok":
+                    mlflow.log_metric("onnx_parity", summary["package"]["onnx_parity"])
+                    mlflow.log_artifacts(str(run_dir / "package"), "package")
+                mlflow.log_artifact(str(run_dir / "summary.json"))
     finally:
         if mlflow_on:
             mlflow.end_run()

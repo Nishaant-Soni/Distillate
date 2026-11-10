@@ -126,8 +126,10 @@ sweep:
   study_name: distilbert-mixed-v1
   storage: null             # an Optuna storage URL; null = sqlite in paths.out_dir/optuna.db
   n_trials: 15              # per worker
-  worker: 0                 # 0, 1, ...: each worker's sampler is seeded seed + worker
-  timeout_h: null           # stop starting new trials after this many hours
+  worker: 0                 # 0, 1, ...: the sampler is seeded seed + worker + 1000 * session
+  session: 0                # raise it to re-run a worker (else its random trials repeat)
+  warm_start: []            # storage URLs whose finished trials are copied in before starting
+  timeout_h: null           # session budget: no trial starts that could end after it
   n_startup_trials: 8  # random trials before TPE starts modelling (counted over the whole study)
   keep_models: best         # best: keep the best trial's weights; all; none
   enqueue_default: true     # worker 0 first runs alpha 0.5, T 2, lr 5e-5, 3 epochs, 128

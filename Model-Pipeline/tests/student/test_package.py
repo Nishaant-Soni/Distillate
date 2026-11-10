@@ -36,7 +36,7 @@ def test_training_writes_thresholds_and_the_package(packaged):
         assert (Path(pkg) / name).exists(), name
     run_thresholds = json.loads((Path(run_dir) / "model" / "thresholds.json").read_text())
     assert sorted(run_thresholds) == sorted(LABELS) and packaged["thresholds"] == run_thresholds
-    assert packaged["package"]["onnx_parity"] < 1e-3
+    assert packaged["package"]["status"] == "ok" and packaged["package"]["onnx_parity"] < 1e-3
 
 
 def test_meta_has_the_contract_fields_and_what_scorers_need(packaged):
@@ -91,3 +91,22 @@ def test_a_run_without_thresholds_cannot_be_packaged(packaged, tmp_path):
     (run_copy / "model" / "thresholds.json").unlink()
     with pytest.raises(FileNotFoundError, match="thresholds.json"):
         build_package(run_copy, tmp_path / "out")
+
+
+def test_a_failed_package_build_keeps_the_run_and_records_the_error(tmp_path, monkeypatch):
+    from src.student import package
+    from src.student.synthetic import build
+
+    def broken(*args, **kwargs):
+        raise ValueError("ONNX parity failed: max |logit diff| 5.0e-02 above 1e-03")
+
+    monkeypatch.setattr(package, "build_package", broken)
+    build(tmp_path, n=300)
+    summary = run(smoke_cfg(tmp_path, *FAST, "package.enabled=true"))
+    assert summary["package"] == {"status": "failed", "error": "ValueError: ONNX parity "
+                                  "failed: max |logit diff| 5.0e-02 above 1e-03"}
+    run_dir = Path(summary["run_dir"])
+    on_disk = json.loads((run_dir / "summary.json").read_text())
+    assert on_disk["package"]["status"] == "failed" and on_disk["best_val_mean_auc"] > 0
+    for name in ("metrics.json", "model/thresholds.json", "predictions/val.parquet"):
+        assert (run_dir / name).exists(), name

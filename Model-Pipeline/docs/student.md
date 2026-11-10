@@ -72,8 +72,13 @@ Unit tests in `tests/student/test_loss.py` check each of these points.
   is an error.
 * `data.source: official` (Phase 2): the data pipeline's `train.parquet` and `val.parquet`.
   Reported numbers are rerun on these.
+* Every source checks every soft-label row (the teacher validator: values, status, versions,
+  shard layout and manifests). Coverage (every raw train id has a label) is checked too when raw
+  train is on the machine (`paths.raw_train`: always for temp and ids); the summary records it
+  as `soft_labels.coverage_checked`.
 * The gate set is never read. The run fails if any training or validation id is in
-  `artifacts/gate_subset_ids.parquet`.
+  `artifacts/gate_subset_ids.parquet`, and fails if that file is missing (the check can't be
+  skipped).
 
 **Soft-label arms** (`soft_labels.arm`; the arm's entry in `soft_labels.arms` replaces the stack's values):
 
@@ -116,8 +121,10 @@ instead, which will be the team VM in Phase 2. To browse the local store:
 
 **Thresholds** (`src/student/thresholds.py`, `thresholds:` in the config): for each label, the
 cut-off that maximizes F1 on the validation split, searched over the predicted scores within
-[0.01, 0.99]. Ties go to the higher threshold. Validation sets thresholds (v4 §5.1); the gate set
-never does. To recompute for any prediction file:
+[0.01, 0.99] and the two bounds, so a best cut above 0.99 is capped at 0.99 rather than
+dropped. Ties go to the higher threshold. Thresholds are stored unrounded (rounding could move
+one past the score it was chosen at). Validation sets thresholds (v4 §5.1); the gate set never
+does. To recompute for any prediction file:
 `python -m src.student.thresholds --pred <val predictions> --gold <val parquet> --out <folder>`.
 
 **Package** (`src/student/package.py`, work plan v4 §2.5), built from a run's `model/` folder:
@@ -135,6 +142,11 @@ exports to a 256 MB `model.onnx` in about 8 seconds on a laptop CPU, with a maxi
 4e-7. Because the sequence axis is dynamic, the package scores at any length up to 512, not only
 the training `max_length` (the sensitivity analysis's truncation sweep). `verify_package()`
 rechecks the hashes, for example after a registry download. int8 quantization is Phase 3.
+
+Training builds the package last, after `metrics.json`, `summary.json` and the MLflow logging.
+If the build fails (export, parity, a missing package), the run keeps all its results and
+records the failure: `summary.json` has `package: {"status": "failed", "error": ...}` and MLflow
+the tag `package_status: failed`. Rebuild with the command below once it's fixed.
 
 ```bash
 python -m src.student.package --run-dir outputs/student/<run> --out outputs/packages/<run>

@@ -93,3 +93,105 @@ def test_redact_hides_the_password():
     assert sweep.redact("postgresql://user:secret@10.0.0.2:5432/optuna") == \
         "postgresql://user:***@10.0.0.2:5432/optuna"
     assert sweep.redact("sqlite:////tmp/a.db") == "sqlite:////tmp/a.db"
+
+
+def _flaky(cfg):
+    """Fails every trial with alpha above 0.5 (as a CUDA out-of-memory error would)."""
+    if cfg["loss"]["alpha"] > 0.5:
+        raise RuntimeError("CUDA out of memory (simulated)")
+    return {"best_val_mean_auc": cfg["loss"]["alpha"], "run_dir": None,
+            "run_name": cfg["run_name"]}
+
+
+def _half(root, tmp_path, worker, *extra, name=None):
+    url = f"sqlite:///{tmp_path}/{name or f'half{worker}'}.db"
+    sweep.run(smoke_cfg(root, *FAST, f"sweep.storage={url}", "sweep.n_trials=6",
+                        f"sweep.worker={worker}", *extra), train_run=_flaky)
+    return url
+
+
+def test_merging_twice_copies_failed_trials_once(tmp_path, synthetic_root):
+    halves = [_half(synthetic_root, tmp_path, w) for w in (0, 1)]
+    into = f"sqlite:///{tmp_path}/study.db"
+    first = sweep.merge(into, halves, "smoke")
+    again = sweep.merge(into, halves, "smoke")
+    assert first["states"].get("FAIL", 0) > 0                  # the case that used to double
+    assert again["copied"] == 0 and again["trials"] == first["trials"] == 12
+    keys = [t["trial_key"] for t in again["trials_table"]]
+    assert len(set(keys)) == len(keys)
+
+
+def test_failed_trials_carry_their_key_worker_seed_and_commit(tmp_path, synthetic_root):
+    url = _half(synthetic_root, tmp_path, 1, "sweep.session=2")
+    study = optuna.load_study(study_name="smoke", storage=url)
+    failed = [t for t in study.trials if t.state == optuna.trial.TrialState.FAIL]
+    assert failed
+    for t in study.trials:
+        attrs = t.user_attrs
+        assert attrs["trial_key"].startswith("w1-s2-") and attrs["worker"] == 1
+        assert attrs["session"] == 2 and attrs["sampler_seed"] == 42 + 1 + 2000
+        assert "code_commit" in attrs
+
+
+def test_trials_without_keys_still_merge_once(tmp_path):
+    """Studies written before trial_key existed (worker 1's half) dedupe by number and start."""
+    old = f"sqlite:///{tmp_path}/old.db"
+    study = optuna.create_study(study_name="smoke", storage=old, direction="maximize")
+    study.set_user_attr("model", "tiny")
+    study.optimize(lambda t: t.suggest_float("alpha", 0.1, 0.9), n_trials=3)
+    into = f"sqlite:///{tmp_path}/study.db"
+    assert sweep.merge(into, [old], "smoke")["copied"] == 3
+    assert sweep.merge(into, [old], "smoke")["copied"] == 0
+
+
+def test_a_new_session_samples_new_random_trials(tmp_path, synthetic_root):
+    first = _half(synthetic_root, tmp_path, 0, name="a")
+    rerun = _half(synthetic_root, tmp_path, 0, name="b")
+    fresh = _half(synthetic_root, tmp_path, 0, "sweep.session=1", name="c")
+
+    def params(url):
+        return [t.params for t in optuna.load_study(study_name="smoke", storage=url).trials]
+
+    assert params(first) == params(rerun)            # same session: same draws, by design
+    assert params(first)[0] != params(fresh)[0]
+
+
+def test_warm_start_copies_the_other_half_and_the_merge_counts_each_trial_once(
+        tmp_path, synthetic_root):
+    other = _half(synthetic_root, tmp_path, 1)
+    url = f"sqlite:///{tmp_path}/half0.db"
+    summary = sweep.run(smoke_cfg(synthetic_root, *FAST, f"sweep.storage={url}",
+                                  "sweep.n_trials=3", "sweep.n_startup_trials=4",
+                                  f"sweep.warm_start=[{other}]"), train_run=_flaky)
+    assert summary["warm_start_copied"] == 6 and summary["trials"] == 9
+    study = optuna.load_study(study_name="smoke", storage=url)
+    own = [t for t in study.trials if t.user_attrs.get("worker") == 0]
+    assert len(own) == 3            # 6 finished trials already, so TPE from the first one
+    merged = sweep.merge(f"sqlite:///{tmp_path}/study.db", [url, other], "smoke")
+    assert merged["trials"] == 9
+
+
+def test_warm_start_from_another_setup_is_refused(tmp_path, synthetic_root):
+    other = _half(synthetic_root, tmp_path, 1, "train.batch_size=8")
+    with pytest.raises(ValueError, match="setup differs"):
+        sweep.run(smoke_cfg(synthetic_root, *FAST, f"sweep.storage=sqlite:///{tmp_path}/w0.db",
+                            f"sweep.warm_start={other}"), train_run=_flaky)
+
+
+def test_the_budget_stops_before_a_trial_that_would_overrun():
+    from datetime import datetime, timedelta
+    from types import SimpleNamespace
+
+    class Study:
+        stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    now = datetime(2026, 11, 10)
+    hour_long = SimpleNamespace(datetime_start=now, datetime_complete=now + timedelta(hours=1))
+    started = __import__("time").perf_counter()
+    roomy, tight = Study(), Study()
+    sweep.budget_callback(3 * 3600, started)(roomy, hour_long)        # 0 h used + 1 h < 3 h
+    sweep.budget_callback(3 * 3600, started - 2.5 * 3600)(tight, hour_long)   # 2.5 + 1 > 3
+    assert not roomy.stopped and tight.stopped

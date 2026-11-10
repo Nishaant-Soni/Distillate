@@ -114,3 +114,27 @@ def test_synthetic_manifest_carries_committed_stack_hash(synthetic_root):
     manifest = json.loads(next(stack_dir.rglob("*.manifest.json")).read_text())
     assert manifest["stack_sha256"] == data.file_sha256(smoke_cfg(synthetic_root)["paths"]
                                                         ["stack_file"])
+
+
+def test_the_gate_check_fails_when_it_cannot_run(tmp_path):
+    rows = make_rows(10)
+    with pytest.raises(FileNotFoundError, match="gate-overlap"):
+        data.check_no_gate([rows], tmp_path / "missing.parquet")
+    with pytest.raises(ValueError, match="gate_ids is not set"):
+        data.check_no_gate([rows], None)
+
+
+def test_without_raw_train_ids_every_row_is_still_checked(tmp_path):
+    """The official source on a machine without raw train: no coverage check, but a bad row
+    in a shard still fails (it used to pass with only versions and failure rate checked)."""
+    rows = make_rows(100)
+    soft = make_soft_labels(rows)
+    soft.loc[7, "p_threat"] = 1.5                       # an ok row with p outside [0, 1]
+    write_store(soft, tmp_path / "store")
+    rows.to_parquet(tmp_path / "wiki_train_raw.parquet", index=False)
+    with pytest.raises(ValueError, match=r"outside \[0, 1\]"):
+        data.load_soft_labels(smoke_cfg(tmp_path), None)
+    write_store(make_soft_labels(rows), tmp_path / "clean")
+    _, info = data.load_soft_labels(
+        smoke_cfg(tmp_path, f"soft_labels.local_root={tmp_path / 'clean'}"), None)
+    assert info["full_validation"] and not info["coverage_checked"]

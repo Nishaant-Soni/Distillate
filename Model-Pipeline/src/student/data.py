@@ -160,8 +160,11 @@ def check_no_gate(frames: Sequence[Any], gate_ids_path: str | Path | None) -> No
     """Fail if any row is in the gate subset: the gate set is never trained or tuned on."""
     import pandas as pd
 
-    if not gate_ids_path or not Path(gate_ids_path).exists():
-        return
+    if not gate_ids_path:
+        raise ValueError("paths.gate_ids is not set: the gate-overlap check can't run")
+    if not Path(gate_ids_path).exists():
+        raise FileNotFoundError(f"{gate_ids_path} not found: the gate-overlap check can't run "
+                                "(it is committed at Model-Pipeline/artifacts/)")
     gate = set(pd.read_parquet(gate_ids_path, columns=["id"])["id"].astype(str))
     for frame in frames:
         leaked = gate & set(frame["id"])
@@ -180,9 +183,9 @@ def file_sha256(path: str | Path) -> str:
 def load_soft_labels(cfg: Mapping[str, Any], source_ids: Sequence[str] | None = None):
     """``(soft, info)``: ``id``, ``logit_<label>``, ``status`` for the configured arm.
 
-    ``source_ids`` (every raw train id) enables the full checks (the teacher validator's for
-    shards, full coverage for the out-of-fold file); without it, only versions, hashes, and
-    failure rate are checked.
+    Every row is checked for every source (the teacher validator for shards; ids, values and
+    failure rate for the out-of-fold file). ``source_ids`` (every raw train id) adds the
+    coverage check: every raw train id has a label.
     """
     from src.teacher.storage import get_storage
 
@@ -220,26 +223,22 @@ def _load_shards(sl: Mapping[str, Any], storage, cache: Path,
         if manifest.get(field) != check_sha:
             errors.append(f"{name}: {field} {manifest.get(field)} differs from the committed "
                           f"{Path(sl['check_file']).name} ({check_sha})")
-    if source_ids is not None:
-        errors += check_run(frames, manifests, schemas, sorted(source_ids),
-                            int(sl["shard_size"]), sl["prompt_version"], sl["model_version"],
-                            max_failure=float(sl["max_failure"]))
     soft = pd.concat([frames[k] for k in sorted(frames)], ignore_index=True)
-    if source_ids is None:
-        for key in ("prompt_version", "model_version"):
-            values = set(soft[key].astype(str))
-            if values != {sl[key]}:
-                errors.append(f"run: {key} {sorted(values)}, expected {sl[key]}")
-        failed = float((soft["status"] != "ok").mean())
-        if failed > float(sl["max_failure"]):
-            errors.append(f"run: failure rate {failed:.2%} above {float(sl['max_failure']):.0%}")
+    # Without raw train's ids (the official source on a machine without raw train), the
+    # shards' own ids: every per-row and per-shard check still runs; only coverage of raw
+    # train can't be checked, and attach_soft_labels still needs a label for every row.
+    full_coverage = source_ids is not None
+    check_ids = sorted(source_ids) if full_coverage else sorted(soft["id"].astype(str))
+    errors += check_run(frames, manifests, schemas, check_ids, int(sl["shard_size"]),
+                        sl["prompt_version"], sl["model_version"],
+                        max_failure=float(sl["max_failure"]))
     if errors:
         raise ValueError("soft labels failed validation:\n  " + "\n  ".join(errors))
 
     soft["id"] = soft["id"].astype(str)
     info = _info(sl, check_sha, shards=len(frames), rows=len(soft),
                  failed_rows=int((soft["status"] != "ok").sum()),
-                 full_validation=source_ids is not None)
+                 full_validation=True, coverage_checked=full_coverage)
     logger.info("soft labels: %s", json.dumps(info))
     return soft[["id", *LOGIT_COLUMNS, "status"]], info
 
@@ -293,7 +292,7 @@ def _load_oof(sl: Mapping[str, Any], storage, cache: Path, source_ids: Sequence[
         soft[column] = np.log(clipped[:, k] / (1 - clipped[:, k])).astype("float32")
     soft["status"] = np.where(ok, "ok", "failed")
     info = _info(sl, check_sha, shards=1, rows=len(soft), failed_rows=int((~ok).sum()),
-                 full_validation=source_ids is not None)
+                 full_validation=True, coverage_checked=source_ids is not None)
     logger.info("soft labels: %s", json.dumps(info))
     return soft, info
 
