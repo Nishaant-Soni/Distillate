@@ -129,3 +129,40 @@ def test_logs_once_into_the_experiment_and_skips_on_rerun(tmp_path, monkeypatch)
     third = log_records(cfg, changed)
     assert third[0]["status"] == "logged" and third[0]["run_id"] != first[0]["run_id"]
     assert all(r["status"].startswith("skipped") for r in third[1:])
+
+
+def test_a_run_that_fails_partway_is_logged_again(tmp_path, monkeypatch):
+    """A crash while logging a child (the server, the network) must not leave a run that a
+    rerun skips as already logged: the hash is set only once the run and its children finish."""
+    mlflow = pytest.importorskip("mlflow")
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    cfg = copy.deepcopy(load_config())
+    cfg["paths"]["mlflow_db"] = str(tmp_path / "mlruns" / "mlflow.db")
+    cfg["paths"]["mlflow_artifacts"] = str(tmp_path / "mlruns" / "artifacts")
+    upload = mlflow.log_artifact
+
+    def fails_on_the_second_child(path, *args, **kwargs):
+        if path.endswith("metrics_p2-zs-v1.json"):
+            raise ConnectionError("connection reset by the server")
+        return upload(path, *args, **kwargs)
+
+    monkeypatch.setattr(mlflow, "log_artifact", fails_on_the_second_child)
+    with pytest.raises(ConnectionError):
+        log_records(cfg, build_records(cfg, None, tmp_path, ["pilot"]))
+    monkeypatch.setattr(mlflow, "log_artifact", upload)
+
+    rerun = log_records(cfg, build_records(cfg, None, tmp_path, ["pilot"]))
+    assert rerun[0]["status"] == "logged"                     # not skipped
+    experiment = mlflow.get_experiment_by_name("distillate-teacher")
+    parents = [r for r in mlflow.search_runs([experiment.experiment_id], output_format="list")
+               if r.info.run_name == "pilot"]
+    failed = next(r for r in parents if r.info.run_id != rerun[0]["run_id"])
+    assert failed.info.status == "FAILED" and "content_sha256" not in failed.data.tags
+    done = next(r for r in parents if r.info.run_id == rerun[0]["run_id"])
+    assert done.info.status == "FINISHED" and "content_sha256" in done.data.tags
+    children = [r for r in mlflow.search_runs([experiment.experiment_id], output_format="list")
+                if r.data.tags.get("mlflow.parentRunId") == done.info.run_id]
+    assert len(children) == 7
+    # Logged in full this time, so a third run skips it.
+    assert log_records(cfg, build_records(cfg, None, tmp_path, ["pilot"]))[0]["status"] \
+        == "skipped (already logged)"

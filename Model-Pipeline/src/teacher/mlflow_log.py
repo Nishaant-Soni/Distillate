@@ -11,9 +11,10 @@ training runs in the shared tracking server:
 * ``soft-labels-stack-v1`` and ``soft-labels-calqwen-v1``: the soft labels' checks, with the
   drift stream's per-batch AUCs as stepped metrics.
 
-Each run is tagged with a hash of everything it logs. A record already logged with the same
-hash is skipped, so the script can be rerun (on the VM's server, say) without duplicates; a
-record whose content changed is logged again as a new run.
+Each run is tagged with a hash of everything it logs, once it and its child runs have all
+finished. A record already logged with the same hash is skipped, so the script can be rerun
+(on the VM's server, say) without duplicates; a record whose content changed is logged again
+as a new run, and so is one whose logging failed partway (left behind as a FAILED run).
 
     python -m src.teacher.mlflow_log --dry-run      # what would be logged
     python -m src.teacher.mlflow_log                # MLFLOW_TRACKING_URI, else mlruns/
@@ -303,8 +304,6 @@ def _log(record: Record, digest: str | None, nested: bool = False) -> str:
     import mlflow
 
     tags = {**record.tags, "lane": "teacher", "source": "committed records and shard manifests"}
-    if digest:
-        tags["content_sha256"] = digest
     with mlflow.start_run(run_name=record.name, nested=nested, tags=tags) as active:
         mlflow.log_params({k: str(v) for k, v in record.params.items()})
         mlflow.log_metrics(record.metrics)
@@ -315,6 +314,10 @@ def _log(record: Record, digest: str | None, nested: bool = False) -> str:
             mlflow.log_artifact(str(path))
         for child in record.children:
             _log(child, None, nested=True)
+        # Last: a run whose logging failed partway has no hash, so a rerun logs it again
+        # instead of skipping it as already logged.
+        if digest:
+            mlflow.set_tag("content_sha256", digest)
         return active.info.run_id
 
 
