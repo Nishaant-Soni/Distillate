@@ -1,0 +1,47 @@
+# GCP access check: proves GitHub Actions can sign in to distillate-mlops through Workload
+# Identity Federation (no stored keys) and reach what model-ci.yml needs. Run it by hand
+# after any change to the CI identity, from the Actions tab or with
+#   gh workflow run gcp-auth-check.yml --ref <branch>
+# It also runs on pushes to vaishnavi/* that change this file, so the check works before the
+# file reaches main (workflow_dispatch only appears once it is on the default branch).
+name: gcp-auth-check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["vaishnavi/**"]
+    paths: [".github/workflows/gcp-auth-check.yml"]
+
+permissions:
+  contents: read
+  id-token: write          # lets the job request the OIDC token Google exchanges
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Sign in to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Who am I
+        run: gcloud auth list --filter=status:ACTIVE --format='value(account)'
+
+      - name: Artifact Registry is reachable
+        # The CI identity has writer on these two repositories only, not project-wide list.
+        run: |
+          for repo in distillate-images distillate-models; do
+            gcloud artifacts repositories describe "$repo" --project distillate-mlops \
+              --location us-east1 --format='value(name.basename(),format)'
+          done
+          gcloud auth configure-docker us-east1-docker.pkg.dev --quiet
+
+      - name: Vertex AI is reachable
+        run: |
+          gcloud ai custom-jobs list --project distillate-mlops --region us-east1 --limit 1 \
+            --format='value(name)' && echo "Vertex AI: OK"
