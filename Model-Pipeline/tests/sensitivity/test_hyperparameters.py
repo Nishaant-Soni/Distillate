@@ -5,6 +5,7 @@ optuna = pytest.importorskip("optuna")
 from src.sensitivity.hyperparameters import (  # noqa: E402
     hyperparameter_analysis,
     importances,
+    stability,
     summary,
     trials_table,
 )
@@ -91,6 +92,33 @@ def test_log_params_and_best_params_in_the_report():
     text = hyperparameter_section(results, {"importance": "i.png", "trials": "t.png"})
     # Significant digits: a learning rate such as 7.9e-05 isn't rounded to 0.0001.
     assert f"lr = {info['best_params']['lr']:.4g}" in text and "e-05" in text
+
+
+def test_stability_over_seeds_in_the_report():
+    from src.sensitivity.report import hyperparameter_section
+    from src.sensitivity.run import records
+
+    study = make_study()
+    table = importances(study, ["fanova", "mdi"], seed=42)
+    spread = stability(study, ["fanova", "mdi"], seeds=range(42, 45))
+    assert spread["seeds"] == [42, 43, 44]
+    ranges = spread["ranges"]
+    assert list(ranges.columns) == ["fanova_min", "fanova_max", "mdi_min", "mdi_max"]
+    # The seed-42 values are part of the range, so each sits inside its own.
+    assert ((ranges["fanova_min"] <= table["fanova"])
+            & (table["fanova"] <= ranges["fanova_max"])).all()
+    # alpha dominates the made-up objective, so every seed ranks it first.
+    assert spread["top"] == {"fanova": {"alpha": 3}, "mdi": {"alpha": 3}}
+
+    results = {"hyperparameters": {
+        "summary": summary(study, table), "importances": records(table.reset_index()),
+        "stability": {**spread, "ranges": records(ranges.reset_index())}}}
+    text = hyperparameter_section(results, {"importance": "i.png", "trials": "t.png"})
+    assert "fanova (range over seeds)" in text
+    low, high = ranges.loc["alpha", "fanova_min"], ranges.loc["alpha", "fanova_max"]
+    assert f"({low:.3f} to {high:.3f})" in text
+    assert ("under 3 seeds (42 to 44, the first being the one above). `alpha` is ranked "
+            "first in 3 of 3 (fanova)") in text
 
 
 def test_reads_the_study_from_storage(tmp_path):

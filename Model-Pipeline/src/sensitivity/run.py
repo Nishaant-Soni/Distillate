@@ -136,7 +136,10 @@ def run(cfg: Mapping[str, Any], scorer: Scorer | None = None,
         results["hyperparameters"] = {
             "summary": hyper["summary"],
             "importances": records(hyper["importances"].reset_index()),
-            "trials": records(hyper["trials"])}
+            "trials": records(hyper["trials"]),
+            "stability": None if hyper["stability"] is None else {
+                "seeds": hyper["stability"]["seeds"], "top": hyper["stability"]["top"],
+                "ranges": records(hyper["stability"]["ranges"].reset_index())}}
     else:
         results["skipped"]["hyperparameters"] = ("optuna.storage and optuna.study_name are not "
                                                  "set (the shared study isn't available yet)")

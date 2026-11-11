@@ -81,9 +81,28 @@ def hyperparameter_section(results: Mapping[str, Any], plots: Mapping[str, str])
             # Significant digits, not decimals: a learning rate of 7.9e-5 isn't 0.0001.
             + ", ".join(f"{k} = {v:.4g}" if isinstance(v, float) else f"{k} = {v}"
                         for k, v in s["best_params"].items()) + ".\n\n")
-    out += md_table([[p, *row] for p, row in zip(importances.index,
-                                                 importances.to_numpy().tolist(), strict=True)],
-                    ["parameter", *importances.columns])
+    spread = hyper.get("stability")
+    if spread is None:
+        out += md_table([[p, *row] for p, row in zip(
+            importances.index, importances.to_numpy().tolist(), strict=True)],
+            ["parameter", *importances.columns])
+    else:
+        ranges = pd.DataFrame(spread["ranges"]).set_index("param")
+        evaluators = list(importances.columns)
+
+        def with_range(param: str, evaluator: str) -> str:
+            """The value and its range over the seeds: "0.548 (0.367 to 0.548)"."""
+            low, high = ranges.loc[param, f"{evaluator}_min"], ranges.loc[param, f"{evaluator}_max"]
+            return f"{fmt(importances.loc[param, evaluator])} ({fmt(low)} to {fmt(high)})"
+
+        rows = [[p, *(with_range(p, e) for e in evaluators)] for p in importances.index]
+        out += md_table(rows, ["parameter", *(f"{e} (range over seeds)" for e in evaluators)])
+        seeds, first = spread["seeds"], importances.index[0]
+        counts = " and ".join(f"{spread['top'][e].get(first, 0)} of {len(seeds)} ({e})"
+                              for e in evaluators)
+        out += (f"\n\nThe ranges come from recomputing both evaluators under {len(seeds)} seeds "
+                f"({seeds[0]} to {seeds[-1]}, the first being the one above). `{first}` is "
+                f"ranked first in {counts}.")
     out += ("\n\nfANOVA is Optuna's default; MDI (a random forest's mean decrease in impurity) "
             "is an independent check on the ranking. Only parameters sampled in every "
             "completed trial are compared.\n\n")

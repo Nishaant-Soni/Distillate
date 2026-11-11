@@ -73,6 +73,21 @@ def importances(study, evaluators: Sequence[str], seed: int, params: Sequence[st
     return table.sort_values(evaluators[0], ascending=False)
 
 
+def stability(study, evaluators: Sequence[str], seeds: Sequence[int],
+              params: Sequence[str] | None = None, objective: int | None = None,
+              min_trials: int = 10) -> dict[str, Any]:
+    """The importances recomputed under several seeds: each value's range, and how often each
+    evaluator puts the same parameter first. Both evaluators fit seeded random forests, so on a
+    small study the ranking can depend on the seed."""
+    runs = [importances(study, evaluators, s, params, objective, min_trials) for s in seeds]
+    ranges = pd.DataFrame({f"{e}_{stat}": getattr(pd.concat([r[e] for r in runs], axis=1), stat)(
+        axis=1) for e in evaluators for stat in ("min", "max")})
+    ranges.index.name = "param"
+    tops = {e: pd.Series([r[e].idxmax() for r in runs]).value_counts().to_dict()
+            for e in evaluators}
+    return {"seeds": list(seeds), "ranges": ranges, "top": tops}
+
+
 def trials_table(study, objective: int | None = None) -> pd.DataFrame:
     """``number``, ``value`` (the explained objective) and one ``param`` column per parameter."""
     trials = completed_trials(study)
@@ -100,7 +115,8 @@ def summary(study, table: pd.DataFrame, objective: int | None = None) -> dict[st
 
 
 def hyperparameter_analysis(cfg: Mapping[str, Any], seed: int) -> dict[str, Any]:
-    """Load the configured study and return ``importances``, ``trials`` and ``summary``."""
+    """Load the configured study and return ``importances``, ``trials``, ``summary`` and
+    ``stability`` (None when ``stability_seeds`` is 0)."""
     study = load_study(cfg["storage"], cfg["study_name"])
     objective = cfg.get("objective")
     table = importances(study, cfg["evaluators"], seed, cfg.get("params"), objective,
@@ -108,4 +124,8 @@ def hyperparameter_analysis(cfg: Mapping[str, Any], seed: int) -> dict[str, Any]
     info = summary(study, table, objective)
     logger.info("study %s: %d completed trials, ranking %s", info["study_name"],
                 info["completed"], info["ranking"])
-    return {"importances": table, "trials": trials_table(study, objective), "summary": info}
+    n = int(cfg.get("stability_seeds") or 0)
+    spread = stability(study, cfg["evaluators"], range(seed, seed + 1 + n),
+                       cfg.get("params"), objective, int(cfg["min_trials"])) if n else None
+    return {"importances": table, "trials": trials_table(study, objective), "summary": info,
+            "stability": spread}

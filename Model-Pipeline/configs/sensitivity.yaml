@@ -56,6 +56,7 @@ optuna:
   params: null              # null: every parameter present in all completed trials
   evaluators: [fanova, mdi]
   min_trials: 10
+  stability_seeds: 10       # also recompute under this many more seeds; report ranges (0: off)
 
 mlflow:
   enabled: true             # MLFLOW_TRACKING_URI if set (the VM), else the local SQLite store
