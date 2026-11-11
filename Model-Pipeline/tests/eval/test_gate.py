@@ -220,3 +220,13 @@ def test_cli_rise_bootstrap_writes_json(tmp_path):
     noise = json.loads((tmp_path / "o" / "fpr_rise_bootstrap.json").read_text())
     assert noise["replicates"] == 20
     assert "religion:muslim" in noise["slices"]
+
+
+def test_validation_floors_are_per_label(tmp_path, cfg):
+    gold = write_gold(tmp_path / "gold")
+    cand = write_run(tmp_path / "cand", noise=0.0, version="cand")
+    checks = {c["name"]: c for c in gate.run_gate(cfg, cand, gold)["checks"]}
+    floors = cfg["validation"]["min_pr_auc"]
+    assert isinstance(floors, dict) and set(floors) == set(LABELS)
+    for label, floor in floors.items():
+        assert checks[f"validation: PR-AUC {label}"]["limit"] == pytest.approx(floor)
