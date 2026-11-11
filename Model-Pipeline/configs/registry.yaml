@@ -1,0 +1,31 @@
+# Model registry: MLflow registration, aliases, and the Artifact Registry upload (Vaishnavi).
+# Used by src/pipeline/register_model.py and src/pipeline/rollback_model.py, from CI
+# (model-ci.yml) and retrain_dag. Contract: work plan section 2.5.
+
+mlflow:
+  registered_model: distillate-student
+  candidate_alias: staging      # set by register_model.py on a candidate that passed the gate
+  production_alias: production  # moved by promotion (Phase 3) and by rollback_model.py
+  # Registry stages are deprecated; aliases are used throughout, including for rollback.
+
+# GCP Artifact Registry: a generic repository holding each registered package's files, with
+# the MLflow model version as the package version.
+artifact_registry:
+  enabled: true                 # false skips the upload (local runs without GCP access)
+  project: distillate-mlops
+  location: us-east1
+  repository: distillate-models
+  package: distillate-student
+
+# What a package folder must hold before it is registered (train.py writes all but
+# thresholds.json, which the threshold-tuning step adds).
+package:
+  required: [meta.json, config.json]
+  weights_any: [model.safetensors, pytorch_model.bin]
+  tokenizer_any: [tokenizer.json, vocab.txt, tokenizer_config.json]
+  optional: [thresholds.json]
+
+# Slack: SLACK_WEBHOOK_URL from the environment (a GitHub secret in CI). Without it, messages
+# are only logged, so local runs and tests never need Slack.
+notify:
+  enabled: true
