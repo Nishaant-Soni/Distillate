@@ -48,8 +48,10 @@ python -m src.pipeline.register_model \
 
 What it checks before registering anything:
 
-* **The package is complete:** `meta.json`, `config.json`, the weights, and a tokenizer.
-  `thresholds.json` is uploaded too when it is present.
+* **The package is complete:** `meta.json`, `thresholds.json`, a model, and a tokenizer. Two
+  layouts are accepted: the section 2.5 package from `src.student.package` (`model.onnx` and a
+  `tokenizer/` folder), or a training run's `model/` folder (PyTorch weights, `config.json`
+  and the tokenizer files).
 * **The gate report passed** (`passed: true`) **for this exact model:** its `model_version` must
   equal the one in `meta.json`. A blocked model is never registered.
 
@@ -89,13 +91,14 @@ messages are only logged. A broken webhook never fails the operation.
 
 ## Tests
 
-`tests/pipeline/test_registry.py` (25 tests) runs on a temporary SQLite MLflow store, with a
+`tests/pipeline/test_registry.py` (28 tests) runs on a temporary SQLite MLflow store, with a
 fake `gcloud` for the upload, so it needs no network and no GCP. What they check:
 
 * **Registration:** staging is set and the upload is called correctly; a second candidate
   moves staging.
-* **Refusals:** a blocked gate, a report for another model, a missing report, and an
-  incomplete package are each refused.
+* **Refusals:** a blocked gate, a report for another model, a missing report, an
+  incomplete package, and a package without thresholds are each refused; the ONNX package
+  layout is accepted.
 * **Failed upload:** it leaves no alias.
 * **Other registration cases:** `--no-upload`; an unknown training run; a soft-deleted registry
   experiment.

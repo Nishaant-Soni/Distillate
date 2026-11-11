@@ -149,7 +149,38 @@ def test_missing_gate_report_is_refused(cfg, store, tmp_path):
 def test_incomplete_package_is_refused(cfg, store, tmp_path):
     package = make_package(tmp_path / "runs", "student-a", None, weights=False)
     report = make_report(tmp_path / "gate", "student-a")
-    with pytest.raises(reg.RegistrationError, match="weights"):
+    with pytest.raises(reg.RegistrationError, match="model \\(one of"):
+        reg.register(cfg, package, report, store, runner=FakeRunner())
+
+
+def test_onnx_package_from_src_student_package_is_accepted(cfg, store, tmp_path):
+    """The section 2.5 layout: model.onnx, tokenizer/ folder, thresholds.json, meta.json."""
+    package = tmp_path / "packages" / "student-onnx"
+    (package / "tokenizer").mkdir(parents=True)
+    (package / "tokenizer" / "tokenizer.json").write_text("{}")
+    (package / "model.onnx").write_bytes(b"\x00" * 16)
+    (package / "thresholds.json").write_text(json.dumps({"toxicity": 0.4}))
+    (package / "meta.json").write_text(json.dumps(
+        {"model_version": "student-onnx", "mlflow_run_id": training_run(store)}))
+    report = make_report(tmp_path / "gate", "student-onnx")
+    summary = reg.register(cfg, package, report, store, runner=FakeRunner())
+    logged = {a.path for a in store.list_artifacts(summary["run_id"], "package")}
+    assert {"package/model.onnx", "package/tokenizer"} <= logged
+
+
+def test_package_without_thresholds_is_refused(cfg, store, tmp_path):
+    package = make_package(tmp_path / "runs", "student-a", None)
+    (package / "thresholds.json").unlink()
+    report = make_report(tmp_path / "gate", "student-a")
+    with pytest.raises(reg.RegistrationError, match="thresholds.json"):
+        reg.register(cfg, package, report, store, runner=FakeRunner())
+
+
+def test_pytorch_weights_need_config_json(cfg, store, tmp_path):
+    package = make_package(tmp_path / "runs", "student-a", None)
+    (package / "config.json").unlink()
+    report = make_report(tmp_path / "gate", "student-a")
+    with pytest.raises(reg.RegistrationError, match="config.json"):
         reg.register(cfg, package, report, store, runner=FakeRunner())
 
 

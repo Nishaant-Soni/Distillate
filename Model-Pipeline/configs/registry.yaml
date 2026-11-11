@@ -17,13 +17,13 @@ artifact_registry:
   repository: distillate-models
   package: distillate-student
 
-# What a package folder must hold before it is registered (train.py writes all but
-# thresholds.json, which the threshold-tuning step adds).
+# What a package folder must hold before it is registered. Either layout passes:
+#   the section 2.5 package (src.student.package): model.onnx, tokenizer/, thresholds.json, meta.json
+#   a training run's model/ folder: weights, config.json, tokenizer files, thresholds.json, meta.json
 package:
-  required: [meta.json, config.json]
-  weights_any: [model.safetensors, pytorch_model.bin]
-  tokenizer_any: [tokenizer.json, vocab.txt, tokenizer_config.json]
-  optional: [thresholds.json]
+  required: [meta.json, thresholds.json]
+  model_any: [model.onnx, model.safetensors, pytorch_model.bin]
+  tokenizer_any: [tokenizer, tokenizer.json, vocab.txt, tokenizer_config.json]   # tokenizer = folder
 
 # Slack: SLACK_WEBHOOK_URL from the environment (a GitHub secret in CI). Without it, messages
 # are only logged, so local runs and tests never need Slack.

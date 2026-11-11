@@ -52,10 +52,13 @@ def check_package(package: Path, cfg: dict[str, Any]) -> dict[str, Any]:
     spec = cfg["package"]
     names = {p.name for p in package.iterdir()}
     missing = [n for n in spec["required"] if n not in names]
-    if not names & set(spec["weights_any"]):
-        missing.append(f"weights (one of {spec['weights_any']})")
+    if not names & set(spec["model_any"]):
+        missing.append(f"model (one of {spec['model_any']})")
     if not names & set(spec["tokenizer_any"]):
         missing.append(f"tokenizer (one of {spec['tokenizer_any']})")
+    weights = names & {"model.safetensors", "pytorch_model.bin"}
+    if weights and "model.onnx" not in names and "config.json" not in names:
+        missing.append("config.json (needed next to PyTorch weights)")
     if missing:
         raise RegistrationError(f"package {package} is missing: {', '.join(missing)}")
     meta = json.loads((package / "meta.json").read_text(encoding="utf-8"))
