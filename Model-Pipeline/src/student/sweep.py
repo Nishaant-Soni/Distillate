@@ -37,6 +37,7 @@ import re
 import time
 import uuid
 from collections.abc import Mapping, Sequence
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
@@ -186,11 +187,18 @@ def best_completed(study, exclude: int | None = None, on_disk: bool = False):
 
 def trial_key(t) -> str:
     """A trial's identity, the same in every copy: set when the trial starts (copies carry
-    it); for trials from before keys existed, their number and start time in the original."""
+    it); for trials from before keys existed, their number and start time in the original.
+
+    The start time is in UTC: Optuna stores it in UTC but returns it in the machine's local
+    time, so a local-time key read on a laptop would differ from the same trial's key
+    stamped on Kaggle (UTC), and the merge would count the trial twice.
+    """
     key = t.user_attrs.get("trial_key")
     if key:
         return str(key)
-    start = t.datetime_start.isoformat() if t.datetime_start else ""
+    start = ""
+    if t.datetime_start:
+        start = t.datetime_start.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
     return f"legacy:{t.number}:{start}"
 
 

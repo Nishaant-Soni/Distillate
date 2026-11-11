@@ -144,6 +144,35 @@ def test_trials_without_keys_still_merge_once(tmp_path):
     assert sweep.merge(into, [old], "smoke")["copied"] == 0
 
 
+@pytest.mark.skipif(not hasattr(__import__("time"), "tzset"), reason="needs time.tzset")
+def test_legacy_keys_do_not_depend_on_the_machine_time_zone(tmp_path, monkeypatch):
+    """A warm start on Kaggle (UTC) stamps legacy keys; merging on a laptop in another time
+    zone must find the same keys, or every warm-started trial is copied twice."""
+    import time
+
+    def keys_in(tz):
+        monkeypatch.setenv("TZ", tz)
+        time.tzset()
+        study = optuna.load_study(study_name="smoke", storage=old)
+        return [sweep.trial_key(t) for t in study.trials]
+
+    old = f"sqlite:///{tmp_path}/old.db"
+    study = optuna.create_study(study_name="smoke", storage=old, direction="maximize")
+    study.set_user_attr("model", "tiny")
+    study.optimize(lambda t: t.suggest_float("alpha", 0.1, 0.9), n_trials=2)
+    try:
+        on_kaggle = keys_in("UTC")
+        # The other half warm-started on Kaggle: its copies carry the UTC keys.
+        warm = f"sqlite:///{tmp_path}/warm.db"
+        assert sweep.merge(warm, [old], "smoke")["copied"] == 2
+        assert keys_in("America/New_York") == on_kaggle
+        into = f"sqlite:///{tmp_path}/study.db"
+        assert sweep.merge(into, [warm, old], "smoke")["copied"] == 2
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
 def test_a_new_session_samples_new_random_trials(tmp_path, synthetic_root):
     first = _half(synthetic_root, tmp_path, 0, name="a")
     rerun = _half(synthetic_root, tmp_path, 0, name="b")

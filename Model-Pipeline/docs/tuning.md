@@ -71,7 +71,7 @@ Two ways to share it:
 
    Merging twice adds nothing: every trial has a `trial_key` that its copies keep, failed
    trials included (studies from before keys existed are matched by trial number and start
-   time). Upload the merged file to `gs://distillate-mlops-data/optuna/distilbert-mixed-v1.db`.
+   time, in UTC: Optuna returns local time, which differs between Kaggle and a laptop). Upload the merged file to `gs://distillate-mlops-data/optuna/distilbert-mixed-v1.db`.
 
    Run in parallel, the halves don't see each other's trials (each TPE learns from its own 15,
    and each draws its own 8 random trials: about 16 of 30 random). **When one half is done
@@ -132,9 +132,9 @@ numbers are clean. **Check after the ablation:** compare the validation-to-gate 
 `distilbert-mixed` with that of `distilbert-gold` (which uses no teacher). A clearly larger drop
 for the mixed arm would mean the leak matters.
 
-## Results so far
+## Results
 
-**Worker 1 (Nishaant), Nov 10:** 15 of 15 trials complete, no failures, at commit `264731c8bd36`
+**Worker 1 (Nishaant), Nov 6:** 15 of 15 trials complete, no failures, at commit `264731c8bd36`
 with the soft labels from the Hugging Face copy (identical to GCS). Study:
 `gs://distillate-mlops-data/optuna/worker1.db`, recipe hash `ee9c9934…`.
 
@@ -147,18 +147,42 @@ with the soft labels from the Hugging Face copy (identical to GCS). Study:
   maximum) may be capping it. The space can't change within the study, so this is checked
   with one run outside it after the sweep (the best values at 5 epochs).
 
-**Worker 0 (Shivam):** warm-started from `worker1.db`, so all of its trials are TPE's.
+**Worker 0 (Shivam), Nov 10:** warm-started from `worker1.db` (15 trials copied), so all 13 of
+its trials are TPE's; at commit `ddf7fff35245`, 10.4 GPU-hours on Kaggle (T4), stopped by the
+11-hour budget. 13 of 13 complete. Best: trial 26, val mean AUC 0.99364; median 0.99333.
+Study: `gs://distillate-mlops-data/optuna/worker0.db` (it also holds the 15 copied trials).
+
+**The merged study:** 28 trials, all complete (15 worker 1, 13 worker 0), one per key (merging
+again copies none). `gs://distillate-mlops-data/optuna/distilbert-mixed-v1.db`, SHA-256
+`d26cd782ef1c…`, recipe hash `ee9c99344c83…`.
+
+* 256 tokens: the top 21 trials are all at 256; the best 128 trial (0.9918) ranks 22nd. The
+  one 256 trial below a 128 trial is trial 0 (1 epoch).
+* The top 3 (trials 26, 8, 22) are within 0.00004 AUC, with α 0.34 to 0.50, T 3.4 to 3.7, and
+  lr 7.9e-5 to 9.95e-5: one region, not one point. The order inside it is noise.
+* **Two edges of the space bind.** Every trial (28 of 28) peaked at its last epoch, and the
+  best learning rates are near the top of the range (1e-4). The study can't change its space,
+  so the 5-epoch check run outside it (the best values, `train.epochs=5`) is the test; its
+  result is reported next to the ablation, and the tuned values below stay as chosen.
 
 ## Best values
 
-To be filled in after the merge: the trial count, the best trial's values and validation mean
-AUC and PR-AUC, and the merged study's location.
+Trial 26 (worker 0), the highest validation mean AUC in the merged study
+(`python -m src.student.sweep best --storage sqlite:///outputs/optuna/distilbert-mixed-v1.db`):
 
 | Parameter | Best |
 |---|---|
-| α | |
-| T | |
-| Learning rate | |
-| Epochs | |
-| Maximum length | |
-| Validation mean AUC | |
+| α | 0.3433 (`0.3432987447660936`) |
+| T | 3.713 (`3.71295432376268`) |
+| Learning rate | 9.23e-5 (`9.22542696771891e-05`) |
+| Epochs | 4 (best epoch: the 4th) |
+| Maximum length | 256 |
+| Validation mean AUC | 0.99364 |
+| Validation mean PR-AUC | 0.7706 |
+
+`TUNED` for the ablation (notebook) or `--set` for `train.py`:
+
+```
+loss.alpha=0.3432987447660936 loss.temperature=3.71295432376268
+train.lr=9.22542696771891e-05 train.epochs=4 model.max_length=256
+```
