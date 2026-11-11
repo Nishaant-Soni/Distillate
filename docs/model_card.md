@@ -90,10 +90,10 @@ TODO (Shivam). Suggested content:
 
 | Set | Source | Rows | Used for |
 |---|---|---|---|
-| Wikipedia validation | Jigsaw Toxic Comment (Kaggle) train, ~15% stratified split | TODO | Model choice and thresholds |
+| Wikipedia validation | Jigsaw Toxic Comment (Kaggle) train, ~15% stratified split | 21,363 | Model choice and thresholds |
 | Gate set | Jigsaw Toxic Comment scored test set | 63,978 | Pass/fail regression check and final numbers only |
 | H2 | Civil Comments test, 10,000 stratified rows | 10,000 | Cross-domain evaluation only |
-| Bias set | Civil Comments identity-annotated test rows | TODO | Identity-slice bias evaluation only |
+| Bias set | Civil Comments identity-annotated test rows | 21,577 | Identity-slice bias evaluation only |
 | Obfuscation | 3,000 toxic gate comments with seeded character attacks | 3,000 | Robustness only |
 
 - Civil Comments metrics use five labels; `severe_toxicity` is excluded because almost no
@@ -171,8 +171,8 @@ TODO (Ruchita). Link `reports/bias/bias_report_phase2.md`.
 - **Why no per-group thresholds:** the service never knows a commenter's identity, so it
   applies one threshold per label to everyone.
 - **Phase 1 context:** the TF-IDF baseline already showed sexual-orientation slices about 8
-  points above overall FPR on Civil, and identity slices with toxic rates 17 to 21 points
-  above overall in the data itself.
+  points above overall FPR on Civil, and identity slices with toxic rates 16 to 21 points
+  above overall in the data itself (16.0 to 21.2 in the Phase 1 bias report).
 
 ## 10. Limitations and risks
 
@@ -186,8 +186,8 @@ TODO (Ruchita). Link `reports/bias/bias_report_phase2.md`.
 - **Missing groups:** no age or location fields, so those groups are not evaluated.
 - **Obfuscation:** character-level attacks can lower recall. TODO: quantify.
 - **Rare labels:** threat and identity_attack have few positives, so their metrics are noisy.
-- **Teacher dependence:** the soft labels are a gold-trained baseline corrected by Qwen; any
-  bias in either part can pass into the student.
+- **Teacher dependence:** the soft labels blend a gold-trained TF-IDF model with Qwen, so they
+  carry gold-label information; bias in either can pass into the student.
 
 ## 11. License lineage
 
@@ -197,9 +197,9 @@ TODO (Ruchita): confirm each entry against its source before finalising.
 |---|---|---|
 | Wikipedia toxicity data | Kaggle: jigsaw-toxic-comment-classification-challenge | Competition rules (academic/educational use, no redistribution); underlying data licence |
 | Civil Comments data | Kaggle: jigsaw-unintended-bias-in-toxicity-classification | Competition rules (academic/educational use, no redistribution); underlying data licence |
-| Teacher LLM | Qwen3-4B-Instruct-2507 | Model licence |
+| Teacher LLM | Qwen3-4B-Instruct-2507 | Apache 2.0 (checked at the pinned revision) |
 | Student base model | TODO (selected architecture) | Model licence |
-| Llama Guard 3-1B | Benchmark only, never used for training | Llama licence (Nishaant to confirm) |
+| Llama Guard 3-1B | Benchmark only, never used for training | Llama 3.2 Community License (Nishaant to confirm with the Phase 3 benchmark) |
 
 Comment text is never redistributed: the repository and any public artifact hold only ids,
 scores and metrics.
@@ -216,3 +216,4 @@ scores and metrics.
 | Date | Change |
 |---|---|
 | TODO | Skeleton created (Ruchita) |
+| TODO | Review fixes: eval-set sizes, data-level gap range, section 10 teacher wording, Qwen licence (Ruchita) |
