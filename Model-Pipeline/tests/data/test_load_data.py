@@ -101,3 +101,39 @@ def test_rev_reads_through_dvc(tmp_path, monkeypatch):
     assert data.rev == "abc123" and len(data["train"]) == 4
     assert ("data/processed/wikipedia/train.parquet", "abc123") in calls
     assert data.data_hash == ld.load_data(data_dir=folder).data_hash  # same data, same hash
+
+
+def test_missing_ablation_score_stops_loading(tmp_path):
+    """A missing value in any teacher column, not only the targets, stops loading."""
+    folder = build(tmp_path)
+    path = folder / "teacher_labels.parquet"
+    frame = pd.read_parquet(path)
+    frame.loc[frame["id"] == "a2", "p_toxicity_calqwen"] = float("nan")
+    frame.to_parquet(path, index=False)
+    with pytest.raises(ValueError, match="p_toxicity_calqwen: 1"):
+        ld.load_data(data_dir=folder)
+
+
+def test_tables_option_reads_only_the_requested_tables(tmp_path):
+    folder = build(tmp_path)
+    (folder / "wikipedia" / "gate.parquet").unlink()  # not needed, so its absence is fine
+    data = ld.load_data(data_dir=folder, tables=("train", "val"))
+    assert set(data.tables) == {"train", "val"}
+    assert "p_toxicity" in data["train"].columns
+
+
+def test_unknown_table_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="unknown tables"):
+        ld.load_data(data_dir=build(tmp_path), tables=("train", "test"))
+
+
+def test_train_data_hash_ignores_evaluation_tables(tmp_path):
+    folder = build(tmp_path)
+    before = ld.load_data(data_dir=folder)
+    write(folder / "wikipedia" / "gate.parquet", split(["g1", "g2", "g3"]))
+    after = ld.load_data(data_dir=folder)
+    assert after.data_hash != before.data_hash
+    assert after.train_data_hash == before.train_data_hash
+    assert ld.load_data(data_dir=folder, tables=("train", "val")).train_data_hash == (
+        before.train_data_hash
+    )
