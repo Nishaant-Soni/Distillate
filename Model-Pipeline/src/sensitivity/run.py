@@ -1,6 +1,7 @@
 """Run the sensitivity analysis on the selected student and write ``reports/sensitivity.md``.
 
     python -m src.sensitivity.run --model-dir outputs/student/<run>/model
+    python -m src.sensitivity.run --model-dir <dir> --rev <commit>   # validation at a DVC version
     python -m src.sensitivity.run --model-dir <dir> --sample 2000 --no-mlflow   # a quick look
 
 Scores validation once at the model's own length, then runs the four analyses (Optuna
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import time
@@ -49,13 +51,33 @@ def records(frame: pd.DataFrame) -> list[dict[str, Any]]:
     return json.loads(frame.to_json(orient="records"))
 
 
-def read_validation(path: str | Path, sample: int | None, seed: int) -> pd.DataFrame:
+def prepare_validation(frame: pd.DataFrame, sample: int | None, seed: int) -> pd.DataFrame:
     """``id``, ``text`` and the six labels; a seeded sample of ``sample`` rows if set."""
-    frame = pd.read_parquet(path, columns=["id", "text", *LABELS])
+    frame = frame[["id", "text", *LABELS]].copy()
     frame["id"] = frame["id"].astype(str)
     if sample and sample < len(frame):
         frame = frame.sample(n=sample, random_state=seed)
     return frame.sort_values("id", ignore_index=True)
+
+
+def load_validation(cfg: Mapping[str, Any]) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Validation and its lineage: through ``load_data`` (at ``data.rev``, or the files on
+    disk), or from ``data.val_file`` when set. The sha256 is the validation file's either way."""
+    data, seed = cfg["data"], int(cfg["seed"])
+    if data.get("val_file"):
+        content = Path(data["val_file"]).read_bytes()
+        frame = pd.read_parquet(io.BytesIO(content))
+        lineage = {"data_source": "file", "data_rev": None,
+                   "data_sha256": hashlib.sha256(content).hexdigest()}
+    else:
+        from src.data.load_data import TABLES, load_data
+
+        loaded = load_data(rev=data.get("rev"), data_dir=data.get("dir"), tables=("val",),
+                           with_teacher=False)
+        frame = loaded["val"]
+        lineage = {"data_source": "load_data", "data_rev": loaded.rev,
+                   "data_sha256": loaded.file_hashes[TABLES["val"]]}
+    return prepare_validation(frame, data.get("sample"), seed), lineage
 
 
 def run(cfg: Mapping[str, Any], scorer: Scorer | None = None,
@@ -70,10 +92,10 @@ def run(cfg: Mapping[str, Any], scorer: Scorer | None = None,
         scorer = load_scorer(model_dir, cfg["model"]["batch_size"], cfg["model"]["device"],
                              cfg["model"]["fp16"], cfg["model"].get("max_length"))
     if frame is None:
-        frame = read_validation(paths["val"], cfg["data"].get("sample"), seed)
-        data_sha = hashlib.sha256(Path(paths["val"]).read_bytes()).hexdigest()
+        frame, lineage = load_validation(cfg)
     else:
-        data_sha = hashlib.sha256(pd.util.hash_pandas_object(frame).to_numpy()).hexdigest()
+        lineage = {"data_source": "frame", "data_rev": None, "data_sha256": hashlib.sha256(
+            pd.util.hash_pandas_object(frame).to_numpy()).hexdigest()}
     check_frame(frame)
     thresholds = load_thresholds(model_dir, cfg["model"]["threshold"])
     has_file = model_dir is not None and (Path(model_dir) / "thresholds.json").exists()
@@ -96,7 +118,7 @@ def run(cfg: Mapping[str, Any], scorer: Scorer | None = None,
             else f"{cfg['model']['threshold']} for every label (no thresholds.json)",
             "thresholds": thresholds, "rows": len(frame),
             "positives": {label: int(frame[label].sum()) for label in LABELS},
-            "data_sha256": data_sha, "code_commit": code_commit, "seed": seed,
+            **lineage, "code_commit": code_commit, "seed": seed,
         },
         "truncation": {k: records(v) for k, v in truncation.items()},
         "obfuscation": records(obfuscation),
@@ -122,7 +144,7 @@ def run(cfg: Mapping[str, Any], scorer: Scorer | None = None,
     files = write_outputs(cfg, results, shap["selection"])
     summary = {
         "task": "sensitivity", "rows_in": len(frame), "model_version": scorer.model_version,
-        "data_sha256": data_sha, "code_commit": code_commit,
+        **lineage, "code_commit": code_commit,
         "headline": headline(truncation["overall"], obfuscation),
         "skipped": results["skipped"], "outputs": {k: str(v) for k, v in files.items()},
         "duration_s": round(time.time() - started, 1),
@@ -214,7 +236,8 @@ def log_to_mlflow(cfg: Mapping[str, Any], results: Mapping[str, Any],
                          "code_commit": setup["code_commit"]})
         mlflow.log_params({
             "max_length": setup["max_length"], "rows": setup["rows"],
-            "data_sha256": setup["data_sha256"], "seed": setup["seed"],
+            "data_sha256": setup["data_sha256"], "data_source": setup["data_source"],
+            "data_rev": setup["data_rev"] or "on disk", "seed": setup["seed"],
             "thresholds_source": setup["thresholds_source"],
             "truncation_max_lengths": cfg["truncation"]["max_lengths"],
             "obfuscation_rates": cfg["obfuscation"]["rates"],
@@ -234,15 +257,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Sensitivity analysis of the selected student.")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--model-dir", help="the student's folder (overrides model.dir)")
-    parser.add_argument("--val", help="validation Parquet (overrides paths.val)")
+    parser.add_argument("--rev", help="Git revision: validation as DVC versioned it there")
+    parser.add_argument("--val", help="a validation Parquet to read instead of load_data")
     parser.add_argument("--sample", type=int, help="score only N validation rows")
     parser.add_argument("--no-mlflow", action="store_true")
     args = parser.parse_args()
     cfg = load_config(args.config)
     if args.model_dir:
         cfg["model"]["dir"] = args.model_dir
+    if args.rev:
+        cfg["data"]["rev"] = args.rev
     if args.val:
-        cfg["paths"]["val"] = args.val
+        cfg["data"]["val_file"] = args.val
     if args.sample:
         cfg["data"]["sample"] = args.sample
     if args.no_mlflow:

@@ -19,6 +19,7 @@ def config(tmp_path, student_dir, mlflow=False, study=None):
     frame.loc[0, "text"] = f"{SECRET} {frame.loc[0, 'text']}"
     frame.to_parquet(tmp_path / "val.parquet", index=False)
     cfg["model"]["dir"] = str(student_dir)
+    cfg["data"]["val_file"] = str(tmp_path / "val.parquet")
     cfg["mlflow"]["enabled"] = mlflow
     cfg["truncation"]["max_lengths"] = [8, 16, 64]
     cfg["truncation"]["band_edges"] = [8, 16]
@@ -27,7 +28,6 @@ def config(tmp_path, student_dir, mlflow=False, study=None):
     if study:
         cfg["optuna"] |= {"storage": study, "study_name": "sweep"}
     cfg["paths"] |= {
-        "val": str(tmp_path / "val.parquet"),
         "data_pipeline": str(PIPELINE_ROOT.parent / "Data-Pipeline"),
         "report": str(tmp_path / "reports" / "sensitivity.md"),
         "report_dir": str(tmp_path / "reports" / "sensitivity"),
@@ -72,6 +72,26 @@ def test_run_writes_the_report_without_text_or_ids(tmp_path, student_dir):
     assert saved == summary and summary["rows_in"] == 60
     assert set(summary["headline"]) >= {"truncation_64_mean_auc", "obfuscation_0.5_missed"}
     assert "mlflow_run_id" not in summary
+
+
+def test_validation_through_load_data(tmp_path, student_dir):
+    """By default validation comes from load_data: the processed val split, on disk here."""
+    import hashlib
+
+    cfg, frame = config(tmp_path, student_dir)
+    processed = tmp_path / "processed"
+    (processed / "wikipedia").mkdir(parents=True)
+    frame.assign(char_len=frame["text"].str.len()).to_parquet(
+        processed / "wikipedia" / "val.parquet", index=False)
+    cfg["data"]["val_file"] = None
+    cfg["data"]["dir"] = str(processed)
+    summary = run(cfg)
+    assert summary["rows_in"] == len(frame) and summary["data_source"] == "load_data"
+    assert summary["data_rev"] is None
+    assert summary["data_sha256"] == hashlib.sha256(
+        (processed / "wikipedia" / "val.parquet").read_bytes()).hexdigest()
+    report = (tmp_path / "reports" / "sensitivity.md").read_text()
+    assert "`load_data`, files on disk" in report
 
 
 def test_findings_are_included(tmp_path, student_dir):

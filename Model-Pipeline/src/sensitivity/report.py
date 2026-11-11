@@ -43,6 +43,15 @@ def _wide(table: pd.DataFrame, column: str, metric: str) -> str:
                     ["label", *[f"{c:g}" for c in pivot.columns]])
 
 
+def _data_source(setup: Mapping[str, Any]) -> str:
+    if setup["data_source"] == "load_data":
+        where = f"DVC revision `{setup['data_rev']}`" if setup["data_rev"] else "files on disk"
+        return f"`load_data`, {where}"
+    if setup["data_source"] == "file":
+        return "a Parquet file (`data.val_file`)"
+    return "given in memory"
+
+
 def setup_section(results: Mapping[str, Any]) -> str:
     setup = results["setup"]
     positives = ", ".join(f"{k} {v}" for k, v in setup["positives"].items())
@@ -50,6 +59,7 @@ def setup_section(results: Mapping[str, Any]) -> str:
             ["max_length (the model's own)", setup["max_length"]],
             ["thresholds", setup["thresholds_source"]],
             ["validation rows", f"{setup['rows']:,} ({positives})"],
+            ["validation data", _data_source(setup)],
             ["validation file sha256", f"`{setup['data_sha256'][:16]}…`"],
             ["code commit", f"`{setup['code_commit']}`"], ["seed", setup["seed"]]]
     return "## Setup\n\n" + md_table(rows, ["", "value"]) + (

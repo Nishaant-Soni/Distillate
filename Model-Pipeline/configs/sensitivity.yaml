@@ -13,7 +13,11 @@ model:
   threshold: 0.5            # per-label decision threshold if the model has no thresholds.json
   max_length: null          # only if the model's meta.json has none
 
+# Validation comes from load_data (src/data/load_data.py), the pipeline's processed val split.
 data:
+  rev: null                 # a Git revision: validation as DVC versioned it there; null = on disk
+  dir: null                 # the processed-data folder; null = Data-Pipeline/data/processed
+  val_file: null            # a validation Parquet to read instead of load_data (offline checks)
   sample: null              # score only N validation rows (quick runs); null = all of them
 
 metrics:
@@ -58,7 +62,6 @@ mlflow:
   experiment: distillate-sensitivity
 
 paths:
-  val: ../Data-Pipeline/data/processed/wikipedia/val.parquet
   data_pipeline: ../Data-Pipeline          # for the substitution table (scripts/obfuscate.py)
   report: reports/sensitivity.md           # committed: numbers, plots, masked examples; no text
   report_dir: reports/sensitivity          # its plots and results.json
