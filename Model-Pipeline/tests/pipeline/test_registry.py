@@ -23,23 +23,6 @@ from src.pipeline import rollback_model as rb  # noqa: E402
 NAME = "distillate-student"
 
 
-@pytest.fixture
-def cfg():
-    return registry.load_config()
-
-
-@pytest.fixture
-def store(tmp_path, monkeypatch):
-    """(client, artifact root) on a fresh SQLite store; no Slack."""
-    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
-    uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
-    client = registry.client(uri)
-    artifacts = (tmp_path / "artifacts").as_uri()
-    client.create_experiment("distillate-student", artifact_location=artifacts)
-    client.create_experiment(reg.REGISTRY_EXPERIMENT, artifact_location=artifacts)
-    return client
-
-
 def training_run(client: MlflowClient) -> str:
     experiment = client.get_experiment_by_name("distillate-student")
     run = client.create_run(experiment.experiment_id, run_name="train")
