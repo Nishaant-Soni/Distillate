@@ -128,3 +128,12 @@ teacher:
     - {prefix: soft_labels/stack-v1/p2-zs-v2b/drift/, source: drift, kind: soft}
     - {prefix: soft_labels/calqwen-v1/p2-zs-v2b/, source: train, kind: calqwen}
     - {prefix: soft_labels/calqwen-v1/p2-zs-v2b/gate/, source: gate, kind: calqwen}
+
+  merge:                                       # merge_teacher_labels: the training table
+    output: data/processed/teacher_labels.parquet
+    teacher_version: stack-v1
+    soft: soft_labels/stack-v1/p2-zs-v2b/      # -> p_<label>, the student's targets
+    raw: teacher/p2-zs-v2b/                    # -> p_<label>_raw
+    calqwen: soft_labels/calqwen-v1/p2-zs-v2b/ # -> p_<label>_calqwen (null to leave it out)
+    tfidf: tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet          # -> tfidf_oof_<label>
+    tfidf_manifest: ../Model-Pipeline/artifacts/oof/tfidf_oof.manifest.json

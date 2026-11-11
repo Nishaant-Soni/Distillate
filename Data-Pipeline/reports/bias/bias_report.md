@@ -62,6 +62,8 @@ n = 21577, toxic rate 11.1%, threshold 0.25, AUC 0.830, F1 0.442, FPR 3.8%, FNR 
 
 ### Wikipedia validation
 
+Length bands are in **characters** (`char_len`: <100, 100-499, 500+), not tokens. The `obfuscation` slice is validation comments whose `has_obfuscation` flag is set (non-alphabetic share above 0.3, set in preprocessing). It is not the synthetic `obfuscation.parquet` set built from gate comments, and not the sensitivity analysis's substitution sweep.
+
 n = 21363, toxic rate 9.6%, threshold 0.25, AUC 0.975, F1 0.793, FPR 2.1%, FNR 21.2%
 
 | Slice | n | Toxic rate | Rate gap (pts) | FPR | FPR gap (pts) | FNR | AUC | Status |

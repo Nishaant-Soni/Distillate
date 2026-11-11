@@ -11,10 +11,13 @@ jinja2                   # apply_chat_template
 huggingface_hub
 google-cloud-storage     # GCS shard store (storage.py)
 
+# Student lane: training harness (src/student). CI installs the CPU build of torch first.
+torch
+mlflow
+iterative-stratification  # temporary seeded split, same method as Data-Pipeline/scripts/split.py
+optuna==5.0.0             # sweep and hyperparameter importance; pinned: the study file format
+
 # Sensitivity analysis (src/sensitivity), on the selected student.
-torch                    # runs a save_pretrained student
 onnxruntime              # runs a CONTRACTS.md §5 package (model.onnx)
 shap                     # token attributions
-optuna                   # hyperparameter importance from the shared study
 matplotlib               # the report's plots
-mlflow                   # plots and metrics logged with the run

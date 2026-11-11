@@ -1,9 +1,12 @@
 # Local copy of 00_prepare_data's output: comment text stays out of git.
-data/
+/data/
 
 # Out-of-fold TF-IDF scores (8.6 MB): stored in the HF shard dataset, see artifacts/oof/tfidf_oof.manifest.json.
 artifacts/oof/tfidf_oof.parquet
 
-# Sensitivity runs' scratch (SHAP selection with ids) and the local MLflow store.
+# Student runs, sensitivity scratch (SHAP selection with ids), downloaded shards, synthetic
+# data, and the local MLflow store. Only the training runs' summaries are ignored under
+# reports/: committed reports (reports/sensitivity.md, reports/sensitivity/) are kept.
 outputs/
 mlruns/
+reports/summaries/
