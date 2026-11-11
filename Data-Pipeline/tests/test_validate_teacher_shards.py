@@ -115,3 +115,14 @@ def test_unreachable_store_fails_when_required(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "get_storage", _unreachable)
     with pytest.raises(TeacherShardError):
         vts.run(teacher_cfg(tmp_path, "valid/", required=True))
+
+def test_missing_package_fails_instead_of_skipping(tmp_path, monkeypatch):
+    storage = vts.teacher_modules(MODEL_PIPELINE)["storage"]
+
+    def missing_package(*args, **kwargs):
+        raise ImportError("cannot import name 'storage' from 'google.cloud'")
+
+    monkeypatch.setattr(storage, "get_storage", missing_package)
+    with pytest.raises(ImportError):
+        vts.run(teacher_cfg(tmp_path, "valid/"))
+
