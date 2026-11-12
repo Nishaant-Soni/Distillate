@@ -134,12 +134,10 @@ the ablation's `distilbert-mixed`, so differences under about 0.0002 are noise.
 `Data-Pipeline/data/splits/`, writing `predictions/{val,gate,bias_eval,h2_eval}.parquet` and
 `predictions/thresholds.json` (the stems in `configs/gate.yaml` as of PR #33).
 
-`kaggle/13_student_ablation_all.ipynb` is the same training and scoring as one committed
-session, without the sweep: the arms run in order of need (mixed, gold, stack, 5 epochs,
-MiniLM, ModernBERT; the attribution arms on request), and an arm starts only if its estimated
-time fits `BUDGET_H`, so a session with little GPU quota left ends cleanly with the arms it
-finished. `ablation_scored.zip` (ids, scores, metrics; no text, no weights) is rewritten after
-every arm.
+**The reported run** is `kaggle/13_student_ablation_all.ipynb`: all eight arms through the
+pipeline entry point (`src/pipeline/run.py`), two at a time on Kaggle's T4 x2, then latency,
+selection, the truncation sweep and the results across arms, in one committed session
+(`docs/pipeline.md`).
 
 **Caveat (applies equally to every soft-label arm):** the TF-IDF out-of-fold models, and so the
 stack, were fitted on raw train, which includes the validation rows' gold labels; and 263
