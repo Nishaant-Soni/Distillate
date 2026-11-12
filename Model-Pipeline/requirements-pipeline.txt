@@ -1,0 +1,27 @@
+# Exact versions for the training image (Model-Pipeline/Dockerfile, src.pipeline.run). The
+# unpinned requirements.txt is for development; these are the versions the tests passed with.
+# torch's Linux wheel from PyPI bundles the CUDA 13 runtime (NVIDIA driver 580 or newer), so
+# the same image trains on a GPU and runs the tests on CPU. For an older driver, install torch
+# from https://download.pytorch.org/whl/cu126 instead.
+torch==2.14.1
+transformers==5.20.2
+tokenizers==0.23.3
+safetensors==0.8.0
+huggingface-hub==2.2.0
+Jinja2==3.1.6
+pandas==3.0.6
+pyarrow==25.0.1
+numpy==2.5.4
+PyYAML==6.0.3
+scikit-learn==1.9.1
+scipy==1.18.1
+google-cloud-storage==3.17.1
+mlflow==3.17.2
+iterative-stratification==0.1.9
+optuna==5.0.0
+onnx==1.23.2
+onnxscript==0.7.2
+onnxruntime==1.31.1
+matplotlib==3.11.2
+dvc[gs]==3.67.1
+pytest==9.1.1

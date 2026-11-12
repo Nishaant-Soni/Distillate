@@ -1,0 +1,22 @@
+# Build context: the repository root (docker build -f Model-Pipeline/Dockerfile .).
+# Kept: the code, configs, artifacts, Data-Pipeline/data/splits, and .git/.dvc metadata.
+.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.pyc
+**/.DS_Store
+.env
+**/*.key.json
+**/*service-account*.json
+Data-Pipeline/data/raw
+Data-Pipeline/data/processed
+Data-Pipeline/data/kaggle
+Data-Pipeline/data/cache
+Data-Pipeline/logs
+Model-Pipeline/outputs
+Model-Pipeline/mlruns
+Model-Pipeline/reports/summaries
+Model-Pipeline/kaggle
+.dvc/cache
+.dvc/tmp

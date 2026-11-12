@@ -152,3 +152,24 @@ paths:
   mlflow_db: mlruns/mlflow.db                  # local SQLite store until the VM's server exists
   mlflow_artifacts: mlruns/artifacts
   reports_dir: reports/summaries
+
+# The pipeline entry point (src/pipeline/run.py, work plan v4 §5.1): the evaluation data and
+# the steps after training.
+pipeline:
+  data_dir: null            # processed-data folder; null = Data-Pipeline/data/processed
+  data_rev: null            # a Git revision to read through DVC; null = the files on disk
+  tables: [gate, h2, bias, obfuscation]
+  gate_config: configs/gate.yaml
+  score_batch_size: 256
+  latency: true             # the package's batch-1 CPU latency (needs package.enabled)
+  latency_threads: 2        # the serving target: 2 vCPUs (work plan v4, Phase 3)
+  latency_requests: 300
+  plots: true
+
+# Selection rule (src/student/select_best.py, work plan v4 §5): among the candidates that pass
+# the bias check and the CPU latency budget, the highest validation mean AUC; candidates within
+# auc_tie of the best count as tied and the higher mean PR-AUC wins.
+select:
+  latency_stat: p95_ms
+  latency_budget_ms: 50     # the serving target
+  auc_tie: 0.0002           # run-to-run noise at one seed (docs/tuning.md)
