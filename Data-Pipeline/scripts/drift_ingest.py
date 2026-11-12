@@ -223,6 +223,23 @@ def _current(dcfg: dict[str, Any]) -> tuple[dict[str, Any], int]:
         raise DriftBatchError("no drift batch in progress: run the release step first")
     return state, int(state["current"])
 
+def _evaluate_last_batch(dcfg: dict[str, Any], state: dict[str, Any]) -> None:
+    """The last batch has no next run to evaluate it, so the first finished-stream run does.
+
+    Done once: the result is kept as state["final_batch_metrics"] and in
+    batch_<last>_final_metrics.json, and later runs leave it alone.
+    """
+    last = dcfg["n_batches"] - 1
+    if state.get("final_batch_metrics") is not None or not _pred_path(dcfg, last).exists():
+        return
+    metrics = evaluate(pd.read_parquet(_pred_path(dcfg, last)), release_batch(dcfg, last),
+                       list(dcfg["eval_labels"]))
+    state["final_batch_metrics"] = {"batch": last, **metrics}
+    atomic_write(_reports(dcfg) / f"batch_{last:02d}_final_metrics.json",
+                 json.dumps(state["final_batch_metrics"], indent=2, default=str))
+    save_state(dcfg, state)
+    logger.info("Evaluated the last drift batch (%d) with its delayed gold labels", last)
+
 
 def step_release(cfg: dict[str, Any]) -> bool:
     """Release the next batch after checking it. False when the stream is finished."""
@@ -230,6 +247,7 @@ def step_release(cfg: dict[str, Any]) -> bool:
     state = load_state(dcfg)
     k = state["next_batch"]
     if k >= dcfg["n_batches"]:
+        _evaluate_last_batch(dcfg, state)
         logger.info("All %d drift batches already released; nothing to do", dcfg["n_batches"])
         return False
     batch = release_batch(dcfg, k)

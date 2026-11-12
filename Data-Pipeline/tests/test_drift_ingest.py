@@ -106,3 +106,16 @@ def test_missing_batch_file_names_it(tmp_path):
     (tmp_path / "drift" / "batch_00.parquet").unlink()
     with pytest.raises(DriftBatchError, match="batch_00.parquet"):
         di.run(cfg)
+
+
+
+def test_finished_stream_evaluates_the_last_batch_once(tmp_path):
+    cfg = setup(tmp_path)
+    di.run(cfg)
+    di.run(cfg)
+    assert di.run(cfg)["skipped"] is True  # the stream is finished...
+    state = json.loads((tmp_path / "reports" / "state.json").read_text())
+    final = state["final_batch_metrics"]
+    assert final["batch"] == 1 and final["toxicity"]["positives"] == 2  # but batch 1 is evaluated
+    assert (tmp_path / "reports" / "batch_01_final_metrics.json").exists()
+    assert di.run(cfg)["skipped"] is True  # and later runs don't redo it
