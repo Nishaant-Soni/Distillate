@@ -1,11 +1,13 @@
 # Gate rule for model candidates (Ruchita). Used by CI (model-ci.yml) and retrain_dag.
-# PLACEHOLDER TOLERANCES: the team fixes these values by Sun Nov 8 (work plan 5.1).
+# Tolerances proposed Nov 7; validation floors added Nov 11 (work plan 5.1). The PR-AUC
+# tolerances follow Nishaant's paired-bootstrap noise on the gate subset (threat about
+# +/-0.034, identity_attack +/-0.021, severe_toxicity +/-0.015, others under +/-0.007).
 
 # File stems in the --candidate, --production and --gold folders (<stem>.parquet).
 splits:
   validation: val
   gate: gate
-  bias: bias
+  bias: bias_eval
 
 # Optional per-split weights (id, weight[, stratum]). Leave null for the full gate set;
 # point gate at artifacts/gate_subset_ids.parquet only when scoring the 20,000-row subset.
@@ -13,12 +15,27 @@ design:
   gate: null
 
 validation:                 # on the Wikipedia validation split
-  min_mean_auc: 0.95
-  min_pr_auc: 0.30          # every label; or a mapping such as {threat: 0.2, toxicity: 0.6}
+  # Floors: gold-only DistilBERT on validation (run distilbert-gold-20261111T073929Z,
+  # mean AUC 0.9901) minus a margin, rounded down. Margin 0.05 for the common labels,
+  # 0.10 for the rare ones, whose validation PR-AUC rests on few positives.
+  min_mean_auc: 0.98
+  min_pr_auc:
+    toxicity: 0.86          # gold-only 0.9194
+    obscene: 0.87           # gold-only 0.9202
+    insult: 0.76            # gold-only 0.8171
+    severe_toxicity: 0.38   # gold-only 0.4873
+    threat: 0.45            # gold-only 0.5526
+    identity_attack: 0.45   # gold-only 0.5575
 
 regression:                 # on the gate set, against the production model
   max_mean_auc_drop: 0.005
-  max_pr_auc_drop: 0.02     # every label; or a per-label mapping
+  max_pr_auc_drop:          # per label, above each label's paired-bootstrap noise
+    toxicity: 0.02
+    obscene: 0.02
+    insult: 0.02
+    severe_toxicity: 0.05
+    identity_attack: 0.05
+    threat: 0.05
 
 bias:                       # on the Civil bias set (identity-annotated test rows)
   label: toxicity           # one of the five Civil labels; FPR at its tuned threshold
@@ -26,3 +43,4 @@ bias:                       # on the Civil bias set (identity-annotated test row
   min_slice_size: 100
   max_fpr_gap_pts: 10.0     # slice FPR minus overall FPR; null disables this check
   max_fpr_rise_pts: 2.0     # slice FPR minus production's for the same slice; null disables
+  report_flag_pts: 5.0      # the bias report's flag level; shown in the gate report only

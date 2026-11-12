@@ -43,6 +43,14 @@ distillate/
 
 **Teacher label shards** (`gs://distillate-mlops-data/`; Hugging Face `distillate-team/distillate-teacher-shards` is a backup with the same paths). Two kinds share one format: raw teacher shards `teacher/<prompt_version>/shard_XXXX.parquet` and **soft-label shards** `soft_labels/<stack_version>/<prompt_version>/shard_XXXX.parquet`, the stack's output and **the student's targets** (never train on raw `teacher/` probabilities). Calibrated-Qwen labels for the ablation's second attribution arm use the same format under `soft_labels/calqwen-v1/<prompt_version>/`. Gate and drift runs sit under `gate/` and `drift/` in each. Columns: `id`, `p_toxicity`, `p_severe_toxicity`, `p_obscene`, `p_threat`, `p_insult`, `p_identity_attack` (float32 in [0,1]), `logit_<label>` for each label (float32), `status` (`ok` / `failed`), `prompt_version`, `model_version`. Each shard has a sibling `shard_XXXX.manifest.json` with `row_count`, `ids_sha256`, `prompt_version`, `model_version` (validators ignore other fields). Training and gate shards are sorted ids cut into shards of up to 5,000 rows; **drift shards are one per batch** (`shard_<k>` holds exactly the ids of batch k in `data/splits/civil_drift_ids.csv`). Full spec: `Model-Pipeline/docs/teacher_prompts_and_shard_spec.md`.
 
+**Merged teacher labels** (`data/processed/teacher_labels.parquet`, written by `merge_teacher_labels` after `validate_teacher_shards` passes; versioned with `data/processed.dvc`): one row per raw Wikipedia training id (159,571). Join it onto the processed train and validation sets by `id`; rows dedupe removed simply drop out. No gate or drift rows. Columns, in this order:
+- `id` (string);
+- `p_<label>` (float32): stack-v1 soft labels, **the student's targets**;
+- `p_<label>_raw` (float32): raw Qwen probabilities, uncalibrated; never a training target;
+- `tfidf_oof_<label>` (float32): out-of-fold TF-IDF scores;
+- `p_<label>_calqwen` (float32): calibrated-Qwen soft labels from `soft_labels/calqwen-v1/p2-zs-v2b/`, for the ablation's attribution arm;
+- `prompt_version`, `model_version` (the soft labels'), `teacher_version` (`stack-v1`).
+
 **Prediction files** (any model, any eval set): `id`, `p_<label>` for all six labels, `model_version`. This is the only thing the evaluation and bias code reads, so it works the same for the TF-IDF baseline, every student, the teacher, and Llama Guard.
 
 ## 3. Code conventions
