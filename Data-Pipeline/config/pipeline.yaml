@@ -137,3 +137,23 @@ teacher:
     calqwen: soft_labels/calqwen-v1/p2-zs-v2b/ # -> p_<label>_calqwen (null to leave it out)
     tfidf: tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet          # -> tfidf_oof_<label>
     tfidf_manifest: ../Model-Pipeline/artifacts/oof/tfidf_oof.manifest.json
+
+drift_ingest:
+  # Phase 2 skeleton of drift_ingest_dag; Phase 3 points service_url at the live endpoint.
+  batches_dir: data/processed/civil/drift
+  manifest: data/splits/civil_drift_ids.csv
+  n_batches: 20
+  batch_size: 2000
+  state_file: reports/drift/state.json         # which batch is next, and what each run did
+  reports_dir: reports/drift
+  service_url: null                            # null: the mock service (v4 section 2.4 format)
+  request_timeout_s: 10
+  mock_threshold: 0.5                          # the live service reads thresholds.json instead
+  low_confidence_margin: 0.1                   # v4 section 2.4
+  eval_labels: [toxicity, obscene, threat, insult, identity_attack]   # Civil: no severe_toxicity
+  schedule: demo                               # demo or real
+  enabled: false                               # true: run on drift_ingest.schedule; false: manual only
+  schedules:
+    demo: "*/5 * * * *"                        # every 5 minutes, for the live demo
+    real: "@weekly"
+
