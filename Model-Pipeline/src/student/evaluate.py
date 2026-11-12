@@ -144,6 +144,9 @@ def measure_latency(package_dir: str | Path, texts: Sequence[str], threads: int 
                                    providers=["CPUExecutionProvider"])
     rng = np.random.default_rng(seed)
     texts = list(texts)
+    if not texts or n < 1:
+        raise ValueError(f"latency needs comments and n >= 1 (got {len(texts)} texts, n={n})")
+    warmup = min(int(warmup), max(len(texts) - 1, 0)) if len(texts) < n + warmup else warmup
     picks = [texts[i] for i in rng.choice(len(texts), size=min(n + warmup, len(texts)),
                                           replace=len(texts) < n + warmup)]
     times, tokens = [], []
