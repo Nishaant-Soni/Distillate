@@ -47,7 +47,7 @@ session on a fresh study file the sampler repeats the same random trials.
 | Hardware | Kaggle, one T4 per worker, fp16 |
 | Time per trial | about 8 minutes per epoch at 128 tokens (Phase 1: 25.3 min for 3 epochs), about twice that at 256: 10 to 60 minutes, about 30 on average |
 | Budget | about 15 GPU-hours in all, about 7.5 per worker: one 12-hour Kaggle session each |
-| Timeout | `TIMEOUT_H = 11` is the session's budget from the sweep's start: a trial starts only if, at the length of the longest trial so far, it would end within it, so a 65-minute trial can't start at hour 10.5 and hit Kaggle's 12-hour limit |
+| Timeout | `TIMEOUT_H = 11` is the session's budget from the sweep's start: a trial starts only if, at the length of the longest trial so far, it would end within it, so a 65-minute trial can't start at hour 10.5 and hit Kaggle's 12-hour limit. The guard is only as long as the longest trial *so far*: a trial longer than all before it (more epochs, 256 tokens) can still overrun, which is why the budget is 11 hours and not 12 |
 
 Disk: only the best trial's weights are kept (`sweep.keep_models: best`); every trial keeps its
 `meta.json`, validation prediction file, metrics and summary.
@@ -121,6 +121,25 @@ same data, seed and settings. Only the listed key changes:
 
 The TF-IDF baseline classifier itself (the grid's first row) is scored by the evaluation code,
 not trained here.
+
+**Same conditions for every arm:** code `d07c861`, seed 42, one run per arm, `data.source=ids`.
+`ids` gives the same training data as `official` (the pipeline's `train.parquet`): the same
+132,388 / 21,363 ids, the same cleaning function, and `sample_weight` 1.0 everywhere (the bias
+step chose reweighting factor 1, `Data-Pipeline/reports/bias/bias_metrics.json`). Run-to-run
+noise at one seed: the tuned recipe gave val mean AUC 0.99364 as sweep trial 26 and 0.99349 as
+the ablation's `distilbert-mixed`, so differences under about 0.0002 are noise.
+
+**Scoring:** in ablation mode the notebook scores each arm right after training on the gate set
+(63,978), the Civil bias set (21,577) and H2 (10,000), by the id lists in
+`Data-Pipeline/data/splits/`, writing `predictions/{val,gate,bias_eval,h2_eval}.parquet` and
+`predictions/thresholds.json` (the stems in `configs/gate.yaml` as of PR #33).
+
+`kaggle/13_student_ablation_all.ipynb` is the same training and scoring as one committed
+session, without the sweep: the arms run in order of need (mixed, gold, stack, 5 epochs,
+MiniLM, ModernBERT; the attribution arms on request), and an arm starts only if its estimated
+time fits `BUDGET_H`, so a session with little GPU quota left ends cleanly with the arms it
+finished. `ablation_scored.zip` (ids, scores, metrics; no text, no weights) is rewritten after
+every arm.
 
 **Caveat (applies equally to every soft-label arm):** the TF-IDF out-of-fold models, and so the
 stack, were fitted on raw train, which includes the validation rows' gold labels; and 263
