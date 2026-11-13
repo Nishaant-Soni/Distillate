@@ -5,7 +5,9 @@
    ``safe.directory`` makes ``git rev-parse`` fail, and ``code_commit()`` silently returns None.
 2. **Only tracked files:** every file in the repository copy is tracked by git, so no comment
    text (local data folders, drift batches), key file or output came in from the build context.
-3. **DVC by revision:** ``load_data(rev=...)``'s read gets past DVC's local state
+3. **No Git config:** ``.git/config`` is left out of the image (a remote URL there can embed
+   a token), so no remote URL is set.
+4. **DVC by revision:** ``load_data(rev=...)``'s read gets past DVC's local state
    (``.dvc/tmp``) to the remote. Without the bucket key it then fails on authentication, which
    passes; a local permission error fails.
 
@@ -46,6 +48,13 @@ def untracked_files(root: Path = REPO_ROOT) -> list[str]:
     return [p for p in out.decode().split("\0") if p]
 
 
+def git_remotes(root: Path = REPO_ROOT) -> list[str]:
+    """Remote URLs in the image's Git config (none: .git/config stays out of the image)."""
+    proc = subprocess.run(["git", "-C", str(root), "config", "--get-regexp", r"remote\..*\.url"],
+                          capture_output=True, text=True)
+    return [line.split(maxsplit=1)[0] for line in proc.stdout.splitlines() if line.strip()]
+
+
 def check_dvc_read(rev: str = "HEAD", path: str = DVC_PATH, root: Path = REPO_ROOT) -> str:
     """'read' with the key, or the remote's error without it; a local failure raises."""
     from src.data.load_data import _dvc_read
@@ -84,6 +93,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         failed = True
     else:
         print("untracked files: none")
+
+    remotes = git_remotes()
+    if remotes or (REPO_ROOT / ".git" / "config").exists():
+        print("FAIL .git/config is in the image (remotes: {})".format(", ".join(remotes) or "none"))
+        failed = True
+    else:
+        print("git config: not in the image")
 
     if not args.skip_dvc:
         try:

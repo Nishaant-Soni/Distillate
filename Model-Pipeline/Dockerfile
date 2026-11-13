@@ -41,7 +41,8 @@ RUN pip install --index-url "${TORCH_INDEX}" "torch==$(sed -n 's/^torch==//p' /t
     && pip install -r /tmp/requirements-pipeline.txt
 
 # The repository: only what Dockerfile.dockerignore lets in (code, configs, artifacts, tests,
-# the id lists, Git and DVC metadata); never data, keys or outputs.
+# the id lists, Git and DVC metadata); never data, keys, outputs, or .git/config (a remote
+# URL there can embed a token).
 WORKDIR /app
 COPY . /app
 # /app belongs to root: the system-wide safe.directory lets the non-root user run git (the

@@ -25,6 +25,9 @@
 !Data-Pipeline/scripts
 !Data-Pipeline/config
 
+# .git/config can hold a token in a remote URL; git (code_commit, ls-files) and DVC's clone
+# by revision work without it.
+.git/config
 # Inside what was let back in: DVC's local state, caches, and any key file.
 .dvc/cache
 .dvc/tmp
