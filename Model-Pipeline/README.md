@@ -121,3 +121,79 @@ The DAG is created paused and is scheduled only when `drift_ingest.enabled` is t
 - `Data-Pipeline/tests/test_drift_ingest.py` (8): one batch per run and evaluation of the previous one, the last batch evaluated once the stream is finished, no text in predictions, the §2.4 response format, flags and `low_confidence`, wrong ids, missing columns, a missing batch file.
 
 All use small made-up data and no network.
+
+## 3. Student training and tuning (Shivam)
+
+The student is a small encoder with six sigmoid outputs, one per label. It is distilled from the stack's soft labels (section 1) and the gold labels, with the mixed recipe tuned once in an Optuna study. Eight arms are then trained under identical conditions, and one is selected by a fixed rule. The details are in four documents:
+
+| Document | What it covers |
+|---|---|
+| [`docs/student.md`](docs/student.md) | The training harness: the loss, data and split, run outputs, thresholds and the ONNX model package |
+| [`docs/tuning.md`](docs/tuning.md) | The Optuna study: search space, sampler, budget, the two workers' merged study, the best values and the 5-epoch check |
+| [`docs/pipeline.md`](docs/pipeline.md) | The single entry point `python -m src.pipeline.run`, the selection rule, the results across arms and where it all runs (Kaggle, Docker, locally) |
+| [`reports/student/phase2/README.md`](reports/student/phase2/README.md) | The reported run: every arm on every evaluation set, the selection and the findings |
+
+### 3.1 Training (`src/student/`)
+
+```text
+loss = α · BCE(student, gold) + (1 − α) · T² · BCE(student / T, stack / T)
+```
+
+The gold term carries `sample_weight`, and rows with a failed soft label are left out of the soft term. Each run keeps its best epoch on validation and tunes one threshold per label on validation (the best F1). It then builds the ONNX package (`model.onnx`, `tokenizer/`, `thresholds.json`, `meta.json` with lineage and file hashes) and stops if ONNX and PyTorch differ by more than 1e-3. Everything is logged to MLflow. Settings are in `configs/student.yaml`.
+
+### 3.2 Tuning (`src/student/sweep.py`, `kaggle/11_student_runs.ipynb`)
+
+One Optuna study (TPE) tuned α, T, learning rate, epochs and maximum length on DistilBERT with the mixed loss. The objective was validation mean AUC; the gate set was never read. The study ran 28 trials over two workers on Kaggle T4s (Shivam and Nishaant) and is stored at `gs://distillate-mlops-data/optuna/distilbert-mixed-v1.db`.
+
+**Best values (trial 26):** α 0.343, T 3.71, learning rate 9.23e-5, 4 epochs, 256 tokens; validation mean AUC 0.99364. 256 tokens won clearly (the top 21 trials). The top three trials are within 0.00004 AUC of each other, so the best values mark a region rather than one point. Every trial peaked at its last epoch, so a check run at 5 epochs was added. It gained +0.0002 on validation (the noise level) and nothing on the gate set or H2.
+
+### 3.3 The reported run (`kaggle/13_student_ablation_all.ipynb`)
+
+All eight arms ran through `src.pipeline.run` with the tuned values in one Kaggle session on T4 x2 (5.9 hours, code `80a4502`, seed 42, the official split). Each arm was trained, then scored on validation, the gate set (H1), Civil H2, the Civil bias set and the obfuscated comments, then checked for bias, timed on CPU and plotted. Mean AUC with 95% bootstrap intervals:
+
+| Arm | Validation | Gate (H1) | Civil (H2) |
+|---|---|---|---|
+| gold only (α = 1) | 0.98937 | 0.9841 [0.9831, 0.9849] | 0.9139 [0.8993, 0.9285] |
+| stack only (α = 0) | 0.99303 | 0.9835 [0.9826, 0.9842] | 0.9359 [0.9225, 0.9471] |
+| mixed (the tuned recipe) | 0.99348 | 0.9848 [0.9840, 0.9854] | 0.9410 [0.9280, 0.9510] |
+| TF-IDF soft labels | 0.99426 | 0.9826 [0.9815, 0.9835] | 0.9081 [0.8895, 0.9252] |
+| calibrated-Qwen soft labels | 0.98834 | 0.9783 [0.9771, 0.9793] | 0.9206 [0.9055, 0.9350] |
+| **mixed, 5 epochs (selected)** | 0.99368 | 0.9845 [0.9836, 0.9852] | 0.9399 [0.9263, 0.9502] |
+| MiniLM-L12, mixed | 0.99187 | 0.9849 [0.9841, 0.9857] | 0.9438 [0.9336, 0.9524] |
+| ModernBERT-base, mixed | 0.99349 | 0.9846 [0.9839, 0.9853] | 0.9384 [0.9233, 0.9498] |
+
+- **Distillation (H2):** mixed vs gold only, +0.027 [+0.013, +0.041] on Civil. On the gate set the AUC gain is small (+0.0007) and within the effect of the shared recipe; the PR-AUC gain (+0.064) is large.
+- **What the LLM adds:** stack vs TF-IDF soft labels, +0.028 [+0.018, +0.038] on H2.
+- **Every arm passes the bias check.**
+- **The thresholds don't transfer to Civil:** H2 AUC is 0.94, but toxicity recall at the validation thresholds is 38%. Phase 3 sets thresholds for news-comment traffic.
+- **Latency:** no fp32 package meets the 50 ms p95 budget (DistilBERT 144 ms, MiniLM 103 ms). The budget applies to the int8 package in Phase 3.
+
+### 3.4 Selection (`src/student/select_best.py`)
+
+The rule: among the candidates that pass the bias check, the highest validation mean AUC, with runs within 0.0002 counted as tied and the tie broken by PR-AUC. The gate set and H2 never choose. Two settings were decided after the run and are recorded in `configs/student.yaml`:
+
+1. Only the tuned recipe competes: DistilBERT at 4 and 5 epochs, MiniLM-L12 and ModernBERT. The other arms are the ablation's controls.
+2. Latency is reported, not enforced.
+
+**Selected: `distilbert-mixed-5ep`** (`student-distilbert-mixed-5ep-20261112T210931Z`, MLflow run `358772663fc34a5e81275c3ed073e598`). It ties ModernBERT on validation AUC and wins on PR-AUC (0.7678). The three candidates are within noise of each other, so the choice is the rule's, not a measured difference. Its package and every arm's prediction files are in `gs://distillate-mlops-data/models/student-distilbert-mixed-5ep-20261112T210931Z/` (`selected_package/` and `phase2_results.zip`). The model card's section 4 describes the training in full.
+
+### 3.5 Running it
+
+```bash
+# from Model-Pipeline/, offline on the tiny model
+python -m src.student.synthetic --out outputs/synthetic
+python -m src.student.train --config configs/smoke.yaml
+pytest tests/student tests/pipeline
+
+# one arm through the whole pipeline (needs the data, section 2.3)
+python -m src.pipeline.run --set run_name=distilbert-mixed
+
+# the training image, from the repository root
+docker build -f Model-Pipeline/Dockerfile -t distillate-train .
+```
+
+The image pins every version (`requirements-pipeline.txt`, CUDA 12.6 torch). CI builds it whenever it can change and runs `src.pipeline.container_check` and `tests/pipeline` inside it (`.github/workflows/model-pipeline-image.yml`).
+
+### 3.6 Tests
+
+`tests/student/` and `tests/pipeline/` (100 tests): the loss, thresholds, the package and its parity check, the sweep's shared-study guard, MLflow logging, the evaluation tables, the selection rule, and every pipeline step end to end on a tiny model. All run offline with made-up data.
