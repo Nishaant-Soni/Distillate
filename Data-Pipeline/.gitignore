@@ -18,3 +18,7 @@ data/kaggle/
 kaggle.json
 
 data/cache/
+
+# drift_ingest_dag run outputs (state, predictions without text, batch records)
+reports/drift/
+
