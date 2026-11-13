@@ -192,17 +192,17 @@ def tracking(cfg: Mapping[str, Any], experiment: str) -> str:
 
 
 def run_exists(run_id: str) -> bool:
-    """Whether the tracking server already has a run with this id (the Kaggle run's)."""
-    from mlflow.exceptions import MlflowException
+    """Whether the tracking store already has a run with this id (the Kaggle run's).
+
+    A search over the experiments we can read, not ``get_run``: the team server's auth answers
+    403, not 404, for a run id it doesn't have.
+    """
     from mlflow.tracking import MlflowClient
 
-    try:
-        MlflowClient().get_run(run_id)
-    except MlflowException as error:
-        if error.error_code == "RESOURCE_DOES_NOT_EXIST":
-            return False
-        raise
-    return True
+    client = MlflowClient()
+    experiments = [e.experiment_id for e in client.search_experiments()]
+    return bool(experiments and client.search_runs(
+        experiments, filter_string=f"attributes.run_id = '{run_id}'", max_results=1))
 
 
 def _log(record: Record, digest: str) -> str:

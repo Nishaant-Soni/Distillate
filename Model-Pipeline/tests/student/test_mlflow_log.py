@@ -67,3 +67,11 @@ def test_skips_an_arm_whose_kaggle_run_is_already_there(records, tmp_path, monke
                       "run_id": existing}
     assert len(mlflow.search_runs(output_format="list",
                                   experiment_names=["test-student"])) == 1
+
+
+def test_an_unknown_run_id_is_not_an_error(tmp_path, monkeypatch):
+    from src.student.mlflow_log import run_exists, tracking
+
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    tracking(local_cfg(tmp_path), "test-student")
+    assert run_exists("0" * 32) is False
