@@ -15,3 +15,6 @@ google-cloud-storage     # GCS shard store (storage.py)
 torch
 mlflow
 iterative-stratification  # temporary seeded split, same method as Data-Pipeline/scripts/split.py
+
+fairlearn==0.15.0        # Phase 2 bias metrics (src/eval/bias.py)
+matplotlib               # bias plots
