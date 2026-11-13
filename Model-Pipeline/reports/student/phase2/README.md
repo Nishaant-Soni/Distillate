@@ -57,7 +57,12 @@ the choice among them is the rule's, not a measured difference.
 ## Findings
 
 **H1, in-domain (gate set).** Distillation adds little AUC and a lot of PR-AUC: mixed vs gold
-+0.0007 [+0.0000, +0.0013] mean AUC, +0.064 [+0.051, +0.075] mean PR-AUC.
++0.0007 [+0.0000, +0.0013] mean AUC, +0.064 [+0.051, +0.075] mean PR-AUC. **Caveat on the AUC
+gain:** every arm reuses the recipe tuned for the mixed loss (the v4 plan), so the gold arm
+trains at mixed's learning rate and epochs. On its own recipe, gold-only reached validation
+mean AUC 0.9901 (`distilbert-gold-20261111T073929Z`, the run behind the `gate.yaml` floors),
+against 0.98937 here: about 0.0007, the size of the whole H1 AUC gain. The in-domain AUC gain
+is within the effect of the recipe choice; the PR-AUC gain and H2 are far larger and stand.
 
 **H2, cross-domain (Civil Comments).** The gain is large: mixed vs gold +0.027 [+0.013,
 +0.041] mean AUC (0.9410 vs 0.9139).
@@ -96,6 +101,13 @@ distilled arm still improves at its last epoch.
 
 **Robustness.** Toxicity recall on the 3,000 obfuscated toxic gate comments falls from about
 0.88 to 0.65 for DistilBERT (0.877 → 0.718 for ModernBERT, 0.905 → 0.705 for MiniLM).
+
+**The thresholds don't transfer to Civil.** The validation-tuned thresholds keep their
+precision on H2 but lose most of the recall, while H2 AUC is 0.94: the ranking transfers, the
+operating point doesn't. Selected model on H2: toxicity recall 38% (306 of 799, FPR 1.8%),
+obscene 37% (21 of 57), insult 21% (125 of 583), identity_attack 3 of 71, threat 0 of 28
+(`plots/confusion_distilbert-mixed-5ep_h2_eval.png`). Phase 3: thresholds set on Civil or the
+drift data for news-comment traffic.
 
 **Truncation** (DistilBERT mixed, gate set): 256 tokens 0.9848, 128 tokens 0.9835 (−0.0013),
 64 tokens 0.9792.

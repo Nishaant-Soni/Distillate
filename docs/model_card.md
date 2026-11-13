@@ -110,13 +110,21 @@ study; it is the one selected, though its gain over 4 epochs (+0.0002) is at the
 **Thresholds.** Per label, F1-maximising on validation, within [0.01, 0.99]
 (`thresholds.json`): toxicity 0.351, severe_toxicity 0.225, obscene 0.207, threat 0.232,
 insult 0.325, identity_attack 0.290. Validation macro-F1 0.727 at these thresholds (0.675 at
-0.5).
+0.5). **They don't transfer to Civil Comments:** on H2 the ranking holds (mean AUC 0.94) but
+recall at these thresholds falls to 38% for toxicity, 21% for insult, 3 of 71 for
+identity_attack and 0 of 28 for threat. Thresholds for news-comment traffic must be set on
+Civil or drift data (Phase 3).
 
 **Arms trained** (identical data, seed and tuned values; only the named setting changes):
 gold-only (alpha = 1), stack only (alpha = 0), mixed, the attribution arms (gold plus TF-IDF
 out-of-fold soft labels; gold plus calibrated-Qwen soft labels), mixed at 5 epochs, and the
 mixed recipe on MiniLM-L12 and ModernBERT-base. Results: section 6 and the Phase 2 results
-README.
+README. **Caveat:** every arm reuses the recipe tuned for the mixed loss, as planned, so the
+gold-only arm trains at mixed's learning rate and epochs. On its own recipe gold-only reached
+validation mean AUC 0.9901, against 0.98937 here: about 0.0007, the size of the whole in-domain
+AUC gain of distillation (+0.0007 [+0.0000, +0.0013] on the gate set). That gain is within the
+effect of the recipe choice; the PR-AUC gain (+0.064) and the cross-domain gain (+0.027 on
+H2) are far larger and stand.
 
 **Selection** (`select_best.py`, `configs/student.yaml` `select:`). Among the candidates that
 pass the bias check, the highest validation mean AUC, ties within 0.0002 (the measured
