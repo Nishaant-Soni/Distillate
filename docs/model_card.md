@@ -422,7 +422,10 @@ TODO (Ruchita). Link `reports/bias/bias_report_phase2.md`.
   `config/identity_terms.txt`, which misses unlisted references and matches innocent uses.
 - **Rater bias:** gold labels come from crowd raters, whose own biases are in the labels.
 - **Missing groups:** no age or location fields, so those groups are not evaluated.
-- **Obfuscation:** character-level attacks can lower recall. TODO: quantify.
+- **Obfuscation:** character-level attacks lower recall quickly, and the model passes the
+  changed comments as clean rather than flagging them: with 4% of characters swapped for
+  look-alikes it misses 15% of the toxic validation comments it caught when clean, and with 21%
+  it misses 54% (threat 98%). See section 7.4.
 - **Rare labels:** threat and identity_attack have few positives, so their metrics are noisy.
 - **Teacher dependence:** the soft labels blend a gold-trained TF-IDF model with Qwen, so they
   carry gold-label information; bias in either can pass into the student.
@@ -458,4 +461,4 @@ scores and metrics.
 | 2026-11-11 | Sections 3 (teacher and soft labels) and 7 (sensitivity analysis, 7.1 filled) (Nishaant) |
 | 2026-11-13 | Section 3: the ablation's attribution results (paired intervals), the leak check's result, interval and verdict, the validation caveat's wording on what the stack was fitted on; section 7: the selected student (Nishaant) |
 | 2026-11-13 | Section 4 (training), section 1 version and architecture, student base model (Shivam) |
-| 2026-11-13 | Section 7.2 to 7.5: the sensitivity run's results and findings, with its data revision (Nishaant) |
+| 2026-11-13 | Section 7.2 to 7.5: the sensitivity run's results and findings, with its data revision and MLflow run; section 10's obfuscation limit quantified from section 7.4 (Nishaant) |
