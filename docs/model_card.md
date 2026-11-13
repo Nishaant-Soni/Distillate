@@ -18,7 +18,7 @@
 
 - **Name:** `distillate-student` (MLflow registered model; aliases `staging` and `production`).
 - **Version:** `student-distilbert-mixed-5ep-20261112T210931Z` (training MLflow run
-  `358772663fc34a5e81275c3ed073e598`, code `80a4502`). The registered MLflow model version
+  `ab34619a27e84b07aae044e3a414c0be` on the team server, code `80a4502`). The registered MLflow model version
   is assigned when the gate registers it (Phase 3 CI).
 - **Type:** multi-label text classifier, six sigmoid outputs (`toxicity`, `severe_toxicity`,
   `obscene`, `threat`, `insult`, `identity_attack`).
@@ -152,8 +152,10 @@ time. Phase 3: int8 with the parity check (validation AUC within 0.002), then Mi
 
 **Compute.** Kaggle, NVIDIA T4, fp16. The selected run: 71 minutes of training. The Phase 2
 run of all eight arms: 5.9 hours on two T4s (`kaggle/13_student_ablation_all.ipynb`, code
-`80a4502`). MLflow experiment `distillate-student-ablation`, run
-`358772663fc34a5e81275c3ed073e598` (in the session's store, the Kaggle version's output).
+`80a4502`). MLflow experiment `distillate-student-ablation` on the team server, run
+`ab34619a27e84b07aae044e3a414c0be`, with the other seven arms and the selection, logged from
+the committed records (`src/student/mlflow_log.py`; the session's own store, where it was run
+`358772663fc34a5e81275c3ed073e598`, stayed on Kaggle; each run is tagged `kaggle_run_id`).
 
 ## 5. Evaluation data
 
@@ -287,3 +289,4 @@ scores and metrics.
 | TODO | Skeleton created (Ruchita) |
 | TODO | Review fixes: eval-set sizes, data-level gap range, section 10 teacher wording, Qwen licence (Ruchita) |
 | 2026-11-13 | Section 4 (training), section 1 version and architecture, student base model (Shivam) |
+| 2026-11-13 | Sections 1 and 4: the selected run's id on the team MLflow server; section 4's tie rule as a lower bound on noise (Nishaant) |

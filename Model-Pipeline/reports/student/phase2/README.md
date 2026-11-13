@@ -37,7 +37,8 @@ tuned mixed recipe (α 0.343, T 3.71, lr 9.23e-5, 256 tokens) trained for 5 epoc
 mean AUC 0.99368, PR-AUC 0.7678. Gate set 0.9845 [0.9836, 0.9852]; Civil H2 0.9399 [0.9263,
 0.9502]. Bias check passed (worst slice +4.6 FPR points, `race_or_ethnicity:white`, under the
 5-point flag). Gate report: passed (validation floors and bias; no production model yet).
-MLflow run `358772663fc34a5e81275c3ed073e598`.
+MLflow run `ab34619a27e84b07aae044e3a414c0be` (team server, experiment
+`distillate-student-ablation`; Kaggle run `358772663fc34a5e81275c3ed073e598`).
 
 **The rule** (decided Nov 13, after the run, and recorded in `configs/student.yaml`):
 
