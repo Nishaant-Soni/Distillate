@@ -84,7 +84,17 @@ The 18 weights (`Model-Pipeline/artifacts/stack/stack_p2-zs-v2b.json`) were fitt
 
 Neither input alone is clearly better out of domain: on the drift stream the raw teacher scores 0.882 mean AUC and TF-IDF 0.887, while the stack scores 0.924. That the combination gains most on unfamiliar text is consistent with TF-IDF depending on Wikipedia's vocabulary while Qwen was never fitted to these labels, so the two make different errors there. This is an interpretation, not something the runs tested.
 
-The stack's weights are not comparable across its two inputs, whose logits are on different scales, so the held-out gains above, not the weights, measure what Qwen adds. How much of the *student's* quality is due to the LLM is measured by the ablation (section 6): the stack arm against the TF-IDF arm, and against the calibrated-teacher arm below. TODO (Nishaant): the ablation numbers.
+The stack's weights are not comparable across its two inputs, whose logits are on different scales, so the held-out gains above, not the weights, measure what Qwen adds. How much of the *student's* quality is due to the LLM is measured by the ablation (section 6; `Model-Pipeline/reports/student/phase2/results.md`). The like-for-like comparisons are between arms trained with the same loss (gold plus soft labels, α 0.343, T 3.71), differing only in where the soft labels come from:
+
+| Soft labels (DistilBERT, mixed loss) | Gate set mean AUC [95% CI] | Civil H2 mean AUC [95% CI] |
+|---|---|---|
+| Stack (`distilbert-mixed`) | 0.9848 [0.9840, 0.9854] | 0.9410 [0.9280, 0.9510] |
+| TF-IDF out-of-fold (`distilbert-tfidf`) | 0.9826 [0.9815, 0.9835] | 0.9081 [0.8895, 0.9252] |
+| Calibrated Qwen (`distilbert-calqwen`) | 0.9783 [0.9771, 0.9793] | 0.9206 [0.9055, 0.9350] |
+
+* **Stack against TF-IDF, the part creditable to the LLM:** +0.0022 mean AUC on the gate set and +0.033 on Civil, with non-overlapping intervals on both. As on the teacher's own held-out rows, Qwen's contribution is small in-domain and largest on shifted text.
+* **Qwen alone is not a better teacher than TF-IDF.** Calibrated Qwen against TF-IDF, paired bootstrap: −0.0043 [−0.0053, −0.0034] on the gate set and +0.0125 [−0.0080, +0.0329] on Civil, where the interval includes zero. What the LLM adds reaches the student through the stack, combined with TF-IDF.
+* The intervals in the table are per arm; paired intervals for the stack-against-TF-IDF difference need the arms' prediction files and will be added. `results.md`'s paired "stack − TF-IDF" row compares the stack-only arm (α 0) with the TF-IDF arm (α 0.343), so it mixes the teacher with the loss and is not used here.
 
 **No training comment's soft label comes from a model that saw its own gold label.** TF-IDF scores for training comments are out-of-fold (five folds, seed 42); the 157,571 training comments outside the pilot get the frozen stack; the 2,000 pilot comments, on which the stack was fitted, get five-fold cross-fitted outputs; test and drift comments get the frozen stack and the full-train TF-IDF model. See the validation caveat under *Known limits*.
 
@@ -132,7 +142,9 @@ Per label, AUC / PR-AUC:
 
 * **Zero-shot judgments of one 4-billion-parameter model**, not human labels, and not fine-tuned on this task.
 * **They depend on TF-IDF**, and so on its gold-label training (above). Qwen's measured contribution is largest on shifted data.
-* **Validation caveat (the soft-label arms' validation numbers may be optimistic).** The out-of-fold TF-IDF scores and the stack were fitted on raw train, which includes the official validation split's rows and gold labels, and 263 of the 2,000 pilot comments are validation comments. A training comment's soft label never comes from a model that saw *that* comment, but it can carry a little information about the validation labels, so validation scores of students trained on soft labels may be slightly optimistic, and tuning on validation may lean slightly toward lower α. Gate-set, H2 and bias-set numbers are unaffected: no teacher-side model saw those rows' labels. Check: the validation-to-gate drop of the mixed arm against the gold-only arm, which uses no teacher. TODO (Nishaant): the result, after the ablation.
+* **Validation caveat (the soft-label arms' validation numbers are optimistic).** The out-of-fold TF-IDF models were fitted on raw train, which includes the official validation split's rows and gold labels, and the stack and the calibrated-Qwen Platt fits used the 2,000 pilot comments, 263 of which are validation comments. A training comment's soft label never comes from a model that saw *that* comment, but it can carry a little information about the validation labels, so validation scores of students trained on soft labels may be optimistic, and tuning on validation may lean slightly toward lower α. Gate-set, H2 and bias-set numbers are unaffected: no teacher-side model saw those rows' labels.
+
+  **Check, after the ablation** (validation-to-gate drop in mean AUC, `results.md`): gold-only 0.0053; mixed 0.0087; stack only 0.0096; calibrated Qwen 0.0101; TF-IDF 0.0117. Every soft-label arm drops 0.003 to 0.006 more than gold-only, and the arm most exposed to the leak (TF-IDF) drops most, as the leak predicts. But calibrated Qwen, which touches it only through the 263 pilot comments, also drops 0.0101, so the leak is not the whole difference. **Verdict:** soft-label arms' validation AUC is optimistic by up to about 0.003 to 0.006 relative to gold-only, so gold-only and soft-label arms are compared on the gate set and H2, never on validation. Arms with the *same* teacher are affected about equally, which is why the selection (section 4) compares only the tuned recipe's architectures, all trained on the stack: validation still ranks them fairly, while the TF-IDF arm, whose validation AUC was the highest (0.99426) but whose gate and H2 scores are lower than the mixed arm's, is not a candidate. A bootstrap interval for the drop difference needs the prediction files and will be added.
 * **Weaker on the test split than on training comments**: raw Qwen's mean AUC is 0.959 on the gate subset against 0.975 on training comments, mostly for toxicity, obscene and insult. Quote test-split numbers.
 * **Rare labels**: severe_toxicity, threat and identity_attack are 0.3% to 1% of comments, and their PR-AUC is low, though the stack improves it.
 * **Domain**: English Wikipedia talk-page comments. Over the same five labels the stack's mean AUC is 0.981 on the Wikipedia gate subset (weighted) and 0.924 on the Civil drift stream (unweighted). Civil gold labels are rater fractions thresholded at 0.5.
@@ -213,7 +225,7 @@ TODO (Ruchita): recall on the 3,000 obfuscated toxic gate comments versus their 
 
 How the selected student's quality depends on its hyperparameters, which words drive its predictions, and how it holds up on short inputs and obfuscated text. Generated by `python -m src.sensitivity.run` (`Model-Pipeline/src/sensitivity/`); the full report, with plots and masked examples, is `Model-Pipeline/reports/sensitivity.md`, and the run is logged to MLflow (experiment `distillate-sensitivity`).
 
-**Everything is on Wikipedia validation**, the split for choosing and diagnosing; the gate set is for final numbers only. Validation is read through `load_data` at a recorded DVC revision, and the report records that revision and the validation file's SHA-256. Metrics are unweighted; AUC and PR-AUC rank on logits. TODO (Nishaant): the selected student's `model_version` and the DVC revision used.
+**Everything is on Wikipedia validation**, the split for choosing and diagnosing; the gate set is for final numbers only. Validation is read through `load_data` at a recorded DVC revision, and the report records that revision and the validation file's SHA-256. Metrics are unweighted; AUC and PR-AUC rank on logits. The student analysed is the selected one, `student-distilbert-mixed-5ep-20261112T210931Z` (section 4). It was trained for 5 epochs, one more than the study's range (1 to 4), so section 7.1's importances describe the space it was tuned in rather than its exact setting. TODO (Nishaant): the DVC revision, recorded at the run.
 
 ### 7.1 Hyperparameter importance
 
@@ -333,3 +345,4 @@ scores and metrics.
 | TODO | Skeleton created (Ruchita) |
 | TODO | Review fixes: eval-set sizes, data-level gap range, section 10 teacher wording, Qwen licence (Ruchita) |
 | 2026-11-11 | Sections 3 (teacher and soft labels) and 7 (sensitivity analysis, 7.1 filled) (Nishaant) |
+| 2026-11-13 | Section 3: the ablation's attribution results, the leak check's result and verdict, the validation caveat's wording on what the stack was fitted on; section 7: the selected student (Nishaant) |
