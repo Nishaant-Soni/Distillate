@@ -30,16 +30,16 @@ Bootstrap: 1000 resamples (95% percentile intervals). Thresholds: each arm's own
 
 ## Validation, the leak check, robustness, latency
 
-| Arm | Val mean AUC | Val mean PR-AUC | Val-to-gate AUC drop | Obfuscation toxicity recall (orig -> obf) | Latency p50 / p95 (ms) | Best epoch |
+| Arm | Val mean AUC | Val mean PR-AUC | Val-to-gate AUC drop | Obfuscation toxicity recall (orig -> obf) | Latency p50 / p95 (ms) | Best epoch (from 1) |
 |---|---|---|---|---|---|---|
-| distilbert-gold | 0.98937 | 0.7033 | 0.0053 | 0.900 -> 0.649 | 30.2 / 146.3 | 1 |
-| distilbert-stack | 0.99303 | 0.7559 | 0.0096 | 0.808 -> 0.559 | 31.0 / 145.7 | 3 |
-| distilbert-mixed | 0.99348 | 0.7646 | 0.0087 | 0.880 -> 0.653 | 29.8 / 146.3 | 3 |
-| distilbert-tfidf | 0.99426 | 0.7788 | 0.0117 | 0.884 -> 0.680 | 30.8 / 146.6 | 3 |
-| distilbert-calqwen | 0.98834 | 0.6982 | 0.0101 | 0.746 -> 0.647 | 30.1 / 146.4 | 1 |
-| distilbert-mixed-5ep | 0.99368 | 0.7678 | 0.0092 | 0.880 -> 0.655 | 30.4 / 144.3 | 4 |
-| minilm-mixed | 0.99187 | 0.7305 | 0.0069 | 0.905 -> 0.705 | 19.5 / 102.9 | 3 |
-| modernbert-mixed | 0.99349 | 0.7615 | 0.0089 | 0.877 -> 0.718 | 75.1 / 373.4 | 3 |
+| distilbert-gold | 0.98937 | 0.7033 | 0.0053 | 0.900 -> 0.649 | 30.2 / 146.3 | 2 |
+| distilbert-stack | 0.99303 | 0.7559 | 0.0096 | 0.808 -> 0.559 | 31.0 / 145.7 | 4 |
+| distilbert-mixed | 0.99348 | 0.7646 | 0.0087 | 0.880 -> 0.653 | 29.8 / 146.3 | 4 |
+| distilbert-tfidf | 0.99426 | 0.7788 | 0.0117 | 0.884 -> 0.680 | 30.8 / 146.6 | 4 |
+| distilbert-calqwen | 0.98834 | 0.6982 | 0.0101 | 0.746 -> 0.647 | 30.1 / 146.4 | 2 |
+| distilbert-mixed-5ep | 0.99368 | 0.7678 | 0.0092 | 0.880 -> 0.655 | 30.4 / 144.3 | 5 |
+| minilm-mixed | 0.99187 | 0.7305 | 0.0069 | 0.905 -> 0.705 | 19.5 / 102.9 | 4 |
+| modernbert-mixed | 0.99349 | 0.7615 | 0.0089 | 0.877 -> 0.718 | 75.1 / 373.4 | 4 |
 
 **Leak check** (docs/tuning.md): validation-to-gate mean AUC drop 0.0087 for mixed vs 0.0053 for gold (difference +0.0034; PR-AUC difference -0.0022). A clearly larger drop for mixed would mean the validation labels in the teacher's inputs matter.
 
@@ -49,12 +49,12 @@ Bootstrap: 1000 resamples (95% percentile intervals). Thresholds: each arm's own
 |---|---|---|---|---|
 | distilbert-mixed - distilbert-gold | gate | +0.0007 [+0.0000, +0.0013] | 0.983 | +0.0635 [+0.0510, +0.0748] |
 | distilbert-mixed - distilbert-gold | h2_eval | +0.0271 [+0.0125, +0.0414] | 1.000 | +0.0290 [-0.0141, +0.0645] |
-| distilbert-stack - distilbert-tfidf | gate | +0.0009 [+0.0005, +0.0014] | 1.000 | +0.0215 [+0.0145, +0.0286] |
-| distilbert-stack - distilbert-tfidf | h2_eval | +0.0278 [+0.0181, +0.0382] | 1.000 | +0.0304 [+0.0061, +0.0506] |
+| distilbert-mixed - distilbert-tfidf | gate | +0.0022 [+0.0017, +0.0027] | 1.000 | +0.0357 [+0.0291, +0.0421] |
+| distilbert-mixed - distilbert-tfidf | h2_eval | +0.0329 [+0.0235, +0.0440] | 1.000 | +0.0548 [+0.0292, +0.0750] |
 | distilbert-calqwen - distilbert-tfidf | gate | -0.0043 [-0.0053, -0.0034] | 0.000 | -0.0129 [-0.0256, -0.0011] |
 | distilbert-calqwen - distilbert-tfidf | h2_eval | +0.0125 [-0.0080, +0.0329] | 0.882 | -0.0377 [-0.0814, +0.0085] |
-| distilbert-stack - distilbert-calqwen | gate | +0.0052 [+0.0046, +0.0060] | 1.000 | +0.0344 [+0.0239, +0.0454] |
-| distilbert-stack - distilbert-calqwen | h2_eval | +0.0153 [+0.0010, +0.0304] | 0.984 | +0.0682 [+0.0266, +0.1007] |
+| distilbert-mixed - distilbert-calqwen | gate | +0.0065 [+0.0058, +0.0073] | 1.000 | +0.0486 [+0.0386, +0.0590] |
+| distilbert-mixed - distilbert-calqwen | h2_eval | +0.0204 [+0.0062, +0.0357] | 0.998 | +0.0926 [+0.0505, +0.1269] |
 | distilbert-mixed - distilbert-stack | gate | +0.0013 [+0.0011, +0.0015] | 1.000 | +0.0142 [+0.0098, +0.0185] |
 | distilbert-mixed - distilbert-stack | h2_eval | +0.0051 [+0.0030, +0.0072] | 1.000 | +0.0244 [+0.0124, +0.0367] |
 

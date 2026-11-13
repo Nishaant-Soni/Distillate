@@ -10,7 +10,10 @@ bootstrap intervals, and one selected.
   validation).
 * **Selection:** rerun from the run's outputs with the rule as decided after the run
   (`configs/student.yaml` `select:`, below); the results tables are unchanged by it (they were
-  rebuilt from `phase2_results.zip` and `results.md` matches the session's exactly).
+  rebuilt from `phase2_results.zip` and `results.md` matches the session's exactly). `results.md`
+  was then rebuilt from the same zip with the teacher comparisons paired like for like (mixed
+  against TF-IDF and calibrated Qwen, same loss; `src/eval/results.py` `PAIRS`) and the best
+  epoch counted from 1; every other number is unchanged.
 
 ## Files
 
@@ -67,11 +70,13 @@ is within the effect of the recipe choice; the PR-AUC gain and H2 are far larger
 **H2, cross-domain (Civil Comments).** The gain is large: mixed vs gold +0.027 [+0.013,
 +0.041] mean AUC (0.9410 vs 0.9139).
 
-**What the LLM adds** (stack vs TF-IDF soft labels, the only gap creditable to the LLM): +0.0009
-[+0.0005, +0.0014] on the gate set and **+0.028 [+0.018, +0.038] on H2**. Calibrated Qwen alone
-is worse than TF-IDF in-domain (−0.0043) and not clearly better on H2 (+0.013 [−0.008,
-+0.033]); the stack beats both of its parts (vs calibrated Qwen: +0.015 [+0.001, +0.030] on H2).
-Gold labels on top of the stack help on both sets (mixed vs stack: +0.0013 gate, +0.0051 H2).
+**What the LLM adds** (mixed vs TF-IDF: stack against TF-IDF soft labels, both with the mixed
+loss at the tuned α, the only gap creditable to the LLM): +0.0022 [+0.0017, +0.0027] on the gate
+set and **+0.033 [+0.024, +0.044] on H2**. Calibrated Qwen alone is worse than TF-IDF in-domain
+(−0.0043) and not clearly better on H2 (+0.013 [−0.008, +0.033]); the stack beats both of its
+parts (mixed vs calibrated Qwen: +0.020 [+0.006, +0.036] on H2). The stack-only arm (α 0) is
+compared only with mixed, since against the α 0.343 arms it would mix the teacher with the loss:
+gold labels on top of the stack help on both sets (mixed vs stack: +0.0013 gate, +0.0051 H2).
 
 **Architectures** (same recipe and tuned values, tuned on DistilBERT):
 
