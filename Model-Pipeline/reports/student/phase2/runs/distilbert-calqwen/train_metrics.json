@@ -1,0 +1,65 @@
+{
+  "toxicity": {
+    "n": 21363,
+    "n_pos": 2059.0,
+    "failure_rate": 0.0,
+    "auc": 0.981252,
+    "pr_auc": 0.890901,
+    "ece": 0.021689,
+    "brier": 0.031904
+  },
+  "severe_toxicity": {
+    "n": 21363,
+    "n_pos": 212.0,
+    "failure_rate": 0.0,
+    "auc": 0.988867,
+    "pr_auc": 0.442725,
+    "ece": 0.003422,
+    "brier": 0.007242
+  },
+  "obscene": {
+    "n": 21363,
+    "n_pos": 1136.0,
+    "failure_rate": 0.0,
+    "auc": 0.990948,
+    "pr_auc": 0.891435,
+    "ece": 0.011816,
+    "brier": 0.017667
+  },
+  "threat": {
+    "n": 21363,
+    "n_pos": 63.0,
+    "failure_rate": 0.0,
+    "auc": 0.996239,
+    "pr_auc": 0.632853,
+    "ece": 0.00108,
+    "brier": 0.001809
+  },
+  "insult": {
+    "n": 21363,
+    "n_pos": 1061.0,
+    "failure_rate": 0.0,
+    "auc": 0.985175,
+    "pr_auc": 0.790905,
+    "ece": 0.012714,
+    "brier": 0.020711
+  },
+  "identity_attack": {
+    "n": 21363,
+    "n_pos": 188.0,
+    "failure_rate": 0.0,
+    "auc": 0.987531,
+    "pr_auc": 0.540247,
+    "ece": 0.003207,
+    "brier": 0.006062
+  },
+  "mean": {
+    "n": 21363,
+    "n_pos": null,
+    "failure_rate": 0.0,
+    "auc": 0.988335,
+    "pr_auc": 0.698178,
+    "ece": 0.008988,
+    "brier": 0.014232
+  }
+}

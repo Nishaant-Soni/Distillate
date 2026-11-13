@@ -1,0 +1,128 @@
+{
+  "steps": {
+    "score": {
+      "status": "ok",
+      "seconds": 136.4
+    },
+    "gold": {
+      "status": "ok",
+      "seconds": 1.4
+    },
+    "metrics": {
+      "status": "ok",
+      "seconds": 0.8
+    },
+    "gate": {
+      "status": "ok",
+      "seconds": 0.6
+    },
+    "plots": {
+      "status": "ok",
+      "seconds": 2.5
+    },
+    "mlflow": {
+      "status": "ok",
+      "seconds": 0.1
+    }
+  },
+  "errors": {},
+  "data": {
+    "data_hash": "c0bee368db8e4ac59c6556b78812774839510be3dca62cd8112fbca6aa133e2d",
+    "files": {
+      "wikipedia/gate.parquet": "b43df91f7a735cd1365dd020e34b536efac48356106fb18ea14bc6838b88b4fd",
+      "civil/h2_eval.parquet": "10ab4704ee63d862cd836ddeb60c4aa6575651b8a2fad3e98610c405338bc829",
+      "civil/bias_eval.parquet": "d6a646edd7330a3d871268f3f193f278a44d0cc6a5e5c4407f3ee12d9f7bbc27",
+      "obfuscation.parquet": "05bcd791f01c1793354d7b3d95293a3763f399a0a2c5e87521f67d10ec8a8440"
+    },
+    "rev": null,
+    "rows": {
+      "gate": 63978,
+      "h2": 10000,
+      "bias": 21577,
+      "obfuscation": 3000
+    }
+  },
+  "run_dir": "/kaggle/working/student/distilbert-stack-20261112T181004Z",
+  "run_name": "distilbert-stack-20261112T181004Z",
+  "model_version": "student-distilbert-stack-20261112T181004Z",
+  "best_val_mean_auc": 0.9930323846652586,
+  "best_val_mean_pr_auc": 0.7559177475039142,
+  "package": {
+    "status": "ok",
+    "dir": "/kaggle/working/student/distilbert-stack-20261112T181004Z/package",
+    "onnx_parity": 3.814697265625e-06
+  },
+  "duration_s": 3588.6,
+  "scoring": {
+    "model_version": "student-distilbert-stack-20261112T181004Z",
+    "code_commit": "80a4502d97d882ddf7de90c87cd3db743bcedb36",
+    "device": "cuda",
+    "fp16": true,
+    "files": {
+      "gate": {
+        "rows": 63978,
+        "seconds": 96.6
+      },
+      "h2_eval": {
+        "rows": 10000,
+        "seconds": 10.0
+      },
+      "bias_eval": {
+        "rows": 21577,
+        "seconds": 25.9
+      },
+      "obfuscation": {
+        "rows": 3000,
+        "seconds": 3.5
+      }
+    }
+  },
+  "gold_rows": {
+    "val": 21363,
+    "gate": 63978,
+    "h2_eval": 10000,
+    "bias_eval": 21577,
+    "obfuscation": 3000
+  },
+  "headline": {
+    "bias_eval": {
+      "mean_auc": 0.9205624162761998,
+      "mean_pr_auc": 0.4051037120070182,
+      "macro_f1": 0.2929471128077415
+    },
+    "gate": {
+      "mean_auc": 0.983467902064127,
+      "mean_pr_auc": 0.6724162263859444,
+      "macro_f1": 0.6124018406342056
+    },
+    "h2_eval": {
+      "mean_auc": 0.9358737288917677,
+      "mean_pr_auc": 0.3757261975535219,
+      "macro_f1": 0.2514739427930148
+    },
+    "obfuscation": {
+      "mean_auc": 0.8079345739221141,
+      "mean_pr_auc": 0.5785679635730562,
+      "macro_f1": 0.5344152050869524
+    },
+    "val": {
+      "mean_auc": 0.9930323846652586,
+      "mean_pr_auc": 0.7559177475039142,
+      "macro_f1": 0.7155353343166659
+    }
+  },
+  "gate": {
+    "passed": true,
+    "failed_checks": [],
+    "bias_passed": true
+  },
+  "plots": {
+    "files": [
+      "/kaggle/working/student/distilbert-stack-20261112T181004Z/plots/confusion_val.png",
+      "/kaggle/working/student/distilbert-stack-20261112T181004Z/plots/confusion_gate.png",
+      "/kaggle/working/student/distilbert-stack-20261112T181004Z/plots/confusion_h2_eval.png",
+      "/kaggle/working/student/distilbert-stack-20261112T181004Z/plots/per_label_auc.png",
+      "/kaggle/working/student/distilbert-stack-20261112T181004Z/plots/per_label_pr_auc.png"
+    ]
+  }
+}

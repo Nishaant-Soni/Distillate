@@ -130,3 +130,19 @@ paths:
   mlflow_db: mlruns/mlflow.db
   mlflow_artifacts: mlruns/artifacts
   reports_dir: reports/summaries
+
+pipeline:
+  data_dir: null
+  data_rev: null
+  tables: [gate, h2, bias, obfuscation]
+  gate_config: configs/gate.yaml
+  score_batch_size: 64
+  latency: true
+  latency_threads: 1
+  latency_requests: 20
+  plots: true
+
+select:
+  latency_stat: p95_ms
+  latency_budget_ms: 50
+  auc_tie: 0.0002
