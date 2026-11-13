@@ -36,7 +36,7 @@ Never train on the `p_*` of the raw `teacher/` shards: they are uncalibrated.
 | Rows labeled | 159,571 training comments, 20,000 test comments (the gate subset), 40,000 Civil drift comments; 0 failed rows; about 9.4 T4 GPU-hours |
 | Held-out quality, gate subset (weighted mean AUC / PR-AUC / ECE) | stack **0.982 / 0.659 / 0.010**; TF-IDF 0.980 / 0.623 / 0.010; raw Qwen 0.959 / 0.475 / 0.086 |
 | Civil drift stream (five labels) | stack 0.924 mean AUC, TF-IDF 0.887, raw Qwen 0.882; the stack is best in all 20 batches |
-| What the LLM adds to the student (Phase 2 ablation, DistilBERT, same loss) | stack soft labels against TF-IDF soft labels: **+0.0022** mean AUC on the gate set, **+0.033** on Civil H2. Calibrated Qwen alone is not a better teacher than TF-IDF (−0.0043 on the gate set) |
+| What the LLM adds to the student (Phase 2 ablation, DistilBERT, same loss) | stack soft labels against TF-IDF soft labels (paired bootstrap): **+0.0022** [+0.0017, +0.0027] mean AUC on the gate set, **+0.033** [+0.024, +0.044] on Civil H2. Calibrated Qwen alone is not a better teacher than TF-IDF (−0.0043 on the gate set) |
 
 **Validation caveat:** the TF-IDF out-of-fold models saw the validation rows' gold labels, so students trained on soft labels score optimistically on validation (by about 0.003 to 0.006 mean AUC against gold-only). Gold-only and soft-label arms are compared on the gate set and H2; the selection compares only arms with the same teacher. Details: model card section 3.
 
@@ -281,7 +281,7 @@ All eight arms ran through `src.pipeline.run` with the tuned values in one Kaggl
 | ModernBERT-base, mixed | 0.99349 | 0.9846 [0.9839, 0.9853] | 0.9384 [0.9233, 0.9498] |
 
 - **Distillation (H2):** mixed vs gold only, +0.027 [+0.013, +0.041] on Civil. On the gate set the AUC gain is small (+0.0007) and within the effect of the shared recipe; the PR-AUC gain (+0.064) is large.
-- **What the LLM adds:** stack vs TF-IDF soft labels, +0.028 [+0.018, +0.038] on H2.
+- **What the LLM adds:** stack vs TF-IDF soft labels, both with the mixed loss at the tuned α (`distilbert-mixed` − `distilbert-tfidf`, paired bootstrap): +0.033 [+0.024, +0.044] on H2 and +0.0022 [+0.0017, +0.0027] on the gate set (section 1.2, model card section 3).
 - **Every arm passes the bias check.**
 - **The thresholds don't transfer to Civil:** H2 AUC is 0.94, but toxicity recall at the validation thresholds is 38%. Phase 3 sets thresholds for news-comment traffic.
 - **Latency:** no fp32 package meets the 50 ms p95 budget (DistilBERT 144 ms, MiniLM 103 ms). The budget applies to the int8 package in Phase 3.
@@ -314,4 +314,4 @@ The image pins every version (`requirements-pipeline.txt`, CUDA 12.6 torch). CI 
 
 ### 3.6 Tests
 
-`tests/student/` and `tests/pipeline/` (100 tests): the loss, thresholds, the package and its parity check, the sweep's shared-study guard, MLflow logging, the evaluation tables, the selection rule, and every pipeline step end to end on a tiny model. All run offline with made-up data.
+`tests/student/` and `tests/pipeline/` (94 tests): the loss, thresholds, the package and its parity check, the sweep's shared-study guard, MLflow logging, the evaluation tables, the selection rule, and every pipeline step end to end on a tiny model. All run offline with made-up data.
