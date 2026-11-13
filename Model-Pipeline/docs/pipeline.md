@@ -24,7 +24,8 @@ it are kept, and the exit code is 1.
 Among the runs that pass the **bias check** (the gate's slice-FPR limits on the Civil bias set)
 and the **CPU latency budget** (`select.latency_stat` p95 at most `select.latency_budget_ms`,
 50 ms, batch size 1), the highest **validation** mean AUC. Runs within `select.auc_tie`
-(0.0002, the measured run-to-run noise at one seed, `docs/tuning.md`) count as tied, and the
+(0.0002; one pair of runs at one seed differed by 0.00015, so this is a lower bound on
+run-to-run noise, not its size, `docs/tuning.md`) count as tied, and the
 higher validation mean PR-AUC wins. The gate set and H2 are never used to choose.
 `select.candidates` limits who competes (the other runs stay in the table as controls), and
 `select.latency_enforced: false` reports the budget without excluding anyone; `select.note`

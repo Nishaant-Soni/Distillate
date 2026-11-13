@@ -127,8 +127,8 @@ effect of the recipe choice; the PR-AUC gain (+0.064) and the cross-domain gain 
 H2) are far larger and stand.
 
 **Selection** (`select_best.py`, `configs/student.yaml` `select:`). Among the candidates that
-pass the bias check, the highest validation mean AUC, ties within 0.0002 (the measured
-run-to-run noise) broken by validation PR-AUC. Two decisions were made after the run and are
+pass the bias check, the highest validation mean AUC, ties within 0.0002 (a lower bound on
+run-to-run noise, from one pair of runs) broken by validation PR-AUC. Two decisions were made after the run and are
 recorded with it:
 
 - Candidates are the tuned recipe only (DistilBERT at 4 and 5 epochs, MiniLM-L12,

@@ -166,6 +166,20 @@ def test_results_across_arms(two_runs, tmp_path):
         assert (tmp_path / "plots" / name).stat().st_size > 1000, name
 
 
+def test_teacher_comparisons_pair_arms_with_the_same_loss():
+    from src.eval.results import PAIRS
+
+    # The stack-only arm (alpha 0) against an attribution arm (alpha tuned) would mix the
+    # teacher with the loss; the LLM's share is mixed against the TF-IDF arm.
+    soft = {"distilbert-mixed", "distilbert-tfidf", "distilbert-calqwen"}
+    assert ("distilbert-mixed", "distilbert-tfidf") in PAIRS
+    for a, b in PAIRS:
+        if "distilbert-stack" in (a, b):
+            assert {a, b} == {"distilbert-mixed", "distilbert-stack"}, (a, b)
+        elif {a, b} & {"distilbert-tfidf", "distilbert-calqwen"}:
+            assert {a, b} <= soft, (a, b)
+
+
 def test_truncation_sweep_writes_one_file_per_length(two_runs):
     from src.eval.results import truncation
     from src.student.evaluate import truncation_sweep
