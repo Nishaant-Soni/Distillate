@@ -88,6 +88,17 @@ bias:
 dvc:
   push: true                        # overridden by the DVC_PUSH env var
 
+drift:
+  # src: scripts/drift.py. PSI of each drift batch against a baseline from the model's training
+  # data. The baseline holds bin edges, shares and a hashed vocabulary, never comment text.
+  baseline_source: data/processed/wikipedia/train.parquet
+  baseline_file: data/processed/monitoring/drift_baseline.json   # DVC-tracked with the data
+  psi_bins: 10                      # equal-count (decile) bins from the baseline
+  vocab_min_count: 2                # a word is "known" if it appears at least twice in train
+  psi_warn: 0.1                     # PSI rules of thumb: below 0.1 ok, 0.1 to 0.25 warn,
+  psi_alert: 0.25                   # 0.25 or more alert
+  psi_epsilon: 0.0001               # floor for empty bins, so PSI stays finite
+
 stubs:
   # Rows each placeholder stage writes until the real module is merged. Small on
   # purpose: the point is that the DAG runs end to end in seconds, not that the
