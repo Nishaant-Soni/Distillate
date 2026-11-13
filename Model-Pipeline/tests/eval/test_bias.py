@@ -163,3 +163,87 @@ def test_cli_rejects_severe_toxicity(tmp_path, gold_dir):
     with pytest.raises(SystemExit):
         bias.main(["--gold", str(gold_dir), "--arm", f"a={arm}",
                    "--labels", "severe_toxicity", "--out", str(tmp_path / "o")])
+
+
+# ---------------------------------------------------------------------------
+# Review follow-ups: FPR ratio, warnings, matched FPR, paired BPSN
+# ---------------------------------------------------------------------------
+
+def test_fpr_ratio_column():
+    y = np.array([0] * 200 + [1] * 50)
+    decision = np.zeros(250, dtype=bool)
+    in_slice = np.zeros(250, dtype=bool)
+    in_slice[:120] = True
+    decision[:24] = True                   # slice FPR 0.20, overall 0.12
+    table, _ = bias.slice_table(y, decision.astype(float), decision, {"s": in_slice}, 100, 5.0)
+    assert table.iloc[0]["fpr_ratio"] == pytest.approx(0.20 / 0.12)
+
+
+def test_rank_auc_matches_sklearn_with_ties():
+    from sklearn.metrics import roc_auc_score
+    rng = np.random.default_rng(0)
+    y = rng.integers(0, 2, 300)
+    score = np.round(rng.random(300), 1)   # many ties
+    assert bias._rank_auc(y, score) == pytest.approx(roc_auc_score(y, score))
+
+
+def test_missing_wikipedia_columns_warn(tmp_path, gold_dir):
+    arm = write_arm(tmp_path / "a", gold_dir, "a")
+    _val_gold().drop(columns=["char_len", "has_obfuscation"]).to_parquet(gold_dir / "val.parquet")
+    res = bias.analyze_arm(arm, gold_dir, SETTINGS)
+    assert any("char_len" in w and "has_obfuscation" in w for w in res["warnings"])
+    assert "identity_mention" in set(res["wikipedia"]["toxicity"]["table"]["slice"])
+
+
+def test_missing_civil_file_warns(tmp_path, gold_dir):
+    arm = write_arm(tmp_path / "a", gold_dir, "a")
+    (arm / "bias_eval.parquet").unlink()
+    res = bias.analyze_arm(arm, gold_dir, SETTINGS)
+    assert res["civil"] == {}
+    assert any(w.startswith("civil section skipped") for w in res["warnings"])
+
+
+def test_matched_fpr_hits_the_target(tmp_path, gold_dir):
+    res = bias.analyze_arm(write_arm(tmp_path / "a", gold_dir, "a"), gold_dir, SETTINGS,
+                           matched_fpr=0.05)
+    matched = res["civil_matched"]["toxicity"]
+    assert matched["overall"]["fpr"] == pytest.approx(0.05, abs=0.005)
+    assert set(matched["table"]["slice"]) == set(res["civil"]["toxicity"]["table"]["slice"])
+
+
+def test_paired_bpsn_same_arm_is_zero(tmp_path, gold_dir):
+    arm = write_arm(tmp_path / "a", gold_dir, "a")
+    out = bias.paired_bpsn(arm, arm, gold_dir, SETTINGS, n_boot=20)
+    assert out["slices"]
+    for r in out["slices"].values():
+        assert r["diff"] == pytest.approx(0.0)
+        assert not r["excludes_zero"]
+
+
+def test_paired_bpsn_detects_a_worse_arm(tmp_path, gold_dir):
+    fair = write_arm(tmp_path / "fair", gold_dir, "fair")
+    skew = write_arm(tmp_path / "skew", gold_dir, "skew", "muslim")
+    out = bias.paired_bpsn(skew, fair, gold_dir, SETTINGS, n_boot=100, seed=1)
+    muslim = out["slices"]["religion:muslim"]
+    assert muslim["diff"] < 0 and muslim["excludes_zero"]
+
+
+def test_cli_matched_and_paired_sections(tmp_path, gold_dir):
+    fair = write_arm(tmp_path / "fair", gold_dir, "fair")
+    skew = write_arm(tmp_path / "skew", gold_dir, "skew", "muslim")
+    out = tmp_path / "out"
+    assert bias.main(["--gold", str(gold_dir), "--arm", f"fair={fair}", "--arm", f"skew={skew}",
+                      "--config", str(CONFIG), "--matched-fpr", "0.05",
+                      "--compare", "skew", "fair", "--n-boot", "30", "--out", str(out)]) == 0
+    tables = (out / "bias_tables.md").read_text()
+    assert "## Arms compared at matched overall FPR (5%)" in tables
+    assert "## Paired bootstrap: BPSN AUC, skew minus fair" in tables
+    assert "FPR ratio" in tables
+    assert "skew-fair" in json.loads((out / "bias_phase2.json").read_text())["paired_bpsn"]
+
+
+def test_cli_rejects_unknown_compare_arm(tmp_path, gold_dir):
+    arm = write_arm(tmp_path / "a", gold_dir, "a")
+    with pytest.raises(SystemExit):
+        bias.main(["--gold", str(gold_dir), "--arm", f"a={arm}", "--compare", "a", "zzz",
+                   "--out", str(tmp_path / "o")])
