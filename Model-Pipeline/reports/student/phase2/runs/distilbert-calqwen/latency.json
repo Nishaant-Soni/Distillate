@@ -1,0 +1,19 @@
+{
+  "model_version": "student-distilbert-calqwen-20261112T200941Z",
+  "format": "onnx fp32",
+  "batch_size": 1,
+  "threads": 2,
+  "requests": 300,
+  "warmup": 20,
+  "max_length": 256,
+  "mean_tokens": 72.27,
+  "max_tokens": 256,
+  "p50_ms": 30.115446999843698,
+  "p90_ms": 103.50879690195144,
+  "p95_ms": 146.38566650046414,
+  "p99_ms": 149.8361443599788,
+  "mean_ms": 44.441221009947185,
+  "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+  "cpu_count": 4,
+  "onnxruntime": "1.31.1"
+}

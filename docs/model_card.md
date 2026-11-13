@@ -17,13 +17,17 @@
 ## 1. Model details
 
 - **Name:** `distillate-student` (MLflow registered model; aliases `staging` and `production`).
-- **Version:** TODO (Shivam): MLflow model version of the selected candidate.
+- **Version:** `student-distilbert-mixed-5ep-20261112T210931Z` (training MLflow run
+  `358772663fc34a5e81275c3ed073e598`, code `80a4502`). The registered MLflow model version
+  is assigned when the gate registers it (Phase 3 CI).
 - **Type:** multi-label text classifier, six sigmoid outputs (`toxicity`, `severe_toxicity`,
   `obscene`, `threat`, `insult`, `identity_attack`).
-- **Architecture:** TODO (Shivam): the architecture chosen by the selection rule
-  (candidates: DistilBERT, MiniLM-L12, ModernBERT-base), maximum length.
+- **Architecture:** DistilBERT (`distilbert-base-uncased`, 6 layers, 66M parameters) with a
+  six-output classification head; maximum length 256 tokens. Chosen by the selection rule from
+  DistilBERT, MiniLM-L12 and ModernBERT-base (section 4).
 - **Training method:** knowledge distillation from a teacher (section 3) mixed with gold labels:
-  `alpha * BCE(gold) + (1 - alpha) * T^2 * BCE(soft)`. TODO (Shivam): tuned alpha and T.
+  `alpha * BCE(gold) + (1 - alpha) * T^2 * BCE(soft)`, with alpha = 0.343 and T = 3.71
+  (tuned, section 4).
 - **Serving format:** ONNX (int8) behind FastAPI on Cloud Run (Phase 3).
 - **Package contents:** `model.onnx`, `tokenizer/`, `thresholds.json`, `meta.json` (model
   version, training-data DVC hash, alpha, temperature, teacher_version,
@@ -163,17 +167,82 @@ Per label, AUC / PR-AUC:
 
 ## 4. Training
 
-TODO (Shivam). Suggested content:
+Details and every number: `Model-Pipeline/reports/student/phase2/README.md`; tuning:
+`Model-Pipeline/docs/tuning.md`; the pipeline: `Model-Pipeline/docs/pipeline.md`.
 
-- Training data: Wikipedia train split (DVC hash), soft-label columns from
-  `teacher_labels.parquet`, `sample_weight` if the mitigation variant is kept (section 9).
-- Tuning: Optuna (TPE) search space, trial count, budget and best values (link
-  `docs/tuning.md`).
-- Thresholds: per label, F1-maximising on Wikipedia validation, within [0.01, 0.99]
-  (`thresholds.json`, `thresholds_report.json`).
-- Selection rule (`select_best.py`): among candidates passing the bias check and the CPU
-  latency budget, highest mean validation AUC, ties broken by mean PR-AUC.
-- Compute: hardware, run time, MLflow run id.
+**Data.** Jigsaw Toxic Comment train, restricted to the data pipeline's official split by id
+(`Data-Pipeline/data/splits/`): 132,388 training and 21,363 validation comments, the same ids
+and cleaning as the pipeline's `train.parquet` (`data.source: ids`; source SHA-256
+`acde36e2…`, in `meta.json`). `sample_weight` is 1.0 everywhere: the Phase 1 bias step chose
+reweighting factor 1. Soft labels: `soft_labels/stack-v1/p2-zs-v2b/` (32 shards, 159,571 rows,
+none failed; `stack_sha256` `9b241804…` checked against the committed stack). 6.5% of training
+comments exceed 256 tokens and are truncated.
+
+**Recipe.**
+
+| Setting | Value |
+|---|---|
+| Base model | `distilbert-base-uncased` |
+| Loss | mixed: alpha 0.3433 (gold), T 3.713 |
+| Learning rate, schedule | 9.23e-5, linear with 6% warmup, AdamW, weight decay 0.01 |
+| Epochs | 5 (best: the 5th), early stopping on validation mean AUC, patience 1 |
+| Batch size, max length | 32, 256 tokens |
+| Precision, seed | fp16 on GPU, 42 |
+
+**Tuning.** Optuna TPE over alpha (0.1 to 0.9), T (1 to 5), learning rate (1e-5 to 1e-4, log),
+epochs (1 to 4) and maximum length (128 or 256), on DistilBERT with the mixed loss; objective:
+validation mean AUC. 28 trials in one merged study (`distilbert-mixed-v1`, two Kaggle workers on
+T4s, one 11-hour session each). Best: trial 26, validation mean AUC 0.99364. All other arms reuse these
+values. Every trial peaked at its last epoch, so one run at 5 epochs was added outside the
+study; it is the one selected, though its gain over 4 epochs (+0.0002) is at the noise level.
+
+**Thresholds.** Per label, F1-maximising on validation, within [0.01, 0.99]
+(`thresholds.json`): toxicity 0.351, severe_toxicity 0.225, obscene 0.207, threat 0.232,
+insult 0.325, identity_attack 0.290. Validation macro-F1 0.727 at these thresholds (0.675 at
+0.5). **They don't transfer to Civil Comments:** on H2 the ranking holds (mean AUC 0.94) but
+recall at these thresholds falls to 38% for toxicity, 21% for insult, 3 of 71 for
+identity_attack and 0 of 28 for threat. Thresholds for news-comment traffic must be set on
+Civil or drift data (Phase 3).
+
+**Arms trained** (identical data, seed and tuned values; only the named setting changes):
+gold-only (alpha = 1), stack only (alpha = 0), mixed, the attribution arms (gold plus TF-IDF
+out-of-fold soft labels; gold plus calibrated-Qwen soft labels), mixed at 5 epochs, and the
+mixed recipe on MiniLM-L12 and ModernBERT-base. Results: section 6 and the Phase 2 results
+README. **Caveat:** every arm reuses the recipe tuned for the mixed loss, as planned, so the
+gold-only arm trains at mixed's learning rate and epochs. On its own recipe gold-only reached
+validation mean AUC 0.9901, against 0.98937 here: about 0.0007, the size of the whole in-domain
+AUC gain of distillation (+0.0007 [+0.0000, +0.0013] on the gate set). That gain is within the
+effect of the recipe choice; the PR-AUC gain (+0.064) and the cross-domain gain (+0.027 on
+H2) are far larger and stand.
+
+**Selection** (`select_best.py`, `configs/student.yaml` `select:`). Among the candidates that
+pass the bias check, the highest validation mean AUC, ties within 0.0002 (the measured
+run-to-run noise) broken by validation PR-AUC. Two decisions were made after the run and are
+recorded with it:
+
+- Candidates are the tuned recipe only (DistilBERT at 4 and 5 epochs, MiniLM-L12,
+  ModernBERT-base). The ablation and attribution arms are controls. Under the rule as first
+  written the TF-IDF attribution arm would have won on validation AUC while being worse on the
+  gate set and H2.
+- The CPU latency budget (p95 at most 50 ms, batch size 1, 2 vCPUs) is reported, not
+  enforced: no fp32 package meets it (DistilBERT p95 144 ms, MiniLM-L12 103 ms, ModernBERT
+  373 ms). It is enforced on the int8 package in Phase 3.
+
+Result: `distilbert-mixed-5ep` (validation mean AUC 0.99368, PR-AUC 0.7678), tied with
+ModernBERT (0.99349) and chosen on PR-AUC. The candidates are within noise of each other on
+every evaluation set.
+
+**Package and latency.** The §2.5 package (`model.onnx`, `tokenizer/`, `thresholds.json`,
+`meta.json`), ONNX fp32 with dynamic axes; maximum difference from PyTorch 4.8e-6. CPU latency
+(ONNX Runtime, batch 1, 2 threads, Kaggle Xeon 2.0 GHz, tokenization included): p50 30.4 ms,
+p95 144.3 ms, p99 151.8 ms. **It misses the 50 ms target**; p95 is the full-length (256-token)
+time. Phase 3: int8 with the parity check (validation AUC within 0.002), then MiniLM-L12 or
+128 tokens (−0.0013 gate AUC) if needed.
+
+**Compute.** Kaggle, NVIDIA T4, fp16. The selected run: 71 minutes of training. The Phase 2
+run of all eight arms: 5.9 hours on two T4s (`kaggle/13_student_ablation_all.ipynb`, code
+`80a4502`). MLflow experiment `distillate-student-ablation`, run
+`358772663fc34a5e81275c3ed073e598` (in the session's store, the Kaggle version's output).
 
 ## 5. Evaluation data
 
@@ -325,7 +394,7 @@ TODO (Ruchita): confirm each entry against its source before finalising.
 | Wikipedia toxicity data | Kaggle: jigsaw-toxic-comment-classification-challenge | Competition rules (academic/educational use, no redistribution); underlying data licence |
 | Civil Comments data | Kaggle: jigsaw-unintended-bias-in-toxicity-classification | Competition rules (academic/educational use, no redistribution); underlying data licence |
 | Teacher LLM | Qwen3-4B-Instruct-2507 | Apache 2.0 (checked at the pinned revision) |
-| Student base model | TODO (selected architecture) | Model licence |
+| Student base model | `distilbert-base-uncased` (Hugging Face) | Apache 2.0 (Ruchita to confirm) |
 | Llama Guard 3-1B | Benchmark only, never used for training | Llama 3.2 Community License (Nishaant to confirm with the Phase 3 benchmark) |
 
 Comment text is never redistributed: the repository and any public artifact hold only ids,
@@ -346,3 +415,4 @@ scores and metrics.
 | TODO | Review fixes: eval-set sizes, data-level gap range, section 10 teacher wording, Qwen licence (Ruchita) |
 | 2026-11-11 | Sections 3 (teacher and soft labels) and 7 (sensitivity analysis, 7.1 filled) (Nishaant) |
 | 2026-11-13 | Section 3: the ablation's attribution results, the leak check's result and verdict, the validation caveat's wording on what the stack was fitted on; section 7: the selected student (Nishaant) |
+| 2026-11-13 | Section 4 (training), section 1 version and architecture, student base model (Shivam) |

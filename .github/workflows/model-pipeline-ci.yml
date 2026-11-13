@@ -44,3 +44,4 @@ jobs:
 
       - name: Tests (pytest)
         run: pytest -q
+

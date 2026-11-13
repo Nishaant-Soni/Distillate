@@ -1,0 +1,128 @@
+{
+  "steps": {
+    "score": {
+      "status": "ok",
+      "seconds": 408.3
+    },
+    "gold": {
+      "status": "ok",
+      "seconds": 1.3
+    },
+    "metrics": {
+      "status": "ok",
+      "seconds": 0.8
+    },
+    "gate": {
+      "status": "ok",
+      "seconds": 0.6
+    },
+    "plots": {
+      "status": "ok",
+      "seconds": 2.6
+    },
+    "mlflow": {
+      "status": "ok",
+      "seconds": 0.1
+    }
+  },
+  "errors": {},
+  "data": {
+    "data_hash": "c0bee368db8e4ac59c6556b78812774839510be3dca62cd8112fbca6aa133e2d",
+    "files": {
+      "wikipedia/gate.parquet": "b43df91f7a735cd1365dd020e34b536efac48356106fb18ea14bc6838b88b4fd",
+      "civil/h2_eval.parquet": "10ab4704ee63d862cd836ddeb60c4aa6575651b8a2fad3e98610c405338bc829",
+      "civil/bias_eval.parquet": "d6a646edd7330a3d871268f3f193f278a44d0cc6a5e5c4407f3ee12d9f7bbc27",
+      "obfuscation.parquet": "05bcd791f01c1793354d7b3d95293a3763f399a0a2c5e87521f67d10ec8a8440"
+    },
+    "rev": null,
+    "rows": {
+      "gate": 63978,
+      "h2": 10000,
+      "bias": 21577,
+      "obfuscation": 3000
+    }
+  },
+  "run_dir": "/kaggle/working/student/modernbert-mixed-20261112T185501Z",
+  "run_name": "modernbert-mixed-20261112T185501Z",
+  "model_version": "student-modernbert-mixed-20261112T185501Z",
+  "best_val_mean_auc": 0.9934905593550439,
+  "best_val_mean_pr_auc": 0.76153773051686,
+  "package": {
+    "status": "ok",
+    "dir": "/kaggle/working/student/modernbert-mixed-20261112T185501Z/package",
+    "onnx_parity": 3.814697265625e-06
+  },
+  "duration_s": 11513.7,
+  "scoring": {
+    "model_version": "student-modernbert-mixed-20261112T185501Z",
+    "code_commit": "80a4502d97d882ddf7de90c87cd3db743bcedb36",
+    "device": "cuda",
+    "fp16": true,
+    "files": {
+      "gate": {
+        "rows": 63978,
+        "seconds": 294.8
+      },
+      "h2_eval": {
+        "rows": 10000,
+        "seconds": 30.3
+      },
+      "bias_eval": {
+        "rows": 21577,
+        "seconds": 72.9
+      },
+      "obfuscation": {
+        "rows": 3000,
+        "seconds": 9.1
+      }
+    }
+  },
+  "gold_rows": {
+    "val": 21363,
+    "gate": 63978,
+    "h2_eval": 10000,
+    "bias_eval": 21577,
+    "obfuscation": 3000
+  },
+  "headline": {
+    "bias_eval": {
+      "mean_auc": 0.927371112202741,
+      "mean_pr_auc": 0.43360264977170626,
+      "macro_f1": 0.32780399234575996
+    },
+    "gate": {
+      "mean_auc": 0.9846381300639878,
+      "mean_pr_auc": 0.6826850522348282,
+      "macro_f1": 0.6166767289383466
+    },
+    "h2_eval": {
+      "mean_auc": 0.9383974046024919,
+      "mean_pr_auc": 0.38713501524642846,
+      "macro_f1": 0.29313767826888926
+    },
+    "obfuscation": {
+      "mean_auc": 0.8259044383195221,
+      "mean_pr_auc": 0.6052430325545538,
+      "macro_f1": 0.5960229150414452
+    },
+    "val": {
+      "mean_auc": 0.9934905593550439,
+      "mean_pr_auc": 0.76153773051686,
+      "macro_f1": 0.7265414167967595
+    }
+  },
+  "gate": {
+    "passed": true,
+    "failed_checks": [],
+    "bias_passed": true
+  },
+  "plots": {
+    "files": [
+      "/kaggle/working/student/modernbert-mixed-20261112T185501Z/plots/confusion_val.png",
+      "/kaggle/working/student/modernbert-mixed-20261112T185501Z/plots/confusion_gate.png",
+      "/kaggle/working/student/modernbert-mixed-20261112T185501Z/plots/confusion_h2_eval.png",
+      "/kaggle/working/student/modernbert-mixed-20261112T185501Z/plots/per_label_auc.png",
+      "/kaggle/working/student/modernbert-mixed-20261112T185501Z/plots/per_label_pr_auc.png"
+    ]
+  }
+}
