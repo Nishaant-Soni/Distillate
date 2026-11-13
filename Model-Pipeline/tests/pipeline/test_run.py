@@ -122,6 +122,32 @@ def test_select_breaks_ties_by_pr_auc():
     assert sorted(result["tied"]) == ["a", "b"]
 
 
+
+def test_select_candidates_and_latency_reported_not_enforced():
+    from src.student.select_best import render_markdown, select
+
+    def cand(arm, auc, pr, ms=10.0, bias=True):
+        return {"arm": arm, "val_mean_auc": auc, "val_mean_pr_auc": pr, "bias_passed": bias,
+                "package_ok": True, "latency": {"p50_ms": ms / 2, "p95_ms": ms, "threads": 2},
+                "model_version": f"{arm}-v", "bias_worst_slice": None}
+
+    rule = {"latency_stat": "p95_ms", "latency_budget_ms": 50, "auc_tie": 0.0002,
+            "candidates": ["mixed", "minilm"], "latency_enforced": False, "note": "why"}
+    runs = [cand("tfidf", 0.9943, 0.78, ms=146), cand("mixed", 0.9935, 0.76, ms=146),
+            cand("minilm", 0.9919, 0.73, ms=103), cand("fast", 0.9990, 0.90, ms=5)]
+    result = select(runs, rule)
+    assert result["selected"]["arm"] == "mixed"     # tfidf and fast are controls; latency off
+    by_arm = {c["arm"]: c for c in result["candidates"]}
+    assert not by_arm["tfidf"]["eligible"] and "control arm" in by_arm["tfidf"]["reasons"][0]
+    assert by_arm["mixed"]["eligible"] and "not enforced" in by_arm["mixed"]["notes"][0]
+    assert by_arm["mixed"]["within_budget"] is False
+    text = render_markdown(result)
+    assert "reported, not enforced" in text and "misses the latency budget" in text
+    assert "Note: why" in text
+    # Enforced, the same runs give no selection (the Phase 2 fp32 situation).
+    assert select(runs, {**rule, "latency_enforced": True})["selected"] is None
+
+
 def test_results_across_arms(two_runs, tmp_path):
     from src.eval.results import build
 

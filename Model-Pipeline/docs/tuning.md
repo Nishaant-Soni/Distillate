@@ -122,7 +122,7 @@ same data, seed and settings. Only the listed key changes:
 The TF-IDF baseline classifier itself (the grid's first row) is scored by the evaluation code,
 not trained here.
 
-**Same conditions for every arm:** code `d07c861`, seed 42, one run per arm, `data.source=ids`.
+**Same conditions for every arm:** code `80a4502` for the reported run (`d07c861` for the first one), seed 42, one run per arm, `data.source=ids`.
 `ids` gives the same training data as `official` (the pipeline's `train.parquet`): the same
 132,388 / 21,363 ids, the same cleaning function, and `sample_weight` 1.0 everywhere (the bias
 step chose reweighting factor 1, `Data-Pipeline/reports/bias/bias_metrics.json`). Run-to-run
@@ -203,3 +203,20 @@ Trial 26 (worker 0), the highest validation mean AUC in the merged study
 loss.alpha=0.3432987447660936 loss.temperature=3.71295432376268
 train.lr=9.22542696771891e-05 train.epochs=4 model.max_length=256
 ```
+
+## The 5-epoch check and the reported run (Nov 12)
+
+The reported run (notebook 13, all arms at code `80a4502`;
+`reports/student/phase2/README.md`):
+
+| Run | Val mean AUC | Gate mean AUC | H2 mean AUC | Epochs (best) |
+|---|---|---|---|---|
+| `distilbert-mixed` (the tuned values) | 0.99348 | 0.9848 | 0.9410 | 4 (4th) |
+| `distilbert-mixed-5ep` (`train.epochs=5`) | 0.99368 | 0.9845 | 0.9399 | 5 (5th) |
+
+* The tuned recipe reproduced: 0.99348 here, 0.99349 in the first ablation, 0.99364 as trial 26.
+* The fifth epoch adds +0.0002 on validation (the noise level) and nothing on the gate set or
+  H2: the 4-epoch edge of the space was not costing much. The tuned values stay as chosen;
+  the selection rule picked the 5-epoch run on its validation AUC and PR-AUC
+  (`reports/student/phase2/selection.md`).
+

@@ -26,6 +26,9 @@ and the **CPU latency budget** (`select.latency_stat` p95 at most `select.latenc
 50 ms, batch size 1), the highest **validation** mean AUC. Runs within `select.auc_tie`
 (0.0002, the measured run-to-run noise at one seed, `docs/tuning.md`) count as tied, and the
 higher validation mean PR-AUC wins. The gate set and H2 are never used to choose.
+`select.candidates` limits who competes (the other runs stay in the table as controls), and
+`select.latency_enforced: false` reports the budget without excluding anyone; `select.note`
+records why. Phase 2 uses both (decided after the run, `reports/student/phase2/README.md`).
 Writes `selection.json` and `selection.md` (every candidate, eligible or not, with the reason).
 
 ## Results across arms (`python -m src.eval.results`)

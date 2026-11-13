@@ -1,0 +1,345 @@
+{
+  "rule": {
+    "bias": "configs/gate.yaml bias section (slice FPR gap), no production model",
+    "latency": "p95_ms <= 50 ms, batch size 1",
+    "auc_tie": 0.0002,
+    "latency_enforced": false,
+    "candidates": [
+      "distilbert-mixed",
+      "distilbert-mixed-5ep",
+      "minilm-mixed",
+      "modernbert-mixed"
+    ],
+    "order": "highest validation mean AUC; ties by validation mean PR-AUC",
+    "note": "Candidates and latency enforcement were set on 2026-11-13, after the Phase 2 run: the ablation and attribution arms are controls, and no fp32 ONNX package meets the 50 ms p95 budget (2 threads, batch 1), so the budget is reported here and enforced on the int8 package in Phase 3 (work plan v4: int8, then MiniLM-L12 or a shorter maximum length)."
+  },
+  "selected": {
+    "arm": "distilbert-mixed-5ep",
+    "run_name": "distilbert-mixed-5ep-20261112T210931Z",
+    "run_dir": "phase2_results.zip:runs/distilbert-mixed-5ep",
+    "model_version": "student-distilbert-mixed-5ep-20261112T210931Z",
+    "model_id": "distilbert-base-uncased",
+    "val_mean_auc": 0.9936829236052542,
+    "val_mean_pr_auc": 0.7677962974654284,
+    "bias_passed": true,
+    "bias_worst_slice": {
+      "slice": "race_or_ethnicity:white",
+      "n": 1178,
+      "fpr": 0.06787878787878789,
+      "gap_pts": 4.618726634369559
+    },
+    "bias_overall_fpr": 0.02169152153509229,
+    "latency": {
+      "p50_ms": 30.425672501223744,
+      "p95_ms": 144.29890284991416,
+      "p99_ms": 151.8207035918749,
+      "threads": 2,
+      "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+      "max_length": 256
+    },
+    "package_ok": true,
+    "gate_passed": true,
+    "gate_failed_checks": [],
+    "mlflow_run_id": "358772663fc34a5e81275c3ed073e598",
+    "eligible": true,
+    "reasons": [],
+    "notes": [
+      "latency p95_ms 144.3 ms over 50 ms (reported, not enforced)"
+    ],
+    "within_budget": false
+  },
+  "tied": [
+    "distilbert-mixed-5ep",
+    "modernbert-mixed"
+  ],
+  "candidates": [
+    {
+      "arm": "distilbert-mixed-5ep",
+      "run_name": "distilbert-mixed-5ep-20261112T210931Z",
+      "run_dir": "phase2_results.zip:runs/distilbert-mixed-5ep",
+      "model_version": "student-distilbert-mixed-5ep-20261112T210931Z",
+      "model_id": "distilbert-base-uncased",
+      "val_mean_auc": 0.9936829236052542,
+      "val_mean_pr_auc": 0.7677962974654284,
+      "bias_passed": true,
+      "bias_worst_slice": {
+        "slice": "race_or_ethnicity:white",
+        "n": 1178,
+        "fpr": 0.06787878787878789,
+        "gap_pts": 4.618726634369559
+      },
+      "bias_overall_fpr": 0.02169152153509229,
+      "latency": {
+        "p50_ms": 30.425672501223744,
+        "p95_ms": 144.29890284991416,
+        "p99_ms": 151.8207035918749,
+        "threads": 2,
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "max_length": 256
+      },
+      "package_ok": true,
+      "gate_passed": true,
+      "gate_failed_checks": [],
+      "mlflow_run_id": "358772663fc34a5e81275c3ed073e598",
+      "eligible": true,
+      "reasons": [],
+      "notes": [
+        "latency p95_ms 144.3 ms over 50 ms (reported, not enforced)"
+      ],
+      "within_budget": false
+    },
+    {
+      "arm": "modernbert-mixed",
+      "run_name": "modernbert-mixed-20261112T185501Z",
+      "run_dir": "phase2_results.zip:runs/modernbert-mixed",
+      "model_version": "student-modernbert-mixed-20261112T185501Z",
+      "model_id": "answerdotai/ModernBERT-base",
+      "val_mean_auc": 0.9934905593550439,
+      "val_mean_pr_auc": 0.76153773051686,
+      "bias_passed": true,
+      "bias_worst_slice": {
+        "slice": "race_or_ethnicity:white",
+        "n": 1178,
+        "fpr": 0.07393939393939394,
+        "gap_pts": 5.13614400338772
+      },
+      "bias_overall_fpr": 0.02257795390551674,
+      "latency": {
+        "p50_ms": 75.08763550140429,
+        "p95_ms": 373.4294650988886,
+        "p99_ms": 394.0903703797085,
+        "threads": 2,
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "max_length": 256
+      },
+      "package_ok": true,
+      "gate_passed": true,
+      "gate_failed_checks": [],
+      "mlflow_run_id": "212ee0e26f8d4197a56b239544f852cb",
+      "eligible": true,
+      "reasons": [],
+      "notes": [
+        "latency p95_ms 373.4 ms over 50 ms (reported, not enforced)"
+      ],
+      "within_budget": false
+    },
+    {
+      "arm": "distilbert-mixed",
+      "run_name": "distilbert-mixed-20261112T171037Z",
+      "run_dir": "phase2_results.zip:runs/distilbert-mixed",
+      "model_version": "student-distilbert-mixed-20261112T171037Z",
+      "model_id": "distilbert-base-uncased",
+      "val_mean_auc": 0.9934806317550944,
+      "val_mean_pr_auc": 0.764632131807416,
+      "bias_passed": true,
+      "bias_worst_slice": {
+        "slice": "race_or_ethnicity:white",
+        "n": 1178,
+        "fpr": 0.059393939393939395,
+        "gap_pts": 3.895385179356396
+      },
+      "bias_overall_fpr": 0.02044008760037543,
+      "latency": {
+        "p50_ms": 29.82453699951293,
+        "p95_ms": 146.3374285998725,
+        "p99_ms": 158.27404558043781,
+        "threads": 2,
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "max_length": 256
+      },
+      "package_ok": true,
+      "gate_passed": true,
+      "gate_failed_checks": [],
+      "mlflow_run_id": "3d1cd293fa874910975f4e88ada4d117",
+      "eligible": true,
+      "reasons": [],
+      "notes": [
+        "latency p95_ms 146.3 ms over 50 ms (reported, not enforced)"
+      ],
+      "within_budget": false
+    },
+    {
+      "arm": "minilm-mixed",
+      "run_name": "minilm-mixed-20261112T180732Z",
+      "run_dir": "phase2_results.zip:runs/minilm-mixed",
+      "model_version": "student-minilm-mixed-20261112T180732Z",
+      "model_id": "microsoft/MiniLM-L12-H384-uncased",
+      "val_mean_auc": 0.9918698134391882,
+      "val_mean_pr_auc": 0.7305377248193693,
+      "bias_passed": true,
+      "bias_worst_slice": {
+        "slice": "race_or_ethnicity:white",
+        "n": 1178,
+        "fpr": 0.08484848484848485,
+        "gap_pts": 5.658693515612903
+      },
+      "bias_overall_fpr": 0.028261549692355826,
+      "latency": {
+        "p50_ms": 19.468866501483717,
+        "p95_ms": 102.92408950044774,
+        "p99_ms": 106.82261076890425,
+        "threads": 2,
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "max_length": 256
+      },
+      "package_ok": true,
+      "gate_passed": true,
+      "gate_failed_checks": [],
+      "mlflow_run_id": "eb1e2b7ba52e4d3b83920af71ba96f96",
+      "eligible": true,
+      "reasons": [],
+      "notes": [
+        "latency p95_ms 102.9 ms over 50 ms (reported, not enforced)"
+      ],
+      "within_budget": false
+    },
+    {
+      "arm": "distilbert-tfidf",
+      "run_name": "distilbert-tfidf-20261112T190956Z",
+      "run_dir": "phase2_results.zip:runs/distilbert-tfidf",
+      "model_version": "student-distilbert-tfidf-20261112T190956Z",
+      "model_id": "distilbert-base-uncased",
+      "val_mean_auc": 0.9942629785446572,
+      "val_mean_pr_auc": 0.778808879267086,
+      "bias_passed": true,
+      "bias_worst_slice": {
+        "slice": "sexual_orientation:any",
+        "n": 570,
+        "fpr": 0.1024390243902439,
+        "gap_pts": 7.996535664595355
+      },
+      "bias_overall_fpr": 0.022473667744290333,
+      "latency": {
+        "p50_ms": 30.844052500469843,
+        "p95_ms": 146.62505239884922,
+        "p99_ms": 150.79899802949512,
+        "threads": 2,
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "max_length": 256
+      },
+      "package_ok": true,
+      "gate_passed": true,
+      "gate_failed_checks": [],
+      "mlflow_run_id": "3345cd8bf132452e98dc2cd121a24558",
+      "eligible": false,
+      "reasons": [
+        "control arm, not a candidate (select.candidates)"
+      ],
+      "notes": [
+        "latency p95_ms 146.6 ms over 50 ms (reported, not enforced)"
+      ],
+      "within_budget": false
+    },
+    {
+      "arm": "distilbert-stack",
+      "run_name": "distilbert-stack-20261112T181004Z",
+      "run_dir": "phase2_results.zip:runs/distilbert-stack",
+      "model_version": "student-distilbert-stack-20261112T181004Z",
+      "model_id": "distilbert-base-uncased",
+      "val_mean_auc": 0.9930323846652586,
+      "val_mean_pr_auc": 0.7559177475039142,
+      "bias_passed": true,
+      "bias_worst_slice": {
+        "slice": "race_or_ethnicity:white",
+        "n": 1178,
+        "fpr": 0.03636363636363636,
+        "gap_pts": 2.5778590999156226
+      },
+      "bias_overall_fpr": 0.010585045364480133,
+      "latency": {
+        "p50_ms": 31.041095999171375,
+        "p95_ms": 145.68307784938952,
+        "p99_ms": 151.62901196152234,
+        "threads": 2,
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "max_length": 256
+      },
+      "package_ok": true,
+      "gate_passed": true,
+      "gate_failed_checks": [],
+      "mlflow_run_id": "e782482a58de445b8251148e882f3908",
+      "eligible": false,
+      "reasons": [
+        "control arm, not a candidate (select.candidates)"
+      ],
+      "notes": [
+        "latency p95_ms 145.7 ms over 50 ms (reported, not enforced)"
+      ],
+      "within_budget": false
+    },
+    {
+      "arm": "distilbert-gold",
+      "run_name": "distilbert-gold-20261112T171037Z",
+      "run_dir": "phase2_results.zip:runs/distilbert-gold",
+      "model_version": "student-distilbert-gold-20261112T171037Z",
+      "model_id": "distilbert-base-uncased",
+      "val_mean_auc": 0.9893656997857231,
+      "val_mean_pr_auc": 0.7032952370665697,
+      "bias_passed": true,
+      "bias_worst_slice": {
+        "slice": "gender:transgender",
+        "n": 129,
+        "fpr": 0.07766990291262135,
+        "gap_pts": 5.973268318167965
+      },
+      "bias_overall_fpr": 0.017937219730941704,
+      "latency": {
+        "p50_ms": 30.24830999856931,
+        "p95_ms": 146.32765340284095,
+        "p99_ms": 150.67892116996518,
+        "threads": 2,
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "max_length": 256
+      },
+      "package_ok": true,
+      "gate_passed": true,
+      "gate_failed_checks": [],
+      "mlflow_run_id": "8047314013734138ad813ed3705f8df3",
+      "eligible": false,
+      "reasons": [
+        "control arm, not a candidate (select.candidates)"
+      ],
+      "notes": [
+        "latency p95_ms 146.3 ms over 50 ms (reported, not enforced)"
+      ],
+      "within_budget": false
+    },
+    {
+      "arm": "distilbert-calqwen",
+      "run_name": "distilbert-calqwen-20261112T200941Z",
+      "run_dir": "phase2_results.zip:runs/distilbert-calqwen",
+      "model_version": "student-distilbert-calqwen-20261112T200941Z",
+      "model_id": "distilbert-base-uncased",
+      "val_mean_auc": 0.9883352157843556,
+      "val_mean_pr_auc": 0.6981775520191945,
+      "bias_passed": true,
+      "bias_worst_slice": {
+        "slice": "race_or_ethnicity:white",
+        "n": 1178,
+        "fpr": 0.07878787878787878,
+        "gap_pts": 5.860850659056936
+      },
+      "bias_overall_fpr": 0.020179372197309416,
+      "latency": {
+        "p50_ms": 30.115446999843698,
+        "p95_ms": 146.38566650046414,
+        "p99_ms": 149.8361443599788,
+        "threads": 2,
+        "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+        "max_length": 256
+      },
+      "package_ok": true,
+      "gate_passed": true,
+      "gate_failed_checks": [],
+      "mlflow_run_id": "51eedcb0864649e090af7136fb6c1df6",
+      "eligible": false,
+      "reasons": [
+        "control arm, not a candidate (select.candidates)"
+      ],
+      "notes": [
+        "latency p95_ms 146.4 ms over 50 ms (reported, not enforced)"
+      ],
+      "within_budget": false
+    }
+  ]
+}

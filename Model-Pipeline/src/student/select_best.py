@@ -12,6 +12,11 @@ choose the highest **validation** mean AUC; candidates within ``select.auc_tie``
 as tied and the higher validation mean PR-AUC wins. The gate set, H2 and the bias set's
 accuracy are never used for choosing (only the bias set's slice FPRs, as the rule says).
 
+``select.candidates`` (a list of arm names, or null for every run) limits who competes; the
+other runs stay in the table as controls. With ``select.latency_enforced: false`` the budget
+is reported for every candidate but does not exclude anyone (``select.note`` says why, and
+goes into ``selection.md``).
+
 Each candidate is a run folder of ``src.pipeline.run``: ``summary.json``, ``latency.json``,
 ``eval/gate_report.json`` (or ``predictions/`` and ``gold/`` to compute it).
 
@@ -74,18 +79,27 @@ def select(candidates: Sequence[Mapping[str, Any]], rule: Mapping[str, Any]) -> 
     """Apply the rule; every candidate comes back with ``eligible`` and its reasons."""
     stat, budget = rule["latency_stat"], float(rule["latency_budget_ms"])
     tie = float(rule.get("auc_tie") or 0.0)
+    enforced = bool(rule.get("latency_enforced", True))
+    allowed = rule.get("candidates")
+    allowed = None if allowed is None else [str(a) for a in allowed]
     judged = []
     for c in candidates:
-        reasons = []
+        reasons, notes = [], []
+        latency = notes if not enforced else reasons
+        if allowed is not None and c["arm"] not in allowed:
+            reasons.append("control arm, not a candidate (select.candidates)")
         if not c["bias_passed"]:
             reasons.append("bias check failed")
         if not c["package_ok"]:
-            reasons.append("no package (latency can't be measured)")
+            latency.append("no package (latency can't be measured)")
         if c["latency"] is None:
-            reasons.append("no latency measurement")
+            latency.append("no latency measurement")
         elif c["latency"][stat] > budget:
-            reasons.append(f"latency {stat} {c['latency'][stat]:.1f} ms over {budget:g} ms")
-        judged.append({**c, "eligible": not reasons, "reasons": reasons})
+            latency.append(f"latency {stat} {c['latency'][stat]:.1f} ms over {budget:g} ms"
+                           + ("" if enforced else " (reported, not enforced)"))
+        judged.append({**c, "eligible": not reasons, "reasons": reasons, "notes": notes,
+                       "within_budget": c["latency"] is not None
+                       and c["latency"][stat] <= budget})
     eligible = [c for c in judged if c["eligible"]]
     selected, tied = None, []
     if eligible:
@@ -96,36 +110,54 @@ def select(candidates: Sequence[Mapping[str, Any]], rule: Mapping[str, Any]) -> 
     return {
         "rule": {"bias": "configs/gate.yaml bias section (slice FPR gap), no production model",
                  "latency": f"{stat} <= {budget:g} ms, batch size 1", "auc_tie": tie,
-                 "order": "highest validation mean AUC; ties by validation mean PR-AUC"},
+                 "latency_enforced": enforced, "candidates": allowed,
+                 "order": "highest validation mean AUC; ties by validation mean PR-AUC",
+                 "note": rule.get("note")},
         "selected": selected, "tied": [c["arm"] for c in tied], "candidates": ranking,
     }
 
 
 def render_markdown(result: Mapping[str, Any]) -> str:
     rule, sel = result["rule"], result["selected"]
+    enforced = rule.get("latency_enforced", True)
+    who = ("candidates ({})".format(", ".join(rule["candidates"])) if rule.get("candidates")
+           else "candidates")
+    budget = (f" and the CPU latency budget ({rule['latency']})" if enforced else "")
     lines = ["# Student selection", "",
-             f"Rule: among candidates that pass the bias check ({rule['bias']}) and the CPU "
-             f"latency budget ({rule['latency']}), {rule['order']} (tie: within "
-             f"{rule['auc_tie']} AUC).", ""]
+             f"Rule: among {who} that pass the bias check ({rule['bias']}){budget}, "
+             f"{rule['order']} (tie: within {rule['auc_tie']} AUC)."
+             + ("" if enforced else f" The CPU latency budget ({rule['latency']}) is "
+                "reported, not enforced."), ""]
+    if rule.get("note"):
+        lines += [f"Note: {' '.join(str(rule['note']).split())}", ""]
     if sel:
         lat = sel["latency"]
+        speed = (f"latency p95 {lat['p95_ms']:.1f} ms on {lat['threads']} threads" if lat
+                 else "no latency measurement")
         lines += [f"**Selected: `{sel['arm']}`** (`{sel['model_version']}`): validation mean "
                   f"AUC {sel['val_mean_auc']:.5f}, PR-AUC {sel['val_mean_pr_auc']:.4f}, "
-                  f"latency p95 {lat['p95_ms']:.1f} ms on {lat['threads']} threads.", ""]
+                  f"{speed}.", ""]
+        if len(result.get("tied") or []) > 1:
+            lines += ["Tied within {} AUC: {}; the higher validation PR-AUC wins.".format(
+                rule["auc_tie"], ", ".join(result["tied"])), ""]
+        if not enforced and not sel.get("within_budget"):
+            lines += ["**The selected model misses the latency budget** "
+                      f"({rule['latency']}).", ""]
     else:
         lines += ["**No candidate passes the rule.**", ""]
     lines += ["| Arm | Val mean AUC | Val mean PR-AUC | Bias check | Worst slice gap (pts) | "
-              "Latency p50 / p95 (ms) | Eligible | Reasons |",
+              "Latency p50 / p95 (ms) | Eligible | Reasons and notes |",
               "|---|---|---|---|---|---|---|---|"]
     for c in result["candidates"]:
         lat, worst = c["latency"], c["bias_worst_slice"]
         gap = "{:+.1f} ({})".format(worst["gap_pts"], worst["slice"]) if worst else "-"
         speed = "{:.1f} / {:.1f}".format(lat["p50_ms"], lat["p95_ms"]) if lat else "-"
         bias = "pass" if c["bias_passed"] else "fail"
+        said = [*c["reasons"], *c.get("notes", [])]
         lines.append(
             f"| {c['arm']} | {c['val_mean_auc']:.5f} | {c['val_mean_pr_auc']:.4f} | {bias} | "
             f"{gap} | {speed} | {'yes' if c['eligible'] else 'no'} | "
-            f"{'; '.join(c['reasons']) or '-'} |")
+            f"{'; '.join(said) or '-'} |")
     return "\n".join(lines) + "\n"
 
 
@@ -152,7 +184,8 @@ def run(runs: Sequence[str | Path], out: str | Path, cfg: Mapping[str, Any],
         with _mlflow_start(cfg, "selection"):
             mlflow.set_tags({"lane": "student", "step": "selection",
                              "selected": (result["selected"] or {}).get("arm", "none")})
-            mlflow.log_params({f"select.{k}": v for k, v in cfg["select"].items()})
+            mlflow.log_params({f"select.{k}": (str(v)[:500] if v is not None else "null")
+                               for k, v in cfg["select"].items()})
             if result["selected"]:
                 mlflow.set_tag("selected_model_version", result["selected"]["model_version"])
                 mlflow.log_metric("selected_val_mean_auc", result["selected"]["val_mean_auc"])
