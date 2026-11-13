@@ -42,37 +42,109 @@ train:
   log_every: 100            # steps between train-loss logs
 
 data:
-  # temp: seeded split of raw train, until the data pipeline's official splits merge.
+  # temp: seeded split of raw train (Phase 1, before the official splits existed).
+  # ids: raw train restricted to the pipeline's official split ids (paths.split_ids_dir:
+  #      train_ids.txt, val_ids.txt), for sweeps and ablations on Kaggle without DVC. Raw train
+  #      has the teacher lane's cleaning and no sample_weight (1.0), so reported numbers come
+  #      from official once load_data.py merges.
   # official: the pipeline's train.parquet and val.parquet (CONTRACTS.md §2.2).
   source: temp
   val_fraction: 0.15
   limit: null               # keep only N training rows (quick runs); validation is kept whole
 
 # The student's targets (docs/teacher_prompts_and_shard_spec.md §7). The run checks that every
-# shard names these versions and that each manifest's stack_sha256 equals the committed stack.
+# shard names these versions and that each manifest's <check_field> equals the SHA-256 of the
+# committed <check_file> (the stack for the stack arm).
+# arm picks the teacher: stack (the main targets), or an attribution arm of the ablation grid
+# (v4 §5), whose values in `arms` replace the stack's below. Everything else stays identical.
 soft_labels:
+  arm: stack
+  format: shards            # shards: §5 soft-label shards; oof: one TF-IDF out-of-fold file
   prefix: soft_labels/stack-v1/p2-zs-v2b/
   prompt_version: p2-zs-v2b
   model_version: stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554+tfidf-lr-v1
   teacher_version: stack-v1
   teacher_model_version: Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554
+  check_field: stack_sha256
+  check_file: artifacts/stack/stack_p2-zs-v2b.json
   shard_size: 5000
   max_failure: 0.01
-  local_root: null          # a local copy of the store instead of Hugging Face (tests, offline)
+  local_root: null          # a local copy of the store instead of the bucket (tests, offline)
+  arms:
+    # Calibrated Qwen: Qwen alone, Platt-calibrated, no TF-IDF input (PR #21).
+    calqwen:
+      prefix: soft_labels/calqwen-v1/p2-zs-v2b/
+      model_version: calqwen-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554
+      teacher_version: calqwen-v1
+      check_field: calibration_sha256
+      check_file: artifacts/pilot/calibration_p2-zs-v2b.json
+    # Out-of-fold TF-IDF scores (five folds, seed 42): the gold-trained baseline as the teacher.
+    # p_<label> becomes logit_<label> = log(p / (1 - p)), clipped at 1e-6.
+    tfidf:
+      format: oof
+      prefix: tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet
+      prompt_version: null
+      model_version: tfidf-lr-v1
+      teacher_version: tfidf-lr-v1
+      teacher_model_version: tfidf-lr-v1
+      check_field: sha256
+      check_file: artifacts/oof/tfidf_oof.manifest.json   # the file's sha256 is recorded here
 
 storage:
-  backend: hf
+  backend: gcs              # the team bucket; hf is the backup copy (same paths)
   hf_repo: distillate-team/distillate-teacher-shards
+  gcs_bucket: distillate-mlops-data
 
 mlflow:
   enabled: true
   experiment: distillate-student
   log_model: false          # model weights stay in the run folder in Phase 1
+  tags: {}                  # extra run tags (the sweep sets study and trial)
+
+# Per-label decision thresholds on validation (src/student/thresholds.py), written next to the
+# model as thresholds.json on every run.
+thresholds:
+  method: max_f1            # each label's F1-maximizing cut-off on the validation split
+  min: 0.01
+  max: 0.99
+
+# The §2.5 model package (src/student/package.py): model.onnx, tokenizer/, thresholds.json,
+# meta.json, built into <run>/package/ after training when enabled (the candidate runs, not
+# every sweep trial). The ONNX export is checked against PyTorch at these lengths and batches.
+package:
+  enabled: false
+  opset: 18
+  parity_lengths: [16, 64, 128, 256]
+  parity_batch_sizes: [1, 4]
+  max_abs_logit_diff: 1.0e-3
+
+# Optuna sweep (src/student/sweep.py, docs/tuning.md): TPE over alpha, T, lr, epochs and
+# max_length on DistilBERT mixed loss, tuned once and reused for the other arms (v4 §5).
+# Each trial is one train.run() with the base config plus the sampled values; the objective
+# is the best validation mean AUC (validation chooses, the gate set is never read).
+sweep:
+  study_name: distilbert-mixed-v1
+  storage: null             # an Optuna storage URL; null = sqlite in paths.out_dir/optuna.db
+  n_trials: 15              # per worker
+  worker: 0                 # 0, 1, ...: the sampler is seeded seed + worker + 1000 * session
+  session: 0                # raise it to re-run a worker (else its random trials repeat)
+  warm_start: []            # storage URLs whose finished trials are copied in before starting
+  timeout_h: null           # session budget: no trial starts that could end after it
+  n_startup_trials: 8  # random trials before TPE starts modelling (counted over the whole study)
+  keep_models: best         # best: keep the best trial's weights; all; none
+  enqueue_default: true     # worker 0 first runs alpha 0.5, T 2, lr 5e-5, 3 epochs, 128
+  space:
+    alpha: {low: 0.1, high: 0.9}
+    temperature: {low: 1.0, high: 5.0}
+    lr: {low: 1.0e-5, high: 1.0e-4, log: true}
+    epochs: {low: 1, high: 4}
+    max_length: [128, 256]
 
 # Relative to Model-Pipeline/.
 paths:
   raw_train: data/wiki_train_raw.parquet       # 00_prepare_data output (id, text, six labels)
   official_dir: ../Data-Pipeline/data/processed/wikipedia
+  split_ids_dir: ../Data-Pipeline/data/splits    # train_ids.txt, val_ids.txt (data.source ids)
   gate_ids: artifacts/gate_subset_ids.parquet  # no training or validation row may be a gate row
   stack_file: artifacts/stack/stack_p2-zs-v2b.json
   out_dir: outputs/student                     # one folder per run; gitignored

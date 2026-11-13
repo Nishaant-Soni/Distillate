@@ -18,3 +18,7 @@ iterative-stratification  # temporary seeded split, same method as Data-Pipeline
 
 fairlearn==0.15.0        # Phase 2 bias metrics (src/eval/bias.py)
 matplotlib               # bias plots
+optuna==5.0.0             # student sweep (src/student/sweep.py); pinned: the study file format
+onnx                      # model package export (src/student/package.py)
+onnxscript                # torch's dynamo ONNX exporter
+onnxruntime               # ONNX parity check and package predictions
