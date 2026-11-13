@@ -23,5 +23,7 @@ onnx==1.23.2
 onnxscript==0.7.2
 onnxruntime==1.31.1
 matplotlib==3.11.2
+fairlearn==0.15.0          # bias report (src/eval/bias.py, PR #41)
+narwhals==2.28.0           # fairlearn's dependency
 dvc[gs]==3.67.1
 pytest==9.1.1
