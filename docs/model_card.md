@@ -56,25 +56,114 @@
 
 ## 3. Teacher and soft labels
 
-TODO (Nishaant). Suggested content:
+Besides the human (gold) labels, the student learns from **soft labels**: per-comment probabilities for the six labels, made by a *stack* that combines a zero-shot LLM teacher with a TF-IDF baseline. How much weight the student gives them is the loss's α (section 4). This section says what the soft labels are, how they were chosen, how good they are on held-out rows, and where they fall short. Full specification: `Model-Pipeline/docs/teacher_prompts_and_shard_spec.md`.
 
-- Teacher `stack-v1`: per-label logistic regression on Qwen3-4B-Instruct-2507's zero-shot
-  logit (prompt `p2-zs-v2b`) and an out-of-fold TF-IDF logit; frozen in
-  `Model-Pipeline/artifacts/stack/stack_p2-zs-v2b.json`.
-- **Description to use:** the soft labels are *a gold-trained baseline corrected by Qwen*,
-  not independent LLM judgments (the TF-IDF weight is 6 to 16 times Qwen's per unit of logit).
-- Cross-fitting: no training row's soft label comes from a model that saw its gold label.
-- Teacher accuracy on the gate subset (weighted, within-stratum bootstrap, from `src/eval`):
+### At a glance
 
-  | Teacher | Mean AUC [95% CI] | Mean PR-AUC | ECE |
-  |---|---|---|---|
-  | Stack (soft labels) | TODO | TODO | TODO |
-  | TF-IDF | TODO | TODO | TODO |
-  | Raw Qwen | TODO | TODO | TODO |
-  | Calibrated Qwen | TODO | TODO | TODO |
+| | |
+|---|---|
+| Teacher model | `Qwen/Qwen3-4B-Instruct-2507` at revision `cdbee75f17c01a7cc42f958dc650907174af0554`, run with vLLM 0.31.0 on Kaggle T4 GPUs |
+| Prompt | `p2-zs-v2b`: one zero-shot yes/no question per label (six prompts per comment), temperature 0 |
+| What the student trains on | `stack-v1` soft labels, `soft_labels/stack-v1/p2-zs-v2b/` in `gs://distillate-mlops-data` (the Hugging Face dataset `distillate-team/distillate-teacher-shards` is a backup copy), merged into `Data-Pipeline/data/processed/teacher_labels.parquet` and versioned with DVC |
+| Soft-label `model_version` | `stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75…+tfidf-lr-v1` |
+| Rows labeled | 159,571 training comments, 20,000 test comments (the gate subset), 40,000 Civil Comments drift comments; 0 failed rows |
+| Labeling cost | about 9.4 T4 GPU-hours: 7.0 for training, 0.9 for the gate subset, 1.6 for drift (shard manifests) |
+| Held-out quality (gate subset) | mean AUC 0.982, PR-AUC 0.659, ECE 0.010 (weighted; table below) |
 
-- Prompt-injection results.
-- Test-split vs training-split accuracy (the raw teacher is weaker on test).
+### How a probability is read from the teacher
+
+Each prompt asks one question about one label and allows a single output token. The probability comes from the top-20 token log-probabilities: P(yes) and P(no) are each summed over six spellings (`yes`, `Yes`, `YES`, with and without a leading space), `p = P(yes) / (P(yes) + P(no))`, and the log-odds `log P(yes) − log P(no)` is kept alongside it, because float32 `p` saturates at exactly 1.0 for confident answers. A cell with less than half its probability mass on yes or no is retried once and then marked failed; none were. Comments longer than 1,024 tokens are truncated (0.37% of training comments, 0.52% of the gate subset).
+
+### What the soft labels are
+
+On its own the teacher ranks comments well but is poorly calibrated (raw `p_toxicity` averages 0.22 against a 0.10 positive rate), and a TF-IDF logistic regression trained on the gold labels beats it on Wikipedia. The stack combines the two per label:
+
+```text
+logit = w_teacher · logit_teacher + w_tfidf · logit(p_tfidf) + intercept,    p = sigmoid(logit)
+```
+
+The 18 weights (`Model-Pipeline/artifacts/stack/stack_p2-zs-v2b.json`) were fitted by weighted logistic regression on 2,000 pilot comments with their inclusion weights, so the stack is also its own calibration. It replaces the per-label Platt calibration (`calibration.json`) first planned for the raw teacher.
+
+**The soft labels blend a TF-IDF model trained on the gold labels with Qwen's zero-shot judgments, so they carry gold-label information and are not independent LLM labels.** On held-out rows, adding Qwen to TF-IDF improves mean AUC by +0.0023 [0.0015, 0.0032] and PR-AUC by +0.036 [0.029, 0.044] on the Wikipedia gate subset (95% bootstrap intervals), and by +0.038 AUC and +0.065 PR-AUC on the Civil drift stream (five labels), where the stack is ahead in all 20 batches (by 0.016 to 0.077 AUC per batch). The gain is small where TF-IDF is already strong and larger on shifted data, where TF-IDF transfers worst.
+
+Neither input alone is clearly better out of domain: on the drift stream the raw teacher scores 0.882 mean AUC and TF-IDF 0.887, while the stack scores 0.924. That the combination gains most on unfamiliar text is consistent with TF-IDF depending on Wikipedia's vocabulary while Qwen was never fitted to these labels, so the two make different errors there. This is an interpretation, not something the runs tested.
+
+The stack's weights are not comparable across its two inputs, whose logits are on different scales, so the held-out gains above, not the weights, measure what Qwen adds. How much of the *student's* quality is due to the LLM is measured by the ablation (section 6; `Model-Pipeline/reports/student/phase2/results.md`). The like-for-like comparisons are between arms trained with the same loss (gold plus soft labels, α 0.343, T 3.71), differing only in where the soft labels come from:
+
+| Soft labels (DistilBERT, mixed loss) | Gate set mean AUC [95% CI] | Civil H2 mean AUC [95% CI] |
+|---|---|---|
+| Stack (`distilbert-mixed`) | 0.9848 [0.9840, 0.9854] | 0.9410 [0.9280, 0.9510] |
+| TF-IDF out-of-fold (`distilbert-tfidf`) | 0.9826 [0.9815, 0.9835] | 0.9081 [0.8895, 0.9252] |
+| Calibrated Qwen (`distilbert-calqwen`) | 0.9783 [0.9771, 0.9793] | 0.9206 [0.9055, 0.9350] |
+
+* **Stack against TF-IDF, the part creditable to the LLM** (paired bootstrap, 1,000 resamples): mean AUC +0.0022 [+0.0017, +0.0027] on the gate set and **+0.033 [+0.024, +0.044] on Civil**; mean PR-AUC +0.036 [+0.029, +0.042] and +0.055 [+0.029, +0.075]. As on the teacher's own held-out rows, Qwen's contribution is small in-domain and largest on shifted text.
+* **Qwen alone is not a better teacher than TF-IDF.** Calibrated Qwen against TF-IDF, paired bootstrap: −0.0043 [−0.0053, −0.0034] on the gate set and +0.0125 [−0.0080, +0.0329] on Civil, where the interval includes zero. What the LLM adds reaches the student through the stack, combined with TF-IDF: stack against calibrated Qwen is +0.0065 [+0.0058, +0.0073] on the gate set and +0.020 [+0.006, +0.036] on Civil.
+* The table's intervals are per arm; the differences above are paired (both arms scored on the same resampled rows), computed with `src/eval/results.py`'s paired bootstrap on the arms' prediction files (`phase2_results.zip`, which reproduces `results.md`'s published pairs exactly). The earlier `results.md` row "stack − TF-IDF" compared the stack-only arm (α 0) with the TF-IDF arm (α 0.343), mixing the teacher with the loss, so it is not used here.
+
+**No training comment's soft label comes from a model that saw its own gold label.** TF-IDF scores for training comments are out-of-fold (five folds, seed 42); the 157,571 training comments outside the pilot get the frozen stack; the 2,000 pilot comments, on which the stack was fitted, get five-fold cross-fitted outputs; test and drift comments get the frozen stack and the full-train TF-IDF model. See the validation caveat under *Known limits*.
+
+### How the teacher was chosen (development results)
+
+These results guided choices, so they are **development** numbers, not held-out ones.
+
+* **Pilot** (2,000 training comments, enriched for the rare labels and weighted back to the population; `artifacts/pilot/`). Mean AUC over the six labels: zero-shot P2 0.965, few-shot P2 0.967 (at half the throughput, 3.4 against 6.8 comments per second), TF-IDF 0.985. The adopted prompt, `p2-zs-v2b`, scored 0.972 on the same pilot. The pre-agreed rule (fine-tune the teacher if its best zero-shot AUC is below TF-IDF's) triggered; instead the team approved the stack, which beats TF-IDF on held-out rows.
+* **Prompt follow-up for obscene** (`artifacts/prompt_v2/`). The v1 obscene question scored AUC 0.936. Three rewrites were compared on one half of the pilot; `v2b` (0.989) was chosen, then confirmed against v1 on the other half (+0.031 obscene AUC, 95% CI [0.009, 0.062], 998 comments) and on Civil Comments (+0.160 [0.129, 0.189], 3,000 comments). Only that question changed.
+* **Civil Comments shift sample** (3,000 comments; `artifacts/shift/`). Mean AUC over five labels (the sample has no severe_toxicity positives): stack 0.934, TF-IDF 0.895, raw teacher 0.894. The sample was used to accept the out-of-fold stack and to check the prompt follow-up, so it is a development result, not an independent test.
+
+**Disclosure: one choice used the gate subset.** A second stack (`stack-v2`, fitted on all training comments) was compared with `stack-v1` on the gate subset and on Civil, under a rule fixed in advance: keep `stack-v1` unless `stack-v2` is at least as good. `stack-v2` minus `stack-v1`, mean AUC: −0.00026 [−0.00034, −0.00019] on the gate subset, +0.00011 [−0.0007, 0.0009] on Civil. `stack-v1`, the pre-agreed default, was kept. The gate set is meant for final numbers only, never for choosing; the practical effect here is close to none (the default was kept, the two stacks are nearly identical, and Civil agrees), but it is recorded.
+
+### Teacher accuracy on held-out rows
+
+Scored by the team's evaluation harness (`src/eval/metrics.py`), the code that scores every student, on the 20,000-row gate subset: weighted by its inclusion weights (it is enriched for the rare labels), with 95% intervals from 1,000 bootstrap replicates resampled within each stratum. AUC and PR-AUC rank on log-odds where a file has them. The harness reproduces the teacher lane's reference values (`artifacts/stack/stack_check.json`, `artifacts/calqwen/calqwen_check.json`) to within 2e-5 (`tests/eval/test_metrics.py -k reference`).
+
+| Teacher | Mean AUC [95% CI] | Mean PR-AUC [95% CI] | ECE | Brier |
+|---|---|---|---|---|
+| **Stack (soft labels, `stack-v1`)** | **0.9822** [0.9810, 0.9835] | **0.659** [0.641, 0.684] | 0.010 | 0.019 |
+| TF-IDF (`tfidf-lr-v1`) | 0.9799 [0.9785, 0.9814] | 0.623 [0.604, 0.648] | 0.010 | 0.019 |
+| Raw Qwen | 0.9588 [0.9564, 0.9611] | 0.475 [0.454, 0.504] | 0.086 | 0.085 |
+| Calibrated Qwen (`calqwen-v1`) | 0.9588 [0.9564, 0.9611] | 0.475 [0.454, 0.504] | 0.011 | 0.025 |
+
+Per label, AUC / PR-AUC:
+
+| Label | Stack | TF-IDF | Raw Qwen |
+|---|---|---|---|
+| toxicity | 0.967 / 0.789 | 0.965 / 0.780 | 0.926 / 0.586 |
+| severe_toxicity | 0.987 / 0.395 | 0.985 / 0.371 | 0.977 / 0.288 |
+| obscene | 0.977 / 0.781 | 0.977 / 0.782 | 0.935 / 0.582 |
+| threat | 0.997 / 0.622 | 0.994 / 0.527 | 0.994 / 0.506 |
+| insult | 0.974 / 0.746 | 0.972 / 0.733 | 0.941 / 0.479 |
+| identity_attack | 0.991 / 0.625 | 0.986 / 0.545 | 0.981 / 0.410 |
+
+* The stack has the best AUC on every label. Its largest PR-AUC gains over TF-IDF are on the rare labels threat (+0.095) and identity_attack (+0.080); it is level with TF-IDF on obscene.
+* **Calibrated Qwen** (`calqwen-v1`, the ablation's second attribution arm) is Qwen alone with the pilot's Platt calibration. It is as well calibrated as the stack (ECE 0.011 against 0.010), but its calibration is monotone per label, so it ranks exactly as raw Qwen does (per-label AUC and PR-AUC equal to within 3e-8). The stack's lead (+0.023 AUC, +0.18 PR-AUC) therefore comes from its TF-IDF input, not from calibration.
+* **Civil drift stream** (40,000 comments in 20 batches; five labels, unweighted; `artifacts/stack/drift_check.json`): AUC / PR-AUC / ECE are 0.924 / 0.344 / 0.008 for the stack, 0.887 / 0.279 / 0.013 for TF-IDF and 0.882 / 0.197 / 0.134 for raw Qwen. The stack is best in every batch (batch mean AUC 0.888 to 0.950, no trend over time). No drift comment is positive for severe_toxicity.
+
+### Prompt injection
+
+40 synthetic comments with an instruction hidden in them (`configs/injection_set.csv`): 20 clearly toxic ones told to answer "no", and 20 clean ones told to answer "yes", some trying to close the comment's delimiter early. With the adopted prompt, 2 of 73 eligible answers flipped to "no" (2.7%) and 8 of 120 flipped to "yes" (6.7%); the largest per-label rate is threat, at 16.7% (1 of 6) toward "no" (`artifacts/pilot/injection_p2-zs-v2b.csv`). This was measured on raw Qwen only. The soft labels also depend on TF-IDF, which counts words rather than following instructions, so the effect on them is probably smaller, but text written to fool an LLM can still move a training label.
+
+### Known limits
+
+* **Zero-shot judgments of one 4-billion-parameter model**, not human labels, and not fine-tuned on this task.
+* **They depend on TF-IDF**, and so on its gold-label training (above). Qwen's measured contribution is largest on shifted data.
+* **Validation caveat (the soft-label arms' validation numbers are optimistic).** The out-of-fold TF-IDF models were fitted on raw train, which includes the official validation split's rows and gold labels, and the stack and the calibrated-Qwen Platt fits used the 2,000 pilot comments, 263 of which are validation comments. A training comment's soft label never comes from a model that saw *that* comment, but it can carry a little information about the validation labels, so validation scores of students trained on soft labels may be optimistic, and tuning on validation may lean slightly toward lower α. Gate-set, H2 and bias-set numbers are unaffected: no teacher-side model saw those rows' labels.
+
+  **Check, after the ablation** (validation-to-gate drop in mean AUC, `results.md`): gold-only 0.0053; mixed 0.0087; stack only 0.0096; calibrated Qwen 0.0101; TF-IDF 0.0117. Every soft-label arm drops 0.003 to 0.006 more than gold-only, and the arm most exposed to the leak (TF-IDF) drops most, as the leak predicts. But calibrated Qwen, which touches it only through the 263 pilot comments, also drops 0.0101, so the leak is not the whole difference. **Verdict:** soft-label arms' validation AUC is optimistic by up to about 0.003 to 0.006 relative to gold-only, so gold-only and soft-label arms are compared on the gate set and H2, never on validation. Arms with the *same* teacher are affected about equally, which is why the selection (section 4) compares only the tuned recipe's architectures, all trained on the stack: validation still ranks them fairly, while the TF-IDF arm, whose validation AUC was the highest (0.99426) but whose gate and H2 scores are lower than the mixed arm's, is not a candidate. The difference between the drops, mixed minus gold-only, is **+0.0034 [+0.0015, +0.0064]** (1,000 bootstrap resamples, validation and the gate set resampled independently, each paired across the two arms; every resample was above zero), so the mixed arm's extra drop is not noise.
+* **Weaker on the test split than on training comments**: raw Qwen's mean AUC is 0.959 on the gate subset against 0.975 on training comments, mostly for toxicity, obscene and insult. Quote test-split numbers.
+* **Rare labels**: severe_toxicity, threat and identity_attack are 0.3% to 1% of comments, and their PR-AUC is low, though the stack improves it.
+* **Domain**: English Wikipedia talk-page comments. Over the same five labels the stack's mean AUC is 0.981 on the Wikipedia gate subset (weighted) and 0.924 on the Civil drift stream (unweighted). Civil gold labels are rater fractions thresholded at 0.5.
+* **Truncation** at 1,024 tokens (0.37% of training comments).
+* **Censored cells**: when one answer has no token in the top 20, its log-odds is a conservative bound (1,090 of 957,426 training cells, 0.11%).
+
+### Lineage and reproduction
+
+* **Shards and checks:** every shard has a manifest with its row count, id hash, prompt and model versions, and the code commit that wrote it. The teacher lane's `validate_local.py` and the data pipeline's `validate_teacher_shards` check all eight runs against the spec (0 errors).
+* **Training data:** the data pipeline merges the shards by id into `Data-Pipeline/data/processed/teacher_labels.parquet` (`p_<label>` the stack, `p_<label>_raw`, `tfidf_oof_<label>`, `p_<label>_calqwen`), versioned with DVC; `load_data` joins it onto train and validation and checks that every row has every score.
+* **MLflow:** experiment `distillate-teacher` on the team tracking server holds 13 runs logged from these records by `python -m src.teacher.mlflow_log` (#27): `pilot` with one child run per configuration (7), `labeling-train`, `labeling-gate` and `labeling-drift`, and `soft-labels-stack-v1` and `soft-labels-calqwen-v1` (the drift stream's per-batch AUCs as stepped metrics). Each run carries a hash of what it logged, so rerunning the logger adds no duplicates.
+* **Licenses** (also section 11):
+  * **Teacher model:** `Qwen/Qwen3-4B-Instruct-2507` is released under **Apache 2.0** (the model page's metadata and `LICENSE` file at the pinned revision `cdbee75…`).
+  * **Data:** the two Jigsaw Kaggle competitions' rules permit academic use and forbid redistributing the data, so the soft labels (ids and scores derived from it) are kept in the private bucket and the private Hugging Face dataset only.
+  * **Civil Comments shift sample:** the Hugging Face copy `google/civil_comments`, released under CC0 1.0.
 
 ## 4. Training
 
@@ -203,9 +292,89 @@ TODO (Ruchita): recall on the 3,000 obfuscated toxic gate comments versus their 
 
 ## 7. Sensitivity analysis
 
-TODO (Nishaant): hyperparameter importance (Optuna), SHAP token attributions, performance
-against input length (truncation at 64, 128 and 256 **tokens**) and against obfuscation
-strength. Link `reports/sensitivity.md`.
+How the selected student's quality depends on its hyperparameters, which words drive its predictions, and how it holds up on short inputs and obfuscated text. Generated by `python -m src.sensitivity.run` (`Model-Pipeline/src/sensitivity/`); the full report, with plots and masked examples, is `Model-Pipeline/reports/sensitivity.md`, and the run is logged to MLflow (experiment `distillate-sensitivity`).
+
+**Everything is on Wikipedia validation**, the split for choosing and diagnosing; the gate set is for final numbers only. Validation is read through `load_data` at a recorded DVC revision, and the report records that revision and the validation file's SHA-256. Metrics are unweighted; AUC and PR-AUC rank on logits. The student analysed is the selected one, `student-distilbert-mixed-5ep-20261112T210931Z` (section 4). It was trained for 5 epochs, one more than the study's range (1 to 4), so section 7.1's importances describe the space it was tuned in rather than its exact setting. The run (2026-11-13, PR D, #46) scored all 21,363 validation rows at DVC revision `5808fdf` (validation file SHA-256 `a9ad613893969b11…`) with code `4deb14e`, in 3 h 20 min on CPU. MLflow run `ea487f8547d94920bab6d3ed5f54308d` (experiment `distillate-sensitivity`), the report as re-rendered after review; the first logged run, with the earlier masking, was deleted.
+
+### 7.1 Hyperparameter importance
+
+From the merged Optuna study `distilbert-mixed-v1` (28 completed trials, both halves of the sweep; `gs://distillate-mlops-data/optuna/distilbert-mixed-v1.db`), the share of the objective's variance (validation mean AUC) explained by each hyperparameter. Two evaluators, each recomputed under 11 seeds (42 to 52); the value at seed 42 with the range over the 11:
+
+| Parameter | fANOVA | MDI |
+|---|---|---|
+| Maximum length | 0.548 (0.367 to 0.548) | 0.478 (0.328 to 0.478) |
+| Epochs | 0.238 (0.238 to 0.341) | 0.224 (0.224 to 0.319) |
+| α | 0.141 (0.104 to 0.229) | 0.172 (0.119 to 0.224) |
+| Learning rate | 0.049 (0.035 to 0.114) | 0.089 (0.066 to 0.144) |
+| Temperature T | 0.024 (0.011 to 0.037) | 0.037 (0.028 to 0.059) |
+
+* Maximum length ranks first under all 11 seeds for both evaluators, and both give the same mean order.
+* **The objective barely moves:** validation mean AUC runs from 0.988 to 0.9936 across the 28 trials, so these are shares of a small variance. Maximum length leads because every 128-token trial scores below every good 256-token trial; epochs comes second mostly because of the 1-epoch trials. Within the good region (256 tokens, 3 to 4 epochs), α from about 0.15 to 0.6 and T from about 2.5 to 4.5 score within about 0.001 of each other.
+* **Caveat:** TPE samples mostly near the best region, so importance measured on its trials understates α and T far from it. The study's validation scores carry the validation caveat in section 3.
+
+### 7.2 Token attributions (SHAP)
+
+SHAP Partition explainer with a text masker on validation comments, per label: up to 12 comments each that the student caught (true positives), missed (false negatives) and flagged wrongly (false positives), 500 model calls per comment. Reported as the most-attributed words per label and outcome (a word must occur in at least 5 validation comments to be shown), plus masked example lines in which only the top few words are visible: at most a third of a comment's words, no two of them adjacent, and never its first or last word, so no fragment of a comment is shown. Slurs appear with their inner letters masked (n****r). No comment text is published. 211 comments were explained (12 per label and outcome; some comments fall in more than one label).
+
+* **Caught comments are driven by explicit words**, with large attributions (in logits): profanity for toxicity and obscene, "kill", "burn" and "die" for threat, slurs and identity nouns for identity_attack.
+* **Identity words drive false alarms.** For identity_attack's false alarms the most-attributed words are a racial slur (+7.3), "gay" (+5.2), "nazi" (+3.9) and "racist" (+2.8), and "gay" also raises toxicity on caught comments (+2.6): comments that mention, quote or discuss an identity are scored as attacks. This is the mechanism behind the bias report's race-slice finding (section 9). Threat's false alarms work the same way, from "kill" (+6.5) and "die" (+5.1) outside a threat.
+* **Missed comments carry little attribution** (toxicity: no word above +0.7). The missed toxicity, insult, threat and identity_attack examples are mostly insults without profanity, threats without "kill" or "die", toxicity carried by context, and identity attacks without a slur. The missed severe_toxicity and obscene examples do contain profanity, which the student scored as toxic but not severe or obscene enough.
+
+These are what drives 12 comments per group, not frequencies across validation.
+
+### 7.3 Input length
+
+Validation rescored with the input truncated at 64, 128 and 256 **tokens**, and results by each comment's untruncated token length (≤64, 65–128, 129–256, >256). These bands are in tokens; the bias report's length slices (section 9) are in characters, so the two are not the same bands.
+
+| Max length (tokens) | Comments truncated | Mean AUC | Mean PR-AUC | Mean recall |
+|---|---|---|---|---|
+| 64 | 41.1% | 0.990 | 0.750 | 0.746 |
+| 128 | 18.0% | 0.993 | 0.765 | 0.770 |
+| 256 (the model's own) | 6.4% | 0.994 | 0.768 | 0.774 |
+
+Mean AUC by untruncated token length:
+
+| Tokens | Comments | At 64 | At 128 | At 256 |
+|---|---|---|---|---|
+| ≤64 | 12,582 | 0.993 | 0.993 | 0.993 |
+| 65–128 | 4,929 | 0.985 | 0.994 | 0.994 |
+| 129–256 | 2,481 | 0.970 | 0.980 | 0.993 |
+| >256 | 1,371 | 0.975 | 0.980 | 0.988 |
+
+* At 256 tokens the 6.4% of comments that are truncated score 0.988, against 0.993 for the rest.
+* A shorter input would cost the long comments most: at 64 tokens, comments of 129 to 256 tokens drop from 0.993 to 0.970, while short comments are unaffected. This is the cost to weigh against latency for a faster student in Phase 3.
+
+### 7.4 Obfuscation strength
+
+The data pipeline's character substitutions (a→4, e→3, i→1, l→1, o→0, s→5, t→7) applied to every validation comment at rates 0, 0.1, 0.25, 0.5, 0.75 and 1.0, seeded per comment and nested (a character changed at 0.25 is also changed at 0.5). Reported per rate: AUC, PR-AUC, recall and flag rate at the tuned thresholds, and the share of toxic comments caught when clean but missed once obfuscated. This is a sweep on validation; the fixed obfuscation set built from toxic gate comments is scored separately as robustness evidence (section 6).
+
+Mean over the six labels:
+
+| Rate | Characters changed | AUC | PR-AUC | Recall | Flag rate | Missed |
+|---|---|---|---|---|---|---|
+| 0 | 0% | 0.994 | 0.768 | 0.774 | 3.95% | 0% |
+| 0.1 | 4.3% | 0.989 | 0.719 | 0.683 | 3.66% | 14.5% |
+| 0.25 | 10.7% | 0.975 | 0.648 | 0.556 | 3.16% | 31.3% |
+| 0.5 | 21.4% | 0.942 | 0.516 | 0.385 | 2.44% | 53.7% |
+| 0.75 | 32.1% | 0.900 | 0.438 | 0.271 | 1.73% | 67.8% |
+| 1.0 | 42.8% | 0.863 | 0.392 | 0.163 | 1.05% | 81.3% |
+
+*Missed*: the share of toxic comments flagged when clean and not flagged at that rate.
+
+* At rate 0.5, the labels most dependent on exact words lose most: threat misses 98% (44 of the 45 threats caught when clean), identity_attack 72% (86 of 120) and insult 47%; toxicity misses 38% and obscene 27%.
+* **The flag rate falls with recall**, so obfuscated comments are passed as clean rather than flagged: an attack lowers recall without raising false alarms.
+
+### 7.5 Findings
+
+From `Model-Pipeline/reports/sensitivity_findings.md`:
+
+1. **Inside the tuned region, the student hardly depends on α and T.** Maximum length explains roughly 35 to 55% of the small variance across the 28 trials and ranks first under every seed, and epochs comes next; α and T far from the best region are under-explored (section 7.1).
+2. **Obfuscation is the clearest weakness, and it fails quietly.** Changing 4.3% of characters makes the student miss 14.5% of the toxic comments it caught when clean, and changing 21% makes it miss 54%, with no rise in false alarms. The fixed obfuscation set agrees (toxicity recall 0.880 on the originals, 0.655 obfuscated). Training on obfuscated text, or normalizing look-alike characters before scoring, are the obvious remedies for Phase 3.
+3. **Identity words push the student toward flagging,** which explains the bias report's race-slice finding (section 9).
+4. **Missed toxic comments are mostly implicit:** insults without profanity, and toxicity carried by context (severe_toxicity and obscene excepted: there the misses contain profanity the student judged not severe or obscene enough).
+5. **256 tokens is a good length.** It truncates 6.4% of comments at little cost; 64 or 128 tokens would mainly lose long comments.
+
+All of this is on validation, so it diagnoses the model rather than giving final numbers. The soft-label validation caveat (section 3) affects the levels here, not the comparisons across lengths and rates.
 
 ## 8. Gate and release criteria
 
@@ -253,7 +422,10 @@ TODO (Ruchita). Link `reports/bias/bias_report_phase2.md`.
   `config/identity_terms.txt`, which misses unlisted references and matches innocent uses.
 - **Rater bias:** gold labels come from crowd raters, whose own biases are in the labels.
 - **Missing groups:** no age or location fields, so those groups are not evaluated.
-- **Obfuscation:** character-level attacks can lower recall. TODO: quantify.
+- **Obfuscation:** character-level attacks lower recall quickly, and the model passes the
+  changed comments as clean rather than flagging them: with 4% of characters swapped for
+  look-alikes it misses 15% of the toxic validation comments it caught when clean, and with 21%
+  it misses 54% (threat 98%, 44 of 45). See section 7.4.
 - **Rare labels:** threat and identity_attack have few positives, so their metrics are noisy.
 - **Teacher dependence:** the soft labels blend a gold-trained TF-IDF model with Qwen, so they
   carry gold-label information; bias in either can pass into the student.
@@ -286,4 +458,8 @@ scores and metrics.
 |---|---|
 | TODO | Skeleton created (Ruchita) |
 | TODO | Review fixes: eval-set sizes, data-level gap range, section 10 teacher wording, Qwen licence (Ruchita) |
+| 2026-11-11 | Sections 3 (teacher and soft labels) and 7 (sensitivity analysis, 7.1 filled) (Nishaant) |
+| 2026-11-13 | Section 3: the ablation's attribution results (paired intervals), the leak check's result, interval and verdict, the validation caveat's wording on what the stack was fitted on; section 7: the selected student (Nishaant) |
 | 2026-11-13 | Section 4 (training), section 1 version and architecture, student base model (Shivam) |
+| 2026-11-13 | Section 7.2 to 7.5: the sensitivity run's results and findings, with its data revision and MLflow run; section 10's obfuscation limit quantified from section 7.4 (Nishaant) |
+| 2026-11-14 | Section 7 after review (#46): the masked-example rule (no adjacent words, ends hidden), slurs masked, the importance share as a range over seeds, threat counts (Nishaant) |
