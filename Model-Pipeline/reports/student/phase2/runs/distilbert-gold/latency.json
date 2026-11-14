@@ -1,0 +1,19 @@
+{
+  "model_version": "student-distilbert-gold-20261112T171037Z",
+  "format": "onnx fp32",
+  "batch_size": 1,
+  "threads": 2,
+  "requests": 300,
+  "warmup": 20,
+  "max_length": 256,
+  "mean_tokens": 72.27,
+  "max_tokens": 256,
+  "p50_ms": 30.24830999856931,
+  "p90_ms": 103.53380899869083,
+  "p95_ms": 146.32765340284095,
+  "p99_ms": 150.67892116996518,
+  "mean_ms": 44.35668789988995,
+  "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+  "cpu_count": 4,
+  "onnxruntime": "1.31.1"
+}

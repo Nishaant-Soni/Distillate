@@ -1,0 +1,32 @@
+{
+  "model_version": "student-modernbert-mixed-20261112T185501Z",
+  "model_id": "answerdotai/ModernBERT-base",
+  "max_length": 256,
+  "labels": [
+    "toxicity",
+    "severe_toxicity",
+    "obscene",
+    "threat",
+    "insult",
+    "identity_attack"
+  ],
+  "alpha": 0.3432987447660936,
+  "temperature": 3.71295432376268,
+  "teacher_version": "stack-v1",
+  "teacher_model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+  "prompt_version": "p2-zs-v2b",
+  "stack_sha256": "9b2418043a97592d298e7d69209a93fc872ef2438d58073df2ce1c684c426e28",
+  "soft_label_arm": "stack",
+  "soft_label_prefix": "soft_labels/stack-v1/p2-zs-v2b/",
+  "soft_label_check": {
+    "stack_sha256": "9b2418043a97592d298e7d69209a93fc872ef2438d58073df2ce1c684c426e28"
+  },
+  "soft_label_model_version": "stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554+tfidf-lr-v1",
+  "data_source": "ids",
+  "training_data_sha256": "acde36e26ff64e063e40513b17c6a8dc1e6ecb9724e798f834eea9c940f5fe85",
+  "training_data_dvc_hash": null,
+  "seed": 42,
+  "best_epoch": 3,
+  "code_commit": "80a4502d97d882ddf7de90c87cd3db743bcedb36",
+  "mlflow_run_id": "212ee0e26f8d4197a56b239544f852cb"
+}
