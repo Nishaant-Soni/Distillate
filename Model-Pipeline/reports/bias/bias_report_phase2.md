@@ -2,9 +2,28 @@
 
 > Generated tables, JSON and plots: [`phase2/bias_tables.md`](phase2/bias_tables.md),
 > [`phase2/bias_phase2.json`](phase2/bias_phase2.json), [`phase2/plots/`](phase2/plots/).
-> Produced by `python -m src.eval.bias` (`Model-Pipeline/src/eval/bias.py`) on the final
-> prediction files in `phase2_results.zip`, with `--matched-fpr 0.05` and paired bootstraps
-> (1,000 replicates) of each arm against the gold-only student.
+> Produced by `src/eval/bias.py` on the final prediction files in `phase2_results.zip`, with
+> `--matched-fpr 0.05` and paired bootstraps (1,000 replicates) of each arm against the
+> gold-only student.
+
+**Reproduce**
+
+- Code: commit `92e7f1c` (`src/eval/bias.py`, #41).
+- Input: `gs://distillate-mlops-data/models/student-distilbert-mixed-5ep-20261112T210931Z/phase2_results.zip`,
+  SHA-256 `53e1f5857d22389089cc0b0d92137d13514d227bc39752c426939aae33f2b9ec`.
+- Command, from `Model-Pipeline/` with the zip unzipped to `$R`:
+
+```bash
+python -m src.eval.bias --gold $R/gold \
+  --arm gold=$R/runs/distilbert-gold/predictions \
+  --arm stack=$R/runs/distilbert-stack/predictions \
+  --arm tfidf=$R/runs/distilbert-tfidf/predictions \
+  --arm calqwen=$R/runs/distilbert-calqwen/predictions \
+  --arm mixed5ep=$R/runs/distilbert-mixed-5ep/predictions \
+  --matched-fpr 0.05 \
+  --compare mixed5ep gold --compare tfidf gold --compare stack gold --compare calqwen gold \
+  --plots --before gold --after mixed5ep --out reports/bias/phase2
+```
 
 ## 1. Summary
 
@@ -37,10 +56,12 @@
 | calqwen | `distilbert-calqwen` | gold + calibrated-Qwen soft labels (attribution arm) | 0.39 |
 | selected | `distilbert-mixed-5ep` | gold + stack soft labels, tuned alpha and T, 5 epochs | 0.35 |
 
-**Selection status:** `selection.md` reports that no arm passes the selection rule, because
-every arm misses the CPU latency budget (p95 about 145 ms against 50 ms; p50 about 30 ms).
-This report treats `distilbert-mixed-5ep` as the selected candidate, pending the team's
-final selection.
+**Selection:** the selected student is `distilbert-mixed-5ep`, per
+`Model-Pipeline/reports/student/phase2/selection.json` and model card §4, under the rule
+decided on Nov 13: candidates are the tuned recipe only (so the TF-IDF and calibrated-Qwen
+attribution arms aren't candidates), and CPU latency is reported, not enforced. The
+`selection_as_run.md` inside `phase2_results.zip`, which enforced the latency budget, selects
+no arm; it is superseded.
 
 **Data:** the Civil Comments bias set (identity-annotated test rows, 21,577 rows; toxic rate
 11.1%). Slices are each identity attribute at >= 0.5 and each group (gender, sexual
@@ -105,8 +126,9 @@ also flags latino. The selected model's ratios there are 2.3× (black), 2.8× (w
 | homosexual_gay_or_lesbian (538) | +0.030 [+0.010, +0.046] | +0.022 [+0.001, +0.040] | −0.027 [−0.047, −0.010] | +0.062 [+0.039, +0.083] |
 | any (570) | +0.026 [+0.007, +0.042] | +0.018 [−0.003, +0.034] | −0.031 [−0.050, −0.013] | +0.057 [+0.035, +0.078] |
 
-The gain comes from the Qwen side of the teacher: calibrated-Qwen labels improve these slices
-most, while TF-IDF labels make them worse. At matched 5% FPR, sexual-orientation slices are
+The gain is consistent with the Qwen side of the teacher: calibrated-Qwen labels improve these
+slices most, while TF-IDF labels make them worse (inferred from the student arms; the teacher
+itself isn't scored on the bias set). At matched 5% FPR, sexual-orientation slices are
 flagged for every arm except calibrated-Qwen, gold included (3.2×), so this is a
 long-standing gap that the selected model narrows (2.8×) rather than a new one.
 
@@ -169,7 +191,7 @@ Per-slice FPR at each model's tuned threshold, with each model's overall FPR as 
   sources of soft labels contribute: TF-IDF labels (−0.048 on race:any) and, more strongly,
   calibrated-Qwen labels (−0.111). The selected model, which mixes gold with the stack's
   soft labels, shows the smallest drop (−0.041).
-- **Reduced for sexual orientation**, driven by the Qwen side.
+- **Reduced for sexual orientation**, consistent with the Qwen side (inferred from the arms).
 - **Unchanged for religion and disability** in the selected model.
 
 The teacher itself isn't scored on the bias set (its labels cover the training rows and the
@@ -222,4 +244,3 @@ applies one threshold per label to everyone.
 - **Rater bias:** gold labels come from crowd raters, whose biases are in the labels.
 - **Missing groups:** no age or location fields.
 - **Teacher not scored directly** on the bias set (section 4).
-- **Selection pending** (section 2).
