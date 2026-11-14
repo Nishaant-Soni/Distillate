@@ -1,8 +1,8 @@
 # Model card: distillate-student
 
-> **Status: skeleton (draft).** Sections marked `TODO (owner)` are filled in by that lane
-> owner in their own PR. Numbers come from `src/eval` and the bias reports; don't type them
-> in by hand from memory. Final by Fri Dec 4.
+> **Status: Phase 2 (submitted Nov 15, 2026).** Each section is maintained by its owner.
+> Numbers come from `src/eval` and the committed reports, not typed from memory. Phase 3
+> adds serving and monitoring; the card is final by Fri Dec 4.
 
 | Section | Owner |
 |---|---|
@@ -33,7 +33,7 @@
   version, training-data DVC hash, alpha, temperature, teacher_version,
   teacher_model_version, prompt_version, stack_sha256).
 - **Owners:** Distillate team, MLOps (DADS / IE 7305).
-- **Contact:** TODO.
+- **Contact:** open an issue on the project repository (`Nishaant-Soni/Distillate`).
 
 ## 2. Intended use
 
@@ -266,29 +266,109 @@ per-label PR-AUC (average precision), macro-F1 at the tuned thresholds, ECE (10 
 and the flag decision's precision, recall, F1 and false positive rate. Intervals are 95%
 bootstrap intervals over 1,000 resamples.
 
-### H1: in-domain (Wikipedia gate set)
+Source: `Model-Pipeline/reports/student/phase2/results.md` (`src/eval/results.py` on the
+final prediction files). Every arm is DistilBERT unless named otherwise, scored at its own
+thresholds chosen on validation. The selected student is **`distilbert-mixed-5ep`** (section 4).
 
-TODO (Ruchita, from Shivam's prediction files)
+| Arm | What it is |
+|---|---|
+| `distilbert-gold` | gold labels only (alpha = 1) |
+| `distilbert-stack` | stack soft labels only (alpha = 0) |
+| `distilbert-mixed` | gold + stack soft labels (alpha 0.343, T 3.71), 4 epochs |
+| `distilbert-mixed-5ep` | the same, 5 epochs: **selected** |
+| `distilbert-tfidf` | attribution arm: gold + TF-IDF out-of-fold soft labels, same alpha and T |
+| `distilbert-calqwen` | attribution arm: gold + calibrated-Qwen soft labels, same alpha and T |
+| `minilm-mixed`, `modernbert-mixed` | the mixed recipe on MiniLM-L12 and ModernBERT-base |
+
+The TF-IDF classifier itself isn't scored on the full gate set; its accuracy on the gate
+subset is in section 3.
+
+### H1: in-domain (Wikipedia gate set, 63,978 rows)
 
 | Arm | Mean AUC [95% CI] | Mean PR-AUC | Macro-F1 | Flag F1 | Flag FPR |
 |---|---|---|---|---|---|
-| TF-IDF baseline | | | | | |
-| Gold-only (alpha = 1) | | | | | |
-| Stack teacher only (alpha = 0) | | | | | |
-| Mixed: gold + stack soft labels | | | | | |
-| Attribution: gold + TF-IDF soft labels | | | | | |
-| Attribution: gold + calibrated-Qwen soft labels | | | | | |
+| distilbert-gold | 0.9841 [0.9831, 0.9849] | 0.6231 | 0.5875 | 0.6894 | 0.0757 |
+| distilbert-stack | 0.9835 [0.9826, 0.9842] | 0.6724 | 0.6124 | 0.6986 | 0.0563 |
+| distilbert-mixed | 0.9848 [0.9840, 0.9854] | 0.6866 | 0.6182 | 0.6834 | 0.0751 |
+| **distilbert-mixed-5ep** | **0.9845 [0.9836, 0.9852]** | **0.6814** | **0.6238** | **0.6814** | **0.0757** |
+| distilbert-tfidf | 0.9826 [0.9815, 0.9835] | 0.6509 | 0.6048 | 0.6733 | 0.0803 |
+| distilbert-calqwen | 0.9783 [0.9771, 0.9793] | 0.6380 | 0.5904 | 0.6764 | 0.0531 |
+| minilm-mixed | 0.9849 [0.9841, 0.9857] | 0.6884 | 0.6171 | 0.6800 | 0.0809 |
+| modernbert-mixed | 0.9846 [0.9839, 0.9853] | 0.6827 | 0.6167 | 0.6855 | 0.0728 |
 
-### H2: cross-domain (Civil Comments, five labels)
+### H2: cross-domain (Civil Comments, 10,000 rows, five labels)
 
-TODO (Ruchita): same arms and columns as H1.
+| Arm | Mean AUC [95% CI] | Mean PR-AUC | Macro-F1 | Flag F1 | Flag FPR |
+|---|---|---|---|---|---|
+| distilbert-gold | 0.9139 [0.8993, 0.9285] | 0.3711 | 0.2873 | 0.4862 | 0.0179 |
+| distilbert-stack | 0.9359 [0.9225, 0.9471] | 0.3757 | 0.2515 | 0.4262 | 0.0097 |
+| distilbert-mixed | 0.9410 [0.9280, 0.9510] | 0.4001 | 0.2895 | 0.4861 | 0.0172 |
+| **distilbert-mixed-5ep** | **0.9399 [0.9263, 0.9502]** | **0.3956** | **0.2603** | **0.4812** | **0.0183** |
+| distilbert-tfidf | 0.9081 [0.8895, 0.9252] | 0.3453 | 0.2577 | 0.4814 | 0.0172 |
+| distilbert-calqwen | 0.9206 [0.9055, 0.9350] | 0.3076 | 0.2110 | 0.3997 | 0.0159 |
+| minilm-mixed | 0.9438 [0.9336, 0.9524] | 0.3878 | 0.2865 | 0.5134 | 0.0248 |
+| modernbert-mixed | 0.9384 [0.9233, 0.9498] | 0.3871 | 0.2931 | 0.4920 | 0.0179 |
 
-Only the gap between the stack arm and the TF-IDF arm, especially on H2, can be credited to
-the LLM. Paired bootstrap differences: TODO.
+### Paired differences
+
+Paired bootstrap (1,000 resamples; both arms scored on the same resampled rows), mean AUC and
+mean PR-AUC, a minus b:
+
+| Comparison | Set | Mean AUC diff [95% CI] | Mean PR-AUC diff [95% CI] |
+|---|---|---|---|
+| mixed − gold (distillation vs none) | gate | +0.0007 [+0.0000, +0.0013] | +0.0635 [+0.0510, +0.0748] |
+| mixed − gold | H2 | +0.0271 [+0.0125, +0.0414] | +0.0290 [−0.0141, +0.0645] |
+| mixed − stack only (adding gold) | gate | +0.0013 [+0.0011, +0.0015] | +0.0142 [+0.0098, +0.0185] |
+| mixed − stack only | H2 | +0.0051 [+0.0030, +0.0072] | +0.0244 [+0.0124, +0.0367] |
+| mixed − tfidf (the part creditable to the LLM) | gate | +0.0022 [+0.0017, +0.0027] | +0.036 [+0.029, +0.042] |
+| mixed − tfidf | H2 | +0.033 [+0.024, +0.044] | +0.055 [+0.029, +0.075] |
+| calqwen − tfidf (Qwen alone vs TF-IDF) | gate | −0.0043 [−0.0053, −0.0034] | −0.0129 [−0.0256, −0.0011] |
+| calqwen − tfidf | H2 | +0.0125 [−0.0080, +0.0329] | −0.0377 [−0.0814, +0.0085] |
+| mixed − calqwen | gate | +0.0065 [+0.0058, +0.0073] | |
+| mixed − calqwen | H2 | +0.020 [+0.006, +0.036] | |
+
+The mixed − tfidf and mixed − calqwen rows are section 3's like-for-like pairs (same loss,
+alpha and T; only the soft labels differ). `results.md`'s stack − tfidf and stack − calqwen
+rows compare the stack-only arm (alpha 0) with alpha-0.343 arms, mixing the teacher with the
+loss, so they aren't used.
+
+**Reading the results.**
+
+- **Cross-domain (H2) is where distillation helps clearly:** +0.027 mean AUC over gold-only,
+  and +0.033 over TF-IDF soft labels, the part creditable to the LLM.
+- **In-domain (H1), the PR-AUC gain holds (+0.064) but the AUC gain doesn't stand out.**
+  Gold-only trained on its own tuned recipe reached validation mean AUC 0.9901, against
+  0.98937 in the ablation, a difference of about the size of the whole in-domain AUC gain
+  (+0.0007). So the H1 AUC gain is within the recipe effect; the PR-AUC gain and H2 hold up.
+- **Compare arms on the gate set and H2, not validation:** soft-label arms' validation AUC is
+  optimistic by about 0.003 to 0.006 (section 3, validation caveat).
+
+### Thresholds don't transfer to Civil
+
+The thresholds are tuned on Wikipedia validation. On Civil (H2) they are too strict: the
+selected model's overall flag FPR is only 1.8%, toxicity recall is 38%, and it catches 0 of 28
+threats and 3 of 71 identity attacks. Its ranking transfers reasonably (H2 mean AUC 0.940), so
+the gap is mostly in the operating point; Civil-calibrated thresholds would need a Civil
+validation split and are left for Phase 3.
 
 ### Robustness (obfuscation set)
 
-TODO (Ruchita): recall on the 3,000 obfuscated toxic gate comments versus their originals.
+Toxicity recall on the 3,000 toxic gate comments, originals versus their seeded obfuscated
+copies (look-alike characters, spacing, homoglyphs):
+
+| Arm | Original | Obfuscated |
+|---|---|---|
+| distilbert-gold | 0.900 | 0.649 |
+| distilbert-stack | 0.808 | 0.559 |
+| distilbert-mixed | 0.880 | 0.653 |
+| **distilbert-mixed-5ep** | **0.880** | **0.655** |
+| distilbert-tfidf | 0.884 | 0.680 |
+| distilbert-calqwen | 0.746 | 0.647 |
+| minilm-mixed | 0.905 | 0.705 |
+| modernbert-mixed | 0.877 | 0.718 |
+
+Every arm loses about a quarter of its recall. Section 7.4 sweeps obfuscation strength on
+validation.
 
 ## 7. Sensitivity analysis
 
@@ -380,7 +460,11 @@ All of this is on validation, so it diagnoses the model rather than giving final
 
 A candidate is registered only if `src/eval/gate.py` passes (`configs/gate.yaml`):
 
-- **Validation:** mean AUC at least TODO; per-label PR-AUC floors TODO.
+- **Validation floors:** mean AUC at least 0.98; per-label PR-AUC at least 0.86 (toxicity),
+  0.87 (obscene), 0.76 (insult), 0.38 (severe_toxicity), 0.45 (threat) and 0.45
+  (identity_attack). Set from the gold-only student's validation PR-AUC (run
+  `distilbert-gold-20261111T073929Z`) minus 0.05, or 0.10 for the rare labels, rounded down;
+  based on the gold-only arm, which uses no teacher, to avoid the validation leak.
 - **No regression on the gate set** against production: mean AUC drop at most 0.005;
   PR-AUC drop at most 0.02 (toxicity, obscene, insult) or 0.05 (severe_toxicity,
   identity_attack, threat), set above measured bootstrap noise.
@@ -388,24 +472,80 @@ A candidate is registered only if `src/eval/gate.py` passes (`configs/gate.yaml`
   above overall, or rising more than 2 points over production. The bias report flags gaps
   from 5 points.
 
-Final values: TODO (Ruchita, after team sign-off). Gate history: TODO (Phase 3 Grafana).
+Values are in `Model-Pipeline/configs/gate.yaml` (agreed by the team, PR #33). There is no
+production model yet, so the no-regression and FPR-rise checks start with the first
+promotion. The selected candidate's report:
+`Model-Pipeline/reports/student/phase2/runs/distilbert-mixed-5ep/gate_report.md`. Gate
+history is exported to Grafana in Phase 3.
 
 ## 9. Bias and fairness
 
-TODO (Ruchita). Link `reports/bias/bias_report_phase2.md`.
+Full report: `Model-Pipeline/reports/bias/bias_report_phase2.md` (`src/eval/bias.py`, with
+tables, plots and paired bootstraps).
 
 - **Slices:** Civil identity groups (gender, sexual orientation, religion, race or ethnicity,
-  disability; attribute >= 0.5) and Wikipedia lexicon slices (identity mention, length in
-  characters, obfuscation flag).
-- **Metrics per identity group:** subgroup AUC, BPSN AUC, BNSP AUC, FPR, FNR and F1 at the
-  tuned thresholds.
+  disability; attribute >= 0.5) on the bias set (21,577 rows); 18 slices have at least 100
+  rows and are judged. The Wikipedia lexicon slices weren't computed in Phase 2: the final
+  gold validation file lacks the derived columns (a Phase 3 follow-up).
+- **Metrics:** subgroup AUC, BPSN AUC and BNSP AUC, plus FPR, FNR and F1 at the tuned
+  threshold. A slice is flagged at 5 or more points of FPR above overall. Because the
+  Wikipedia-tuned thresholds give a low overall Civil FPR (about 2%), the report also uses
+  the FPR ratio, BPSN AUC (threshold-free) and a comparison at matched 5% overall FPR.
 
-  | Group | n | Subgroup AUC | BPSN AUC | BNSP AUC | FPR | FNR | F1 |
-  |---|---|---|---|---|---|---|---|
-  | TODO | | | | | | | |
+**Selected student by identity group** (`distilbert-mixed-5ep`, toxicity, threshold 0.35;
+overall: AUC 0.887, FPR 0.022, FNR 0.625, F1 0.484):
 
-- **Findings:** TODO. Does distillation pass on, or amplify, the teacher's bias?
-- **Mitigation:** TODO: whether the `sample_weight` variant was kept, and the trade-off.
+| Group | n | Subgroup AUC | BPSN AUC | BNSP AUC | FPR | FNR | F1 |
+|---|---|---|---|---|---|---|---|
+| gender:female | 2,602 | 0.874 | 0.851 | 0.908 | 0.028 | 0.660 | 0.447 |
+| gender:male | 2,112 | 0.864 | 0.838 | 0.910 | 0.035 | 0.600 | 0.501 |
+| gender:transgender | 129 | 0.786 | 0.822 | 0.862 | 0.049 | 0.692 | 0.410 |
+| gender:any | 3,960 | 0.868 | 0.841 | 0.912 | 0.032 | 0.632 | 0.472 |
+| sexual_orientation:homosexual_gay_or_lesbian | 538 | 0.800 | 0.766 | 0.907 | 0.055 | 0.604 | 0.517 |
+| sexual_orientation:any | 570 | 0.805 | 0.769 | 0.908 | 0.054 | 0.613 | 0.508 |
+| religion:christian | 2,109 | 0.869 | 0.914 | 0.838 | 0.010 | 0.700 | 0.432 |
+| religion:jewish | 411 | 0.843 | 0.848 | 0.885 | 0.035 | 0.735 | 0.367 |
+| religion:muslim | 1,054 | 0.787 | 0.865 | 0.836 | 0.024 | 0.764 | 0.357 |
+| religion:atheist | 149 | 0.904 | 0.913 | 0.868 | 0.000 | 0.800 | 0.333 |
+| religion:any | 3,316 | 0.852 | 0.902 | 0.846 | 0.015 | 0.727 | 0.397 |
+| race_or_ethnicity:black | 761 | 0.774 | 0.808 | 0.873 | 0.050 | 0.740 | 0.381 |
+| race_or_ethnicity:white | 1,178 | 0.772 | 0.773 | 0.897 | 0.068 | 0.669 | 0.445 |
+| race_or_ethnicity:asian | 217 | 0.902 | 0.894 | 0.892 | 0.015 | 0.667 | 0.452 |
+| race_or_ethnicity:latino | 121 | 0.847 | 0.874 | 0.865 | 0.032 | 0.786 | 0.324 |
+| race_or_ethnicity:any | 1,911 | 0.795 | 0.807 | 0.892 | 0.051 | 0.692 | 0.427 |
+| disability:psychiatric_or_mental_illness | 238 | 0.865 | 0.832 | 0.909 | 0.027 | 0.630 | 0.506 |
+| disability:any | 252 | 0.865 | 0.839 | 0.906 | 0.025 | 0.636 | 0.500 |
+
+**Gate verdict:** passes. No slice is 5 or more points above overall FPR; the worst is
+race_or_ethnicity:white at +4.6 points (3.1× overall).
+
+**Does distillation pass on, or amplify, the teacher's bias?** Mixed and slice-dependent.
+Relative to the gold-only student (paired BPSN AUC, selected minus gold, 1,000 replicates):
+
+- **Amplified for Black and White identity mentions:** white −0.053 [−0.065, −0.042], black
+  −0.039 [−0.052, −0.026], race_or_ethnicity:any −0.041 [−0.051, −0.032]. At matched 5%
+  overall FPR, gold-only flags no race slice, while every soft-label arm flags black, white
+  and any (2.1× to 3.8× overall). The drop appears with every source of soft labels,
+  including TF-IDF (−0.048 on race:any), so it isn't specific to the LLM; it is largest with
+  calibrated-Qwen labels (−0.111) and smallest for the selected model. Asian improves
+  (+0.028 [+0.012, +0.044]).
+- **Reduced for sexual orientation:** sexual_orientation:any +0.026 [+0.007, +0.042],
+  consistent with the Qwen side of the teacher (calibrated-Qwen labels improve it most,
+  TF-IDF labels make it worse).
+- **Unchanged for religion and disability** in the selected model; small gender differences
+  (about −0.009) are treated as noise across 18 slices.
+- The teacher itself isn't scored on the bias set, so its bias is inferred through the student
+  arms. A likely mechanism, consistent with this finding, is in section 7.2: identity words
+  drive false alarms (shown there for identity_attack).
+
+**Mitigation: no variant in Phase 2** (team decision, Nov 13). The planned variant retrains with
+Phase 1's `sample_weight`, but Phase 1 chose factor 1, so every weight is 1.0 and the variant
+would be the same model; choosing a new factor now would mean tuning on the bias set; and a
+retrain would change every reported number before submission. The selected model passes the
+flag and the gate. **Phase 3:** track race-slice FPR in monitoring with an alert threshold, and
+run a mitigation experiment (reweighting or counterfactual augmentation of non-toxic
+identity-term comments) chosen on a held-out slice, not on the bias set.
+
 - **Why no per-group thresholds:** the service never knows a commenter's identity, so it
   applies one threshold per label to everyone.
 - **Phase 1 context:** the TF-IDF baseline already showed sexual-orientation slices about 8
@@ -414,10 +554,15 @@ TODO (Ruchita). Link `reports/bias/bias_report_phase2.md`.
 
 ## 10. Limitations and risks
 
-- **Domain shift:** trained on Wikipedia talk pages; performance drops on news comments
-  (Civil Comments). TODO: quantify from H2.
+- **Domain shift:** trained on Wikipedia talk pages; performance drops on news comments. The
+  selected model's mean AUC is 0.9845 on the Wikipedia gate set and 0.9399 on Civil Comments
+  (H2), and its Wikipedia-tuned thresholds are too strict there: overall flag FPR 1.8%,
+  toxicity recall 38%, 0 of 28 threats and 3 of 71 identity attacks caught (section 6).
 - **Identity-term bias:** comments mentioning identity groups are more often labelled toxic
   in the data, which a model can learn as a shortcut, raising false positives for those groups.
+- **Race-related false positives:** training on soft labels raises false positives on Black
+  and White identity slices relative to the gold-only student (race_or_ethnicity:white at
+  3.1× overall FPR in the selected model; section 9). Tracked in Phase 3 monitoring.
 - **Approximate lexicon:** Wikipedia slices rely on word matching against
   `config/identity_terms.txt`, which misses unlisted references and matches innocent uses.
 - **Rater bias:** gold labels come from crowd raters, whose own biases are in the labels.
@@ -432,14 +577,13 @@ TODO (Ruchita). Link `reports/bias/bias_report_phase2.md`.
 
 ## 11. License lineage
 
-TODO (Ruchita): confirm each entry against its source before finalising.
-
-| Component | Source | Terms to confirm |
+| Component | Source | Terms |
 |---|---|---|
-| Wikipedia toxicity data | Kaggle: jigsaw-toxic-comment-classification-challenge | Competition rules (academic/educational use, no redistribution); underlying data licence |
-| Civil Comments data | Kaggle: jigsaw-unintended-bias-in-toxicity-classification | Competition rules (academic/educational use, no redistribution); underlying data licence |
+| Wikipedia toxicity data | Kaggle: jigsaw-toxic-comment-classification-challenge | Competition rules: academic and educational use, no redistribution. Data released under CC0, with the comment text under Wikipedia's CC BY-SA 3.0 |
+| Civil Comments data | Kaggle: jigsaw-unintended-bias-in-toxicity-classification | Competition rules: academic and educational use, no redistribution. Data released under CC0 |
+| Civil Comments shift sample | Hugging Face: `google/civil_comments` | CC0 1.0 (section 3) |
 | Teacher LLM | Qwen3-4B-Instruct-2507 | Apache 2.0 (checked at the pinned revision) |
-| Student base model | `distilbert-base-uncased` (Hugging Face) | Apache 2.0 (Ruchita to confirm) |
+| Student base model | `distilbert-base-uncased` (Hugging Face) | Apache 2.0 |
 | Llama Guard 3-1B | Benchmark only, never used for training | Llama 3.2 Community License (Nishaant to confirm with the Phase 3 benchmark) |
 
 Comment text is never redistributed: the repository and any public artifact hold only ids,
@@ -456,10 +600,11 @@ scores and metrics.
 
 | Date | Change |
 |---|---|
-| TODO | Skeleton created (Ruchita) |
-| TODO | Review fixes: eval-set sizes, data-level gap range, section 10 teacher wording, Qwen licence (Ruchita) |
+| 2026-11-10 | Skeleton created (Ruchita) |
+| 2026-11-11 | Review fixes: eval-set sizes, data-level gap range, section 10 teacher wording, Qwen licence (Ruchita) |
 | 2026-11-11 | Sections 3 (teacher and soft labels) and 7 (sensitivity analysis, 7.1 filled) (Nishaant) |
 | 2026-11-13 | Section 3: the ablation's attribution results (paired intervals), the leak check's result, interval and verdict, the validation caveat's wording on what the stack was fitted on; section 7: the selected student (Nishaant) |
 | 2026-11-13 | Section 4 (training), section 1 version and architecture, student base model (Shivam) |
 | 2026-11-13 | Section 7.2 to 7.5: the sensitivity run's results and findings, with its data revision and MLflow run; section 10's obfuscation limit quantified from section 7.4 (Nishaant) |
 | 2026-11-14 | Section 7 after review (#46): the masked-example rule (no adjacent words, ends hidden), slurs masked, the importance share as a range over seeds, threat counts (Nishaant) |
+| 2026-11-14 | Sections 6 (results), 8 (final gate values), 9 (bias: per-group table, findings, mitigation), 10 (H2 and race limits) and 11 (licences); status banner and contact (Ruchita) |
