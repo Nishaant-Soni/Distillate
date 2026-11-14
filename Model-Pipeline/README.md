@@ -263,7 +263,7 @@ The gold term carries `sample_weight`, and rows with a failed soft label are lef
 
 One Optuna study (TPE) tuned α, T, learning rate, epochs and maximum length on DistilBERT with the mixed loss. The objective was validation mean AUC; the gate set was never read. The study ran 28 trials over two workers on Kaggle T4s (Shivam and Nishaant) and is stored at `gs://distillate-mlops-data/optuna/distilbert-mixed-v1.db`.
 
-**Best values (trial 26):** α 0.343, T 3.71, learning rate 9.23e-5, 4 epochs, 256 tokens; validation mean AUC 0.99364. 256 tokens won clearly (the top 21 trials). The top three trials are within 0.00004 AUC of each other, so the best values mark a region rather than one point. Every trial peaked at its last epoch, so a check run at 5 epochs was added. It gained +0.0002 on validation (the noise level) and nothing on the gate set or H2.
+**Best values (trial 26):** α 0.343, T 3.71, learning rate 9.23e-5, 4 epochs, 256 tokens; validation mean AUC 0.99364. 256 tokens won clearly (the top 21 trials). The top three trials are within 0.00004 AUC of each other, so the best values mark a region rather than one point. Every trial peaked at its last epoch, so a check run at 5 epochs was added. It gained +0.0002 on validation (within the one-seed noise) and nothing on the gate set or H2.
 
 ### 3.3 The reported run (`kaggle/13_student_ablation_all.ipynb`)
 
@@ -293,7 +293,7 @@ The rule: among the candidates that pass the bias check, the highest validation 
 1. Only the tuned recipe competes: DistilBERT at 4 and 5 epochs, MiniLM-L12 and ModernBERT. The other arms are the ablation's controls.
 2. Latency is reported, not enforced.
 
-**Selected: `distilbert-mixed-5ep`** (`student-distilbert-mixed-5ep-20261112T210931Z`, MLflow run `358772663fc34a5e81275c3ed073e598`). It ties ModernBERT on validation AUC and wins on PR-AUC (0.7678). The three candidates are within noise of each other, so the choice is the rule's, not a measured difference. Its package and every arm's prediction files are in `gs://distillate-mlops-data/models/student-distilbert-mixed-5ep-20261112T210931Z/` (`selected_package/` and `phase2_results.zip`). The model card's section 4 describes the training in full.
+**Selected: `distilbert-mixed-5ep`** (`student-distilbert-mixed-5ep-20261112T210931Z`, MLflow run `ab34619a27e84b07aae044e3a414c0be` on the team server). It ties ModernBERT on validation AUC (within 0.0002) and wins on PR-AUC (0.7678 vs 0.7615); DistilBERT at 4 epochs is just outside the tie and MiniLM 0.0018 lower. The top three are within noise of each other, so the choice is the rule's, not a measured difference. Its package and every arm's prediction files are in `gs://distillate-mlops-data/models/student-distilbert-mixed-5ep-20261112T210931Z/` (`selected_package/` and `phase2_results.zip`). The model card's section 4 describes the training in full.
 
 ### 3.5 Running it
 
