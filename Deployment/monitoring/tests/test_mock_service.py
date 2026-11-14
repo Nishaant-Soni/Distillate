@@ -1,0 +1,118 @@
+"""Tests for mock_service.py: it must follow the serving API (work plan v4, section 2.4)."""
+
+import json
+import urllib.error
+import urllib.request
+
+import pytest
+
+import mock_service as mock
+
+SECTION_2_4_METRICS = {
+    "distillate_request_latency_seconds", "distillate_requests_total",
+    "distillate_errors_total", "distillate_flagged_total", "distillate_flag_total",
+    "distillate_score", "distillate_low_confidence_total",
+}
+
+
+@pytest.fixture
+def server(tmp_path):
+    (tmp_path / "canary.prom").write_text("distillate_canary_mean_auc{set=\"civil\"} 0.83\n")
+    httpd = mock.serve(0, textfile_dir=tmp_path)
+    yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    httpd.shutdown()
+    httpd.server_close()
+
+
+def _post(url, body):
+    request = urllib.request.Request(url + "/predict", data=json.dumps(body).encode(),
+                                     method="POST",
+                                     headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=5) as response:
+        return json.loads(response.read())
+
+
+def _get(url, path):
+    with urllib.request.urlopen(url + path, timeout=5) as response:
+        return response.read().decode()
+
+
+def _sample(metrics_text, name):
+    """The value of an unlabelled sample line."""
+    for line in metrics_text.splitlines():
+        if line.startswith(name + " "):
+            return float(line.split()[1])
+    raise AssertionError(f"{name} not in /metrics")
+
+
+def test_response_follows_section_2_4():
+    response = mock.score("some comment")
+    assert set(response) == {"scores", "flagged", "flag", "low_confidence", "model_version"}
+    assert set(response["scores"]) == set(mock.LABELS) == set(response["flagged"])
+    assert all(0 <= s <= 1 for s in response["scores"].values())
+    assert response["flag"] == any(response["flagged"].values())
+    for label, score in response["scores"].items():
+        assert response["flagged"][label] == (score >= mock.THRESHOLD)
+
+
+def test_scores_are_deterministic_and_toxicity_leads():
+    assert mock.score("same text") == mock.score("same text")
+    response = mock.score("another comment")
+    assert response["scores"]["toxicity"] == max(response["scores"].values())
+
+
+def test_about_a_tenth_of_comments_are_flagged():
+    flags = [mock.score(f"comment number {i}")["flag"] for i in range(5000)]
+    assert 0.07 < sum(flags) / len(flags) < 0.15
+
+
+def test_predict_and_health_over_http(server):
+    response = _post(server, {"text": "hello there"})
+    assert response["model_version"] == mock.MODEL_VERSION
+    assert isinstance(response["latency_ms"], float)
+    assert json.loads(_get(server, "/health")) == {"status": "ok",
+                                                    "model_version": mock.MODEL_VERSION}
+
+
+def test_metrics_have_every_section_2_4_name(server):
+    text = _get(server, "/metrics")
+    families = {line.split()[2] for line in text.splitlines() if line.startswith("# TYPE")}
+    assert SECTION_2_4_METRICS <= families
+
+
+def test_counters_follow_the_traffic(server):
+    texts = [f"comment {i}" for i in range(50)]
+    flagged = sum(mock.score(t)["flag"] for t in texts)
+    for t in texts:
+        _post(server, {"text": t})
+    metrics = _get(server, "/metrics")
+    assert _sample(metrics, "distillate_requests_total") == 50
+    assert _sample(metrics, "distillate_flag_total") == flagged
+    assert _sample(metrics, "distillate_request_latency_seconds_count") == 50
+
+
+def test_histogram_buckets_are_cumulative(server):
+    for i in range(20):
+        _post(server, {"text": f"x{i}"})
+    lines = [line for line in _get(server, "/metrics").splitlines()
+             if line.startswith('distillate_score_bucket{label="toxicity"')]
+    counts = [float(line.split()[1]) for line in lines]
+    assert counts == sorted(counts) and counts[-1] == 20  # le="+Inf" holds every observation
+
+
+def test_a_bad_body_is_an_error(server):
+    with pytest.raises(urllib.error.HTTPError) as err:
+        _post(server, {"not_text": 1})
+    assert err.value.code == 422
+    metrics = _get(server, "/metrics")
+    assert _sample(metrics, "distillate_errors_total") == 1
+    assert _sample(metrics, "distillate_requests_total") == 1
+
+
+def test_textfile_metrics_are_served_too(server):
+    assert 'distillate_canary_mean_auc{set="civil"} 0.83' in _get(server, "/metrics")
+
+
+def test_no_text_in_metrics(server):
+    _post(server, {"text": "a very distinctive comment"})
+    assert "distinctive" not in _get(server, "/metrics")

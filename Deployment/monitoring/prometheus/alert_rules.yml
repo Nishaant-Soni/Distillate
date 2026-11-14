@@ -1,0 +1,160 @@
+# Prometheus alert rules for the Distillate service (work plan v4: drafted in Phase 2 against
+# the mock exporter, wired to Alertmanager and retrain_dag in Phase 3).
+#
+# Thresholds and the reasoning behind each are in ../thresholds.md. Alerts labelled
+# action: retrain are the ones Phase 3 routes to Airflow's REST API to trigger retrain_dag;
+# the rest notify only.
+#
+# Metric sources:
+#   distillate_request_*, _errors_, _flag*, _score, _low_confidence   the service (v4 2.4)
+#   distillate_canary_*                                               scripts/canary.py
+#   distillate_drift_psi{feature, reference}, distillate_delayed_label_mean_auc
+#                                                   drift_ingest_dag, exported in Phase 3
+
+groups:
+  - name: distillate-service
+    rules:
+      - alert: DistillateServiceDown
+        expr: up{job="distillate"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Serving API is not answering scrapes"
+          description: "Prometheus has not reached {{ $labels.instance }} for 2 minutes."
+
+      - alert: DistillateHighErrorRate
+        expr: |
+          rate(distillate_errors_total[5m]) / clamp_min(rate(distillate_requests_total[5m]), 1e-9) > 0.02
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 2% of /predict requests are failing"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: DistillateErrorRateCritical
+        expr: |
+          rate(distillate_errors_total[5m]) / clamp_min(rate(distillate_requests_total[5m]), 1e-9) > 0.05
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "More than 5% of /predict requests are failing"
+          description: "Error rate is {{ $value | humanizePercentage }}; consider rolling back."
+
+      - alert: DistillateLatencyP95High
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(distillate_request_latency_seconds_bucket[5m]))) > 0.05
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "p95 latency is above the 50 ms target"
+          description: "p95 is {{ $value | humanizeDuration }} (target 50 ms, v4 section 6)."
+
+      - alert: DistillateFlagRateShift
+        # Hourly flag rate against its own 7-day average. A sudden halving or doubling of
+        # what gets flagged is worth a look even before any labels arrive.
+        expr: |
+          (
+            (rate(distillate_flag_total[1h]) / clamp_min(rate(distillate_requests_total[1h]), 1e-9))
+            /
+            clamp_min(rate(distillate_flag_total[7d]) / clamp_min(rate(distillate_requests_total[7d]), 1e-9), 1e-9)
+          ) > 2
+          or
+          (
+            (rate(distillate_flag_total[1h]) / clamp_min(rate(distillate_requests_total[1h]), 1e-9))
+            /
+            clamp_min(rate(distillate_flag_total[7d]) / clamp_min(rate(distillate_requests_total[7d]), 1e-9), 1e-9)
+          ) < 0.5
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "Flag rate moved by more than 2x against its 7-day average"
+          description: "Current/7-day flag-rate ratio is {{ $value | printf \"%.2f\" }}."
+
+  - name: distillate-canary
+    rules:
+      - alert: DistillateCanaryAUCDrop
+        # One window is one canary run. With hourly runs, "for: 3h" means three consecutive
+        # runs below the 7-day average, so one noisy run doesn't fire it.
+        expr: |
+          (avg_over_time(distillate_canary_mean_auc[7d]) - distillate_canary_mean_auc) > 0.02
+        for: 3h
+        labels: {severity: critical, action: retrain}
+        annotations:
+          summary: "Canary mean AUC dropped by more than 0.02 on {{ $labels.set }}"
+          description: "Down {{ $value | printf \"%.3f\" }} from its 7-day average for 3 runs."
+
+      - alert: DistillateCanaryFlagRecallDrop
+        expr: |
+          (avg_over_time(distillate_canary_flag_recall[7d]) - distillate_canary_flag_recall) > 0.05
+        for: 3h
+        labels: {severity: warning}
+        annotations:
+          summary: "Canary flag recall dropped by more than 5 points on {{ $labels.set }}"
+          description: "More toxic canary comments are getting through unflagged."
+
+      - alert: DistillateCanaryStale
+        expr: time() - distillate_canary_last_run_timestamp_seconds > 7200
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "No canary run in over 2 hours"
+          description: "The canary schedule may have stopped; accuracy is unmonitored."
+
+      - alert: DistillateCanaryErrors
+        expr: distillate_canary_errors > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: "Canary calls failed on {{ $labels.set }}"
+          description: "{{ $value }} canary requests failed or returned a bad response."
+
+  - name: distillate-drift
+    rules:
+      - alert: DistillateInputDriftWarning
+        # Against the start of the Civil stream, not Wikipedia: every Civil batch already
+        # sits at PSI 0.1 to 0.18 against Wikipedia (domain shift), so warning on that
+        # reference would fire permanently. See thresholds.md.
+        expr: distillate_drift_psi{reference="civil_start", feature!="flag_rate"} >= 0.1
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: "Input drift on {{ $labels.feature }} against the start of the stream"
+          description: "PSI {{ $value | printf \"%.3f\" }} (warn from 0.1)."
+
+      - alert: DistillateInputDriftAlert
+        expr: distillate_drift_psi{reference="civil_start", feature!="flag_rate"} >= 0.25
+        for: 0m
+        labels: {severity: critical, action: retrain}
+        annotations:
+          summary: "Strong input drift on {{ $labels.feature }}"
+          description: "PSI {{ $value | printf \"%.3f\" }} against the start of the stream (alert from 0.25)."
+
+      - alert: DistillateDomainShiftBeyondKnown
+        # Against Wikipedia only alert-level PSI matters: the known Civil shift tops out
+        # around 0.18, so 0.25 means traffic unlike anything measured so far.
+        expr: distillate_drift_psi{reference="wikipedia_train", feature!="flag_rate"} >= 0.25
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.feature }} is further from the training data than ever measured"
+          description: "PSI {{ $value | printf \"%.3f\" }} against Wikipedia train."
+
+      - alert: DistillateOutputDrift
+        expr: distillate_drift_psi{reference="civil_start", feature="flag_rate"} >= 0.25
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: "The model's flag rate shifted against the start of the stream"
+          description: "Flag-rate PSI {{ $value | printf \"%.3f\" }}."
+
+      - alert: DistillateDelayedLabelAUCDrop
+        # Delayed gold labels arrive one batch late (drift_ingest_dag). A 2,000-comment batch
+        # is noisy, so the exporter publishes the mean over the last two batches; the rule
+        # needs no "for" of its own, which would depend on the batch schedule.
+        expr: |
+          (avg_over_time(distillate_delayed_label_mean_auc[7d]) - distillate_delayed_label_mean_auc) > 0.03
+        for: 0m
+        labels: {severity: critical, action: retrain}
+        annotations:
+          summary: "Accuracy on delayed-label batches dropped by more than 0.03"
+          description: "Mean AUC is {{ $value | printf \"%.3f\" }} below its 7-day average."
