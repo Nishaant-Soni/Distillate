@@ -200,11 +200,13 @@ The image pins every version (`requirements-pipeline.txt`, CUDA 12.6 torch). CI 
 
 ## 6. Monitoring preparation (Sai)
 
+Builds on #45 (drift metrics), #50 (canary) and #52 (dashboards and alert rules); this section describes their code, so it merges after them.
+
 Phase 2 builds the monitoring pieces against mocks (v4 §5), so Phase 3 only points them at the live endpoint: **drift metrics** for each batch of the Civil stream, a **canary** that replays labeled comments through the service, and **dashboards and alert rules** with documented thresholds.
 
 ### 6.1 Drift metrics (`Data-Pipeline/scripts/drift.py`)
 
-Each drift batch is compared with a baseline from the model's training data (Wikipedia train) using the population stability index (PSI): the baseline is split into equal-count bins (deciles), and PSI compares the batch's share of comments in each bin with the baseline's. 0 means no change; status is `ok` below 0.1, `warn` from 0.1, and `alert` from 0.25 (the usual rules of thumb, in the `drift:` section of `Data-Pipeline/config/pipeline.yaml`).
+Each drift batch is compared with a baseline from the model's training data (Wikipedia train) using the population stability index (PSI). For the three input features, the baseline is split into equal-count bins (deciles), and PSI compares the batch's share of comments in each bin with the baseline's; `flag_rate` is a two-bin PSI (flagged or not) against a reference rate. 0 means no change; status is `ok` below 0.1, `warn` from 0.1, and `alert` from 0.25 (the usual rules of thumb, in the `drift:` section of `Data-Pipeline/config/pipeline.yaml`).
 
 | Feature | Measures | When |
 |---|---|---|
@@ -212,6 +214,8 @@ Each drift batch is compared with a baseline from the model's training data (Wik
 | `oov_rate` | share of a comment's words not seen at least twice in training | before scoring |
 | `nonalpha_share` | share of non-space characters that aren't letters | before scoring |
 | `flag_rate` | share of comments the model flags | after scoring (`flag_rate_drift`) |
+
+Phase 3 wiring (`compute_drift` in `drift_ingest_dag` is still a stub, section 2.5):
 
 ```python
 from scripts import drift
@@ -231,7 +235,7 @@ The baseline is built by the `drift_baseline` stage of `data_prep_dag`, after `s
 | OOV rate | 0.05 to 0.13 | 1.9% vs 1.3% unfamiliar words | ok to warn |
 | Non-alpha share | 0.11 to 0.18 | 5.4% vs 7.4% (talk pages carry markup, timestamps, signatures) | warn in every batch |
 
-Every batch is `warn`, none reaches `alert`, and there is no trend from batch 0 to batch 19 (the teacher lane's `drift_check.json` shows the same). That is the Wikipedia-to-Civil domain shift, not drift within the stream, which shapes the alert rules (6.4).
+Every batch is `warn`, none reaches `alert`, and there is no trend from batch 0 to batch 19 (the teacher lane's `Model-Pipeline/artifacts/stack/drift_check.json` shows the same). That is the Wikipedia-to-Civil domain shift, not drift within the stream, which shapes the alert rules (6.4).
 
 ### 6.2 Canary replay (`Data-Pipeline/scripts/canary.py`)
 
@@ -246,7 +250,7 @@ python -m scripts.canary --url http://127.0.0.1:8000    # from Data-Pipeline/
 - **Outputs (no comment text):** `reports/canary/canary_report.json`, and the same metrics in Prometheus format, `reports/canary/canary.prom`, for the dashboards. A run that sees two model versions (a rollout mid-run) logs a warning.
 - **Use `127.0.0.1`, not `localhost`,** on Windows: `localhost` tries IPv6 first, about 2 s per request.
 
-Against the mock (6.3), all 6,000 real canary comments are scored in about 4 s with no errors. The mock's scores are random, so the AUCs (Wikipedia 0.509) only test the plumbing, and they are identical on every run, as the alert design relies on.
+Against the mock (6.3), all 6,000 real canary comments are scored in about 4 s with no errors. The mock's scores carry no signal, so the AUCs (Wikipedia 0.509) only test the plumbing. They come from a hash of each comment's text, so they're deterministic, and the canary's AUCs are identical on every run, as the alert design relies on.
 
 ### 6.3 Dashboards and alert rules (`Deployment/monitoring/`)
 
@@ -269,9 +273,9 @@ Against the mock (6.3), all 6,000 real canary comments are scored in about 4 s w
 | Input drift | warn 0.1, alert 0.25, against the **start of the Civil stream** | Against Wikipedia every Civil batch is already `warn` (6.1), so a warning there would fire permanently. Alert retrains |
 | Drift beyond the known shift | 0.25 against Wikipedia | The known shift tops out near 0.18, so 0.25 means traffic unlike anything measured |
 | Flag-rate drift | 0.25, against a Civil reference | Wikipedia thresholds don't transfer to Civil (toxicity recall 38% on H2, 3.3) |
-| Service | errors 2% / 5%; p95 50 ms; flag rate outside 0.5x to 2x its 7-day average | v4 §6's latency target; a halving or doubling of what gets flagged is worth a look before any labels arrive |
+| Service | errors 2% / 5%; p95 50 ms (the int8 package, 3.3); flag rate outside 0.5x to 2x its 7-day average | v4 §6's latency target applies to the int8 package: the measured fp32 p95 is 144 ms (3.3), so against fp32 this alert would fire constantly. A halving or doubling of what gets flagged is worth a look before any labels arrive |
 
-**Open for Phase 3:** the canary's mean AUC is fragile on rare labels. `canary_civil` has only 3 threat, 12 obscene and 14 identity_attack positives (against 286 for toxicity); with random scores, threat landed at AUC 0.25 by chance and pulled the Civil mean to 0.42. Before the canary alert retrains anything, it should use a positives-weighted mean or toxicity AUC. The `civil_start` drift reference should be built from the first few batches or `canary_civil`, since 2,000 comments is a thin vocabulary for the OOV feature.
+**Open for Phase 3:** the canary's mean AUC is fragile on rare labels. `canary_civil` has only 3 threat, 12 obscene and 14 identity_attack positives (against 286 for toxicity); with the mock's signal-free scores, threat landed at AUC 0.25 by chance and pulled the Civil mean to 0.42. Before the canary alert retrains anything, it should use a positives-weighted mean or toxicity AUC. The `civil_start` drift reference should be built from the first few batches or `canary_civil`, since 2,000 comments is a thin vocabulary for the OOV feature.
 
 ### 6.5 Tests
 
