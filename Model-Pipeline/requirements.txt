@@ -12,7 +12,7 @@ huggingface_hub
 google-cloud-storage     # GCS shard store (storage.py)
 
 # Sensitivity analysis (src/sensitivity): token attributions; its plots use matplotlib (below).
-shap
+shap==0.54.1               # pinned: the committed report's SHAP values were computed with it
 
 # Student lane: training harness (src/student). CI installs the CPU build of torch first.
 torch
