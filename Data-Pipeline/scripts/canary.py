@@ -17,9 +17,13 @@ Outputs (no comment text in either):
     reports/canary/canary.prom          the same metrics in Prometheus text format, for the
                                         exporter / textfile collector behind the dashboards
 
-A call that fails, or returns a response that doesn't match the API, is counted as an
-error and left out of the metrics. If more than canary.max_error_fraction of the calls
-fail, the run fails: metrics from a broken service would be misleading.
+A call that fails, or returns a response that doesn't match the API (including a score that
+isn't a finite number in [0, 1]), is counted as an error and left out of the metrics. If
+more than canary.max_error_fraction of the calls fail, the run fails: metrics from a broken
+service would be misleading. Before replaying, GET <url>/health must answer "ok", so a
+down service fails fast. From the CLI, a failed run also sends a "fail" alert
+(alerts.send_alert), since no new metrics are written and the dashboard would otherwise keep
+showing the last good run.
 
     python -m scripts.canary --url http://localhost:8000 --config config/pipeline.yaml
 """
@@ -28,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -40,6 +45,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 
+from scripts.alerts import send_alert
 from scripts.utils import PIPELINE_ROOT, atomic_write, get_logger, load_config, timed, write_summary
 
 logger = get_logger(__name__)
@@ -73,6 +79,23 @@ def http_predict(url: str, timeout_s: float) -> Predict:
     return call
 
 
+def check_health(url: str, timeout_s: float) -> None:
+    """GET <url>/health must answer {"status": "ok"}; otherwise fail before replaying anything."""
+    try:
+        with urllib.request.urlopen(url.rstrip("/") + "/health", timeout=timeout_s) as response:
+            body = json.loads(response.read())
+    except Exception as exc:  # noqa: BLE001 - any failure means the service isn't usable
+        raise CanaryError(f"Health check failed for {url}: {type(exc).__name__}: {exc}") from exc
+    if not isinstance(body, dict) or body.get("status") != "ok":
+        raise CanaryError(f"Health check for {url} did not return status ok: {body!r}")
+
+
+def _is_score(value: Any) -> bool:
+    """A finite number in [0, 1] (bools excluded, though Python counts them as ints)."""
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and 0.0 <= value <= 1.0)
+
+
 def _check_response(response: Any, labels: list[str]) -> str | None:
     """Why a response doesn't match the serving API, or None if it does."""
     if not isinstance(response, dict):
@@ -83,6 +106,12 @@ def _check_response(response: Any, labels: list[str]) -> str | None:
         missing = [label for label in labels if label not in response[key]]
         if missing:
             return f"{key} missing {missing}"
+    bad_scores = [label for label in labels if not _is_score(response["scores"][label])]
+    if bad_scores:
+        return f"scores not finite numbers in [0, 1]: {bad_scores}"
+    bad_flags = [label for label in labels if not isinstance(response["flagged"][label], bool)]
+    if bad_flags:
+        return f"flagged not true/false: {bad_flags}"
     if not isinstance(response.get("flag"), bool):
         return "missing flag"
     return None
@@ -216,6 +245,7 @@ def run(cfg: dict[str, Any], url: str | None = None, predict: Predict | None = N
         url = url or os.environ.get("CANARY_URL") or ccfg.get("service_url")
         if not url:
             raise CanaryError("No service URL: pass --url, set CANARY_URL, or canary.service_url")
+        check_health(url, ccfg["timeout_s"])
         predict = http_predict(url, ccfg["timeout_s"])
 
     all_labels = cfg["labels"]["names"]
@@ -236,6 +266,10 @@ def run(cfg: dict[str, Any], url: str | None = None, predict: Predict | None = N
                                   f"(limit {ccfg['max_error_fraction']:.1%}): {errors[:3]}")
             result = metrics(gold.drop(columns="text"), predictions, labels)
             versions = predictions.get("model_version", pd.Series(dtype=object)).dropna()
+            if versions.nunique() > 1:
+                # A rollout mid-run: these metrics mix two models, so read them with care.
+                logger.warning("canary %s saw %d model versions in one run: %s", name,
+                               versions.nunique(), sorted(set(versions)))
             result.update({
                 "rows": len(gold), "errors": len(errors), "labels_scored": labels,
                 "model_versions": sorted(set(versions)),
@@ -264,7 +298,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", default=None)
     parser.add_argument("--url", default=None, help="service base URL, e.g. http://host:8000")
     args = parser.parse_args(argv)
-    print(json.dumps(run(load_config(args.config), url=args.url), indent=2, sort_keys=True))
+    try:
+        summary = run(load_config(args.config), url=args.url)
+    except CanaryError as exc:
+        # Nothing new is written on failure, so without this the dashboard would keep
+        # showing the last good run.
+        send_alert("fail", "Canary run failed", {"error": str(exc), "url": args.url})
+        raise
+    print(json.dumps(summary, indent=2, sort_keys=True))
     return 0
 
 

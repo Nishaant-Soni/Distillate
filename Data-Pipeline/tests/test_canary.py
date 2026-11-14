@@ -58,6 +58,18 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # keep test output quiet
         pass
 
+    def do_GET(self):  # noqa: N802
+        if self.path == "/health" and self.mode != "down":
+            payload = json.dumps({"status": "ok", "model_version": "mock-1"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        else:
+            self.send_response(503)
+            self.end_headers()
+
 
 @pytest.fixture
 def server():
@@ -195,3 +207,68 @@ def test_summary_records_counts(cfg):
     assert summary["rows_in"] == 200 and summary["rows_out"] == 200
     assert summary["dropped"] == {"failed_calls": 0}
     assert summary["mean_auc"] == {"wikipedia": 1.0, "civil": 1.0}
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), 1.5, -0.1, "high", None, True])
+def test_a_score_that_isnt_a_finite_number_in_0_1_is_a_bad_response(cfg, bad):
+    """Regression: NaN crashed roc_auc_score and a string crashed float(), outside the
+    per-call error handling, so the whole run failed with an unclear error."""
+    def predict(text):
+        response = response_for(text)
+        if text.endswith("7"):  # 10 of each 100
+            response["scores"]["insult"] = bad
+        return response
+
+    cfg["canary"]["max_error_fraction"] = 0.2
+    canary.run(cfg, predict=predict)
+    result = _report(cfg)["sets"]["wikipedia"]
+    assert result["errors"] == 10 and result["rows_scored"] == 90
+    assert result["mean_auc"] == 1.0
+
+
+def test_a_flagged_value_that_isnt_true_or_false_is_a_bad_response(cfg):
+    def predict(text):
+        response = response_for(text)
+        response["flagged"]["toxicity"] = "yes"
+        return response
+
+    with pytest.raises(canary.CanaryError, match="flagged not true/false"):
+        canary.run(cfg, predict=predict)
+
+
+def test_a_down_service_fails_before_any_replay(cfg, server):
+    _, url = server
+    _Handler.mode = "down"
+    with pytest.raises(canary.CanaryError, match="Health check failed"):
+        canary.run(cfg, url=url)
+    assert _Handler.calls == []  # nothing was replayed
+
+
+def test_the_cli_alerts_when_the_run_fails(monkeypatch):
+    sent = []
+    monkeypatch.setattr(canary, "send_alert", lambda *args: sent.append(args))
+    monkeypatch.setattr(canary, "load_config", lambda path: {})
+
+    def failing_run(cfg, url=None):
+        raise canary.CanaryError("civil: 50 of 100 calls failed")
+
+    monkeypatch.setattr(canary, "run", failing_run)
+    with pytest.raises(canary.CanaryError):
+        canary.main(["--url", "http://service"])
+    [(level, title, details)] = sent
+    assert level == "fail" and title == "Canary run failed"
+    assert details == {"error": "civil: 50 of 100 calls failed", "url": "http://service"}
+
+
+def test_two_model_versions_in_one_run_are_warned_about(cfg, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(canary.logger, "warning", lambda *args: warnings.append(args))
+
+    def predict(text):
+        response = response_for(text)
+        response["model_version"] = "v2" if text.endswith(("1", "3")) else "v1"
+        return response
+
+    canary.run(cfg, predict=predict)
+    assert _report(cfg)["sets"]["wikipedia"]["model_versions"] == ["v1", "v2"]
+    assert any("model versions" in args[0] for args in warnings)
