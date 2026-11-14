@@ -25,7 +25,10 @@ down service fails fast. From the CLI, a failed run also sends a "fail" alert
 (alerts.send_alert), since no new metrics are written and the dashboard would otherwise keep
 showing the last good run.
 
-    python -m scripts.canary --url http://localhost:8000 --config config/pipeline.yaml
+    python -m scripts.canary --url http://127.0.0.1:8000 --config config/pipeline.yaml
+
+Use 127.0.0.1 rather than localhost for a local service on Windows: localhost resolves to
+IPv6 first there, and each refused IPv6 connection costs about 2 s before falling back.
 """
 
 from __future__ import annotations
@@ -296,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default=None)
-    parser.add_argument("--url", default=None, help="service base URL, e.g. http://host:8000")
+    parser.add_argument("--url", default=None, help="service base URL, e.g. http://127.0.0.1:8000")
     args = parser.parse_args(argv)
     try:
         summary = run(load_config(args.config), url=args.url)
