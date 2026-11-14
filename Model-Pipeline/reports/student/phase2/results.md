@@ -41,6 +41,8 @@ Bootstrap: 1000 resamples (95% percentile intervals). Thresholds: each arm's own
 | minilm-mixed | 0.99187 | 0.7305 | 0.0069 | 0.905 -> 0.705 | 19.5 / 102.9 | 4 |
 | modernbert-mixed | 0.99349 | 0.7615 | 0.0089 | 0.877 -> 0.718 | 75.1 / 373.4 | 4 |
 
+Best epoch counts from 1 here; `best_epoch` in `results.json` and each run's `summary.json` counts from 0, as `train.py` records it.
+
 **Leak check** (docs/tuning.md): validation-to-gate mean AUC drop 0.0087 for mixed vs 0.0053 for gold (difference +0.0034; PR-AUC difference -0.0022). A clearly larger drop for mixed would mean the validation labels in the teacher's inputs matter.
 
 ## Paired bootstrap differences (a - b)

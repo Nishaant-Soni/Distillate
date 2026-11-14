@@ -161,6 +161,9 @@ def test_results_across_arms(two_runs, tmp_path):
     assert result["leak_check"] is not None and mixed["obfuscation"]["rows"] == 30
     text = (tmp_path / "results.md").read_text()
     assert "## H1: in-domain" in text and "## H2: cross-domain" in text
+    saved = json.loads((tmp_path / "results.json").read_text())
+    assert saved["plots"] and all(not Path(p).is_absolute() for p in saved["plots"])
+    assert all((tmp_path / p).exists() for p in saved["plots"])
     for name in ("h1_h2.png", "per_label_auc_gate.png", "per_label_pr_auc_h2_eval.png",
                  "confusion_distilbert-mixed_gate.png"):
         assert (tmp_path / "plots" / name).stat().st_size > 1000, name

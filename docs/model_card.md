@@ -105,7 +105,7 @@ epochs (1 to 4) and maximum length (128 or 256), on DistilBERT with the mixed lo
 validation mean AUC. 28 trials in one merged study (`distilbert-mixed-v1`, two Kaggle workers on
 T4s, one 11-hour session each). Best: trial 26, validation mean AUC 0.99364. All other arms reuse these
 values. Every trial peaked at its last epoch, so one run at 5 epochs was added outside the
-study; it is the one selected, though its gain over 4 epochs (+0.0002) is at the noise level.
+study; it is the one selected, though its gain over 4 epochs (+0.0002) is within the one-seed noise.
 
 **Thresholds.** Per label, F1-maximising on validation, within [0.01, 0.99]
 (`thresholds.json`): toxicity 0.351, severe_toxicity 0.225, obscene 0.207, threat 0.232,
@@ -127,8 +127,8 @@ effect of the recipe choice; the PR-AUC gain (+0.064) and the cross-domain gain 
 H2) are far larger and stand.
 
 **Selection** (`select_best.py`, `configs/student.yaml` `select:`). Among the candidates that
-pass the bias check, the highest validation mean AUC, ties within 0.0002 (a lower bound on
-run-to-run noise, from one pair of runs) broken by validation PR-AUC. Two decisions were made after the run and are
+pass the bias check, the highest validation mean AUC, ties within 0.0002 (at least the
+one-seed noise: three runs of the tuned recipe span 0.00016) broken by validation PR-AUC. Two decisions were made after the run and are
 recorded with it:
 
 - Candidates are the tuned recipe only (DistilBERT at 4 and 5 epochs, MiniLM-L12,
@@ -289,4 +289,4 @@ scores and metrics.
 | TODO | Skeleton created (Ruchita) |
 | TODO | Review fixes: eval-set sizes, data-level gap range, section 10 teacher wording, Qwen licence (Ruchita) |
 | 2026-11-13 | Section 4 (training), section 1 version and architecture, student base model (Shivam) |
-| 2026-11-13 | Sections 1 and 4: the selected run's id on the team MLflow server; section 4's tie rule as a lower bound on noise (Nishaant) |
+| 2026-11-13 | Sections 1 and 4: the selected run's id on the team MLflow server; section 4's tie rule as at least the one-seed noise (Nishaant) |

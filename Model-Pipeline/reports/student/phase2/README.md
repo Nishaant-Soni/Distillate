@@ -90,8 +90,8 @@ gold labels on top of the stack help on both sets (mixed vs stack: +0.0013 gate,
 MiniLM-L12 is as good as DistilBERT on the gate set and H2 (intervals overlap) with a lower
 validation AUC, and is the fastest. ModernBERT brings nothing for 2.5 times the latency.
 
-**Five epochs** (the check outside the study, `docs/tuning.md`): validation +0.0002 (at the
-noise level), gate −0.0003, H2 −0.0011. Every mixed run still peaked at its last epoch, but the
+**Five epochs** (the check outside the study, `docs/tuning.md`): validation +0.0002 (within
+the one-seed noise), gate −0.0003, H2 −0.0011. Every mixed run still peaked at its last epoch, but the
 fifth epoch adds about nothing.
 
 **Leak check** (validation-to-gate drop in mean AUC): gold 0.0053; mixed 0.0087; stack 0.0096;

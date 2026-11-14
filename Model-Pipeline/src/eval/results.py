@@ -177,7 +177,9 @@ def build(runs: Sequence[str | Path], out: str | Path, n_boot: int = 1000,
                           "bootstrap": n_boot, "selected": selected})
     (out / "results.json").write_text(json.dumps(result, indent=2) + "\n")
     (out / "results.md").write_text(render_markdown(result))
-    result["plots"] = plots(result, arms, out / "plots", selected)
+    # Relative to --out, so results.json doesn't record where it was built.
+    result["plots"] = [Path(f).relative_to(out).as_posix()
+                       for f in plots(result, arms, out / "plots", selected)]
     (out / "results.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
 
@@ -267,6 +269,8 @@ def render_markdown(result: Mapping[str, Any]) -> str:
         lines.append(f"| {arm} | {_fmt(val.get('mean_auc'), 5)} | {_fmt(val.get('mean_pr_auc'))} "
                      f"| {_fmt(row.get('val_to_gate_auc_drop'))} | {obf_text} | {lat_text} | "
                      f"{row['best_epoch'] + 1} |")
+    lines += ["", "Best epoch counts from 1 here; `best_epoch` in `results.json` and each run's "
+              "`summary.json` counts from 0, as `train.py` records it."]
     leak = result.get("leak_check")
     if leak:
         lines += ["", f"**Leak check** (docs/tuning.md): validation-to-gate mean AUC drop "

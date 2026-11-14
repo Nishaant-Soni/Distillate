@@ -172,7 +172,7 @@ pipeline:
 select:
   latency_stat: p95_ms
   latency_budget_ms: 50     # the serving target
-  auc_tie: 0.0002           # at least the one-seed noise: one pair of runs differed by 0.00015 (docs/tuning.md)
+  auc_tie: 0.0002           # at least the one-seed noise: three runs of the recipe span 0.00016 (docs/tuning.md)
   # Phase 2 decision (2026-11-13, after notebook 13): only the tuned recipe competes. The
   # gold, stack, TF-IDF and calibrated-Qwen arms are the loss ablation and the attribution
   # controls (H1/H2 and what the LLM adds), not models to ship. And no fp32 package meets

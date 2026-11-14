@@ -5953,14 +5953,14 @@
   "bootstrap": 1000,
   "selected": "distilbert-mixed-5ep",
   "plots": [
-    "/private/tmp/claude-501/-Users-nishaantsoni-Documents-Distillate/aab31262-9d2e-4353-ade2-f1cd4fd16461/scratchpad/res_regen/plots/per_label_auc_val.png",
-    "/private/tmp/claude-501/-Users-nishaantsoni-Documents-Distillate/aab31262-9d2e-4353-ade2-f1cd4fd16461/scratchpad/res_regen/plots/per_label_pr_auc_val.png",
-    "/private/tmp/claude-501/-Users-nishaantsoni-Documents-Distillate/aab31262-9d2e-4353-ade2-f1cd4fd16461/scratchpad/res_regen/plots/per_label_auc_gate.png",
-    "/private/tmp/claude-501/-Users-nishaantsoni-Documents-Distillate/aab31262-9d2e-4353-ade2-f1cd4fd16461/scratchpad/res_regen/plots/per_label_pr_auc_gate.png",
-    "/private/tmp/claude-501/-Users-nishaantsoni-Documents-Distillate/aab31262-9d2e-4353-ade2-f1cd4fd16461/scratchpad/res_regen/plots/per_label_auc_h2_eval.png",
-    "/private/tmp/claude-501/-Users-nishaantsoni-Documents-Distillate/aab31262-9d2e-4353-ade2-f1cd4fd16461/scratchpad/res_regen/plots/per_label_pr_auc_h2_eval.png",
-    "/private/tmp/claude-501/-Users-nishaantsoni-Documents-Distillate/aab31262-9d2e-4353-ade2-f1cd4fd16461/scratchpad/res_regen/plots/h1_h2.png",
-    "/private/tmp/claude-501/-Users-nishaantsoni-Documents-Distillate/aab31262-9d2e-4353-ade2-f1cd4fd16461/scratchpad/res_regen/plots/confusion_distilbert-mixed-5ep_gate.png",
-    "/private/tmp/claude-501/-Users-nishaantsoni-Documents-Distillate/aab31262-9d2e-4353-ade2-f1cd4fd16461/scratchpad/res_regen/plots/confusion_distilbert-mixed-5ep_h2_eval.png"
+    "plots/per_label_auc_val.png",
+    "plots/per_label_pr_auc_val.png",
+    "plots/per_label_auc_gate.png",
+    "plots/per_label_pr_auc_gate.png",
+    "plots/per_label_auc_h2_eval.png",
+    "plots/per_label_pr_auc_h2_eval.png",
+    "plots/h1_h2.png",
+    "plots/confusion_distilbert-mixed-5ep_gate.png",
+    "plots/confusion_distilbert-mixed-5ep_h2_eval.png"
   ]
 }
