@@ -60,9 +60,11 @@ distillate/
 - Alerts only through `alerts.send_alert(level, title, details)` where level is `"warn"` or `"fail"`. Until the real one lands, `alerts.py` ships as a no-op that logs.
 
 ## 4. Serving API (Phase 3, fixed now so demo, monitoring, and drift work can start early)
-- `POST /predict` body `{"text": "..."}` → `{"scores": {label: float}, "flagged": {label: bool}, "low_confidence": bool, "model_version": "...", "latency_ms": float}`
+- `POST /predict` body `{"text": "..."}` → `{"scores": {label: float}, "flagged": {label: bool}, "flag": bool, "low_confidence": bool, "model_version": "...", "latency_ms": float}`
+  - `flagged[label]` is true when the score is at or above that label's threshold in `thresholds.json`.
+  - `flag` is true when any label is flagged. It is the decision the demo app and moderation queue use (work plan v4 §2.4).
 - `GET /health` → `{"status": "ok", "model_version": "..."}`
-- `GET /metrics` → Prometheus format with: `distillate_request_latency_seconds` (histogram), `distillate_requests_total`, `distillate_errors_total`, `distillate_flagged_total{label}`, `distillate_score{label}` (histogram), `distillate_low_confidence_total`.
+- `GET /metrics` → Prometheus format with: `distillate_request_latency_seconds` (histogram), `distillate_requests_total`, `distillate_errors_total`, `distillate_flagged_total{label}`, `distillate_flag_total`, `distillate_score{label}` (histogram), `distillate_low_confidence_total`.
 - Text is never logged; logs hold `text_sha256`, `char_len`, and scores only.
 
 ## 5. Model artifacts
