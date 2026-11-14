@@ -317,14 +317,14 @@ From the merged Optuna study `distilbert-mixed-v1` (28 completed trials, both ha
 SHAP Partition explainer with a text masker on validation comments, per label: up to 12 comments each that the student caught (true positives), missed (false negatives) and flagged wrongly (false positives), 500 model calls per comment. Reported as the most-attributed words per label and outcome (a word must occur in at least 5 validation comments to be shown), plus masked example lines in which only the top few words are visible: at most a third of a comment's words, no two of them adjacent, and never its first or last word, so no fragment of a comment is shown. Slurs appear with their inner letters masked (n****r). No comment text is published. 211 comments were explained (12 per label and outcome; some comments fall in more than one label).
 
 * **Caught comments are driven by explicit words**, with large attributions (in logits): profanity for toxicity and obscene, "kill", "burn" and "die" for threat, slurs and identity nouns for identity_attack.
-* **Identity words drive false alarms.** For identity_attack's false alarms the most-attributed words are a racial slur (+7.3), "gay" (+5.2), "nazi" (+3.9) and "racist" (+2.8), and "gay" also raises toxicity on caught comments (+2.6): comments that mention, quote or discuss an identity are scored as attacks. This is the mechanism behind the bias report's race-slice finding (section 9). Threat's false alarms work the same way, from "kill" (+6.5) and "die" (+5.1) outside a threat.
+* **Identity words drive false alarms.** For identity_attack's false alarms the most-attributed words are a racial slur (+7.3), "gay" (+5.2), "nazi" (+3.9) and "racist" (+2.8), and "gay" also raises toxicity on caught comments (+2.6): comments that mention, quote or discuss an identity are scored as attacks. This is consistent with the bias report's race-slice finding (section 9) but does not explain it: these are identity_attack false alarms while the bias report measures toxicity, and attributions for one model cannot show why the soft-label students do worse on race than the gold-only student. Threat's false alarms work the same way, from "kill" (+6.5) and "die" (+5.1) outside a threat.
 * **Missed comments carry little attribution** (toxicity: no word above +0.7). The missed toxicity, insult, threat and identity_attack examples are mostly insults without profanity, threats without "kill" or "die", toxicity carried by context, and identity attacks without a slur. The missed severe_toxicity and obscene examples do contain profanity, which the student scored as toxic but not severe or obscene enough.
 
 These are what drives 12 comments per group, not frequencies across validation.
 
 ### 7.3 Input length
 
-Validation rescored with the input truncated at 64, 128 and 256 **tokens**, and results by each comment's untruncated token length (≤64, 65–128, 129–256, >256). These bands are in tokens; the bias report's length slices (section 9) are in characters, so the two are not the same bands.
+Validation rescored with the input truncated at 64, 128 and 256 **tokens**, and results by each comment's untruncated token length (≤64, 65–128, 129–256, >256). These bands are in tokens; the Phase 1 bias report's length slices (`Data-Pipeline/reports/bias/bias_report.md`) are in characters, so the two are not the same bands.
 
 | Max length (tokens) | Comments truncated | Mean AUC | Mean PR-AUC | Mean recall |
 |---|---|---|---|---|
@@ -370,7 +370,7 @@ From `Model-Pipeline/reports/sensitivity_findings.md`:
 
 1. **Inside the tuned region, the student hardly depends on α and T.** Maximum length explains roughly 35 to 55% of the small variance across the 28 trials and ranks first under every seed, and epochs comes next; α and T far from the best region are under-explored (section 7.1).
 2. **Obfuscation is the clearest weakness, and it fails quietly.** Changing 4.3% of characters makes the student miss 14.5% of the toxic comments it caught when clean, and changing 21% makes it miss 54%, with no rise in false alarms. The fixed obfuscation set agrees (toxicity recall 0.880 on the originals, 0.655 obfuscated). Training on obfuscated text, or normalizing look-alike characters before scoring, are the obvious remedies for Phase 3.
-3. **Identity words push the student toward flagging,** which explains the bias report's race-slice finding (section 9).
+3. **Identity words push the student toward flagging,** consistent with the bias report's race-slice finding (section 9).
 4. **Missed toxic comments are mostly implicit:** insults without profanity, and toxicity carried by context (severe_toxicity and obscene excepted: there the misses contain profanity the student judged not severe or obscene enough).
 5. **256 tokens is a good length.** It truncates 6.4% of comments at little cost; 64 or 128 tokens would mainly lose long comments.
 
