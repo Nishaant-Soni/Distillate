@@ -1,0 +1,73 @@
+# Distillate sensitivity analysis of the selected student (reports/sensitivity.md).
+# Every tunable value lives here. Relative paths resolve against Model-Pipeline/.
+
+seed: 42
+
+labels: [toxicity, severe_toxicity, obscene, threat, insult, identity_attack]
+
+model:
+  dir: null                 # the selected student: a save_pretrained folder or a §5 package
+  batch_size: 64
+  device: auto              # auto = cuda, then mps, then cpu
+  fp16: true                # used on CUDA only
+  threshold: 0.5            # per-label decision threshold if the model has no thresholds.json
+  max_length: null          # only if the model's meta.json has none
+
+# Validation comes from load_data (src/data/load_data.py), the pipeline's processed val split.
+data:
+  rev: null                 # a Git revision: validation as DVC versioned it there; null = on disk
+  dir: null                 # the processed-data folder; null = Data-Pipeline/data/processed
+  val_file: null            # a validation Parquet to read instead of load_data (offline checks)
+  sample: null              # score only N validation rows (quick runs); null = all of them
+
+metrics:
+  ece_bins: 10
+
+# Input length: score validation truncated at each max_length; and split the rows by their
+# untruncated token length, at these band edges (<=64, 65-128, 129-256, >256).
+truncation:
+  max_lengths: [64, 128, 256]
+  band_edges: [64, 128, 256]
+
+# Obfuscation strength: the data pipeline's substitution table (idiot -> 1d10t) applied to every
+# validation comment, each eligible character with probability `rate`, seeded per comment id.
+obfuscation:
+  rates: [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]
+
+# SHAP token attributions (partition explainer, text masker) on validation comments: per label,
+# up to per_group comments of each outcome (caught, missed, false alarm): at most 6 x 3 x 12.
+shap:
+  per_group: 12
+  max_evals: 500            # model calls per comment
+  batch_size: 64
+  top_k: 15                 # words per label and outcome table
+  min_occurrences: 2        # times a word occurs in that outcome's comments to rank
+  min_doc_freq: 5           # validation comments a word must occur in to be shown at all
+  examples_per_group: 2     # masked example lines per label and outcome
+  visible_words: 4          # words left visible per masked example (and at most a third of it)
+
+# Hyperparameter importance from the shared Optuna study. storage and study_name come from
+# Shivam's sweep (e.g. a database URL on the VM); objective: the index to explain if the study
+# has several objectives.
+optuna:
+  storage: null
+  study_name: null
+  objective: null
+  params: null              # null: every parameter present in all completed trials
+  evaluators: [fanova, mdi]
+  min_trials: 10
+  stability_seeds: 10       # also recompute under this many more seeds; report ranges (0: off)
+
+mlflow:
+  enabled: true             # MLFLOW_TRACKING_URI if set (the VM), else the local SQLite store
+  experiment: distillate-sensitivity
+
+paths:
+  data_pipeline: ../Data-Pipeline          # for the substitution table (scripts/obfuscate.py)
+  report: reports/sensitivity.md           # committed: numbers, plots, masked examples; no text
+  report_dir: reports/sensitivity          # its plots and results.json
+  findings: reports/sensitivity_findings.md  # hand-written findings, included if present
+  summary: reports/summaries/sensitivity.json
+  out_dir: outputs/sensitivity             # gitignored scratch: the SHAP selection with ids
+  mlflow_db: mlruns/mlflow.db
+  mlflow_artifacts: mlruns/artifacts
