@@ -88,6 +88,21 @@ bias:
 dvc:
   push: true                        # overridden by the DVC_PUSH env var
 
+canary:
+  # scripts/canary.py: replay the labeled canary sets against a serving-API URL (v4 2.4).
+  service_url: null                 # or --url, or the CANARY_URL env var
+  timeout_s: 10                     # per request
+  workers: 8                        # requests in flight at once
+  max_rows: null                    # per set; null replays all of it (for quick checks only)
+  max_error_fraction: 0.01          # more failed calls than this fails the run
+  output_dir: reports/canary        # canary_report.json and canary.prom; metrics only
+  sets:
+    wikipedia:
+      path: data/processed/wikipedia/canary_wikipedia.parquet   # 2,000, six labels
+    civil:
+      path: data/processed/civil/canary_civil.parquet           # 4,000, five labels
+      exclude_labels: [severe_toxicity]                         # v4 2.2
+
 stubs:
   # Rows each placeholder stage writes until the real module is merged. Small on
   # purpose: the point is that the DAG runs end to end in seconds, not that the
