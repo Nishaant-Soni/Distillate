@@ -86,7 +86,7 @@ def test_baseline_stores_no_words(cfg):
     baseline = drift.build_baseline(cfg)
     assert baseline["vocab_size"] == len(WORDS)
     stored = set(_string_values(baseline))
-    assert not stored & set(WORDS)  # only hashes, never the words
+    assert not stored & set(WORDS)  # stored as hashes, not in plain text
     assert len(baseline["vocab_hashes"]) == len(WORDS)
     assert set(baseline["features"]) == set(drift.INPUT_FEATURES)
     for feature in baseline["features"].values():
@@ -97,26 +97,37 @@ def test_baseline_is_deterministic(cfg):
     assert drift.build_baseline(cfg) == drift.build_baseline(cfg)
 
 
-def test_load_baseline_builds_it_when_missing(cfg):
-    baseline = drift.load_baseline(cfg)
+def test_load_baseline_builds_it_when_asked(cfg):
+    baseline = drift.load_baseline(cfg, build_if_missing=True)
     assert drift._resolve(cfg["drift"]["baseline_file"]).exists()
     assert baseline["_vocab"] == set(baseline["vocab_hashes"])
 
 
-def test_load_baseline_without_building_gives_a_clear_error(cfg):
-    with pytest.raises(FileNotFoundError, match="python -m scripts.drift"):
-        drift.load_baseline(cfg, build_if_missing=False)
+def test_missing_baseline_is_an_error_by_default(cfg):
+    """The drift DAG must not build it: that would change DVC-versioned data outside
+    data_prep_dag, which builds it in the drift_baseline stage."""
+    with pytest.raises(FileNotFoundError, match="drift_baseline"):
+        drift.load_baseline(cfg)
+    assert not drift._resolve(cfg["drift"]["baseline_file"]).exists()
+
+
+def test_drift_baseline_stage_module_runs_the_same_build(cfg):
+    from scripts import drift_baseline
+
+    summary = drift_baseline.run(cfg)
+    assert summary["task"] == "drift_baseline" and summary["rows_in"] == 2000
+    assert drift._resolve(cfg["drift"]["baseline_file"]).exists()
 
 
 def test_batch_like_training_data_has_no_drift(cfg):
-    baseline = drift.load_baseline(cfg)
+    baseline = drift.load_baseline(cfg, build_if_missing=True)
     result = drift.input_drift(_frame(_comments(2000, seed=2)), baseline, cfg)
     assert result["status"] == "ok", result
     assert result["max_psi"] < cfg["drift"]["psi_warn"]
 
 
 def test_shifted_batch_raises_alerts_on_each_feature(cfg):
-    baseline = drift.load_baseline(cfg)
+    baseline = drift.load_baseline(cfg, build_if_missing=True)
     rng = np.random.default_rng(3)
     unknown = [f"zz{i}q" for i in range(200)]
     texts = [" ".join(rng.choice(unknown, size=60)) + " 1d10t!!! 4ss" for _ in range(2000)]
@@ -127,7 +138,7 @@ def test_shifted_batch_raises_alerts_on_each_feature(cfg):
 
 
 def test_input_drift_works_without_a_char_len_column(cfg):
-    baseline = drift.load_baseline(cfg)
+    baseline = drift.load_baseline(cfg, build_if_missing=True)
     batch = pd.DataFrame({"text": _comments(500, seed=4)})
     assert drift.input_drift(batch, baseline, cfg)["rows"] == 500
 
@@ -142,7 +153,7 @@ def test_flag_rate_drift(cfg):
 
 
 def test_results_are_json_ready(cfg):
-    baseline = drift.load_baseline(cfg)
+    baseline = drift.load_baseline(cfg, build_if_missing=True)
     json.dumps(drift.input_drift(_frame(_comments(100, seed=5)), baseline, cfg))
     json.dumps(drift.flag_rate_drift(pd.DataFrame({"flag": [True, False]}), 0.3, cfg))
 

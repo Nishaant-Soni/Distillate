@@ -17,16 +17,18 @@ compares the share of the batch in each bin with the baseline's:
 drift.psi_alert): ok below 0.1, warn from 0.1, alert from 0.25.
 
 No comment text is stored. The baseline keeps bin edges, bin shares and means, and the
-training vocabulary only as truncated BLAKE2b hashes of the words. It lives in
-data/processed/monitoring/, which DVC versions with the data.
+training vocabulary as truncated BLAKE2b hashes of single words. (Word hashes can be
+reversed with a dictionary, so the vocabulary isn't secret; it holds no comments.) It is
+written to data/processed/monitoring/ by the drift_baseline stage of data_prep_dag,
+before dvc_version, so it is versioned in the same DVC commit as the data it comes from.
 
-Used by drift_ingest_dag:
-    baseline = drift.load_baseline(cfg)                        # built from train if missing
-    drift.input_drift(batch, baseline)                         # in compute_drift
+Used by drift_ingest_dag, which only loads the baseline:
+    baseline = drift.load_baseline(cfg)                        # fails if not built yet
+    drift.input_drift(batch, baseline, cfg)                    # in compute_drift
     drift.flag_rate_drift(predictions, reference_rate, cfg)    # in step_score
 
 Build (or rebuild) the baseline on its own:
-    python -m scripts.drift --config config/pipeline.yaml
+    python -m scripts.drift_baseline --config config/pipeline.yaml
 """
 
 from __future__ import annotations
@@ -186,13 +188,19 @@ def save_baseline(baseline: dict[str, Any], cfg: dict[str, Any]) -> Path:
     return path
 
 
-def load_baseline(cfg: dict[str, Any], build_if_missing: bool = True) -> dict[str, Any]:
-    """The saved baseline; built from training data first if it doesn't exist yet."""
+def load_baseline(cfg: dict[str, Any], build_if_missing: bool = False) -> dict[str, Any]:
+    """The saved baseline.
+
+    data_prep_dag builds it (drift_baseline stage), so by default a missing baseline is an
+    error rather than built on the spot: building it here would change the DVC-versioned
+    processed/ folder outside data_prep_dag. build_if_missing=True is for tests and ad hoc use.
+    """
     path = _resolve(cfg["drift"]["baseline_file"])
     if not path.exists():
         if not build_if_missing:
             raise FileNotFoundError(
-                f"No drift baseline at {path.as_posix()}; build it with `python -m scripts.drift`"
+                f"No drift baseline at {path.as_posix()}; run data_prep_dag (drift_baseline "
+                "stage) or `python -m scripts.drift_baseline`"
             )
         logger.info("No drift baseline yet; building it from %s", cfg["drift"]["baseline_source"])
         save_baseline(build_baseline(cfg), cfg)
@@ -242,8 +250,10 @@ def flag_rate_drift(predictions: pd.DataFrame, reference_rate: float | None,
                     cfg: dict[str, Any]) -> dict[str, Any]:
     """PSI of the share of flagged comments against a reference rate (two bins).
 
-    The reference is the flag rate on in-distribution data: in Phase 3, the production
-    model on the Wikipedia validation set. Without one, PSI is None and status "unknown".
+    The reference should be the model's flag rate on Civil reference data (for example the
+    first drift batches, or canary_civil), not on Wikipedia: thresholds tuned on Wikipedia
+    don't transfer to Civil, so a Wikipedia rate would differ from every Civil batch for
+    that reason alone. Without a reference, PSI is None and status "unknown".
     """
     warn, alert, eps = _thresholds(cfg["drift"])
     rate = float(predictions["flag"].mean()) if len(predictions) else None
