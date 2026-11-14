@@ -1,0 +1,42 @@
+{
+  "distilbert-mixed": {
+    "gpu": 0,
+    "state": "done",
+    "minutes": 57.0
+  },
+  "distilbert-gold": {
+    "gpu": 1,
+    "state": "done",
+    "minutes": 59.6
+  },
+  "minilm-mixed": {
+    "gpu": 0,
+    "state": "done",
+    "minutes": 47.5
+  },
+  "distilbert-stack": {
+    "gpu": 1,
+    "state": "done",
+    "minutes": 59.9
+  },
+  "modernbert-mixed": {
+    "gpu": 0,
+    "state": "done",
+    "minutes": 192.0
+  },
+  "distilbert-tfidf": {
+    "gpu": 1,
+    "state": "done",
+    "minutes": 59.8
+  },
+  "distilbert-calqwen": {
+    "gpu": 1,
+    "state": "done",
+    "minutes": 59.8
+  },
+  "distilbert-mixed-5ep": {
+    "gpu": 1,
+    "state": "done",
+    "minutes": 73.8
+  }
+}

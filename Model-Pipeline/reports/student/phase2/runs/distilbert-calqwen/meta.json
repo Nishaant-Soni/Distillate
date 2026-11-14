@@ -1,0 +1,32 @@
+{
+  "model_version": "student-distilbert-calqwen-20261112T200941Z",
+  "model_id": "distilbert-base-uncased",
+  "max_length": 256,
+  "labels": [
+    "toxicity",
+    "severe_toxicity",
+    "obscene",
+    "threat",
+    "insult",
+    "identity_attack"
+  ],
+  "alpha": 0.3432987447660936,
+  "temperature": 3.71295432376268,
+  "teacher_version": "calqwen-v1",
+  "teacher_model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+  "prompt_version": "p2-zs-v2b",
+  "stack_sha256": null,
+  "soft_label_arm": "calqwen",
+  "soft_label_prefix": "soft_labels/calqwen-v1/p2-zs-v2b/",
+  "soft_label_check": {
+    "calibration_sha256": "6bf408983125b851271fffc65736d81648779e308df2ce8a8a3850bf2b6d1713"
+  },
+  "soft_label_model_version": "calqwen-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+  "data_source": "ids",
+  "training_data_sha256": "acde36e26ff64e063e40513b17c6a8dc1e6ecb9724e798f834eea9c940f5fe85",
+  "training_data_dvc_hash": null,
+  "seed": 42,
+  "best_epoch": 1,
+  "code_commit": "80a4502d97d882ddf7de90c87cd3db743bcedb36",
+  "mlflow_run_id": "51eedcb0864649e090af7136fb6c1df6"
+}

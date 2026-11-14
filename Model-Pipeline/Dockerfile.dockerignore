@@ -1,0 +1,43 @@
+# Build context: the repository root (docker build -f Model-Pipeline/Dockerfile .).
+#
+# An allowlist: everything is left out, then only what the image needs is let back in. A local
+# checkout can hold comment text (Model-Pipeline/data/, Data-Pipeline/data/raw, drift batches),
+# key files under any name, and outputs; none of it can reach the image, whatever it is called.
+# src.pipeline.container_check also fails the CI build if any file in the image is not tracked
+# by git. Building from a clean checkout (CI, or `git archive`) is still the safest.
+*
+
+!.git
+!.dvc
+!.dvcignore
+!.gitignore
+
+!Model-Pipeline/src
+!Model-Pipeline/configs
+!Model-Pipeline/artifacts
+!Model-Pipeline/tests
+!Model-Pipeline/pyproject.toml
+!Model-Pipeline/requirements*.txt
+
+# The id lists and the obfuscation script the evaluation tables are built with.
+!Data-Pipeline/data/splits
+!Data-Pipeline/data/*.dvc
+!Data-Pipeline/scripts
+!Data-Pipeline/config
+
+# .git/config can hold a token in a remote URL; git (code_commit, ls-files) and DVC's clone
+# by revision work without it.
+.git/config
+# Inside what was let back in: DVC's local state, caches, and any key file.
+.dvc/cache
+.dvc/tmp
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.pyc
+**/.DS_Store
+**/*.key.json
+**/*service-account*.json
+**/*credentials*.json
+# GCP's default key file name: <project>-<12 hex digits>.json
+**/*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].json

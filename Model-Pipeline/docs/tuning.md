@@ -122,7 +122,7 @@ same data, seed and settings. Only the listed key changes:
 The TF-IDF baseline classifier itself (the grid's first row) is scored by the evaluation code,
 not trained here.
 
-**Same conditions for every arm:** code `d07c861`, seed 42, one run per arm, `data.source=ids`.
+**Same conditions for every arm:** code `80a4502` for the reported run (`d07c861` for the first one), seed 42, one run per arm, `data.source=ids`.
 `ids` gives the same training data as `official` (the pipeline's `train.parquet`): the same
 132,388 / 21,363 ids, the same cleaning function, and `sample_weight` 1.0 everywhere (the bias
 step chose reweighting factor 1, `Data-Pipeline/reports/bias/bias_metrics.json`). Run-to-run
@@ -134,12 +134,10 @@ the ablation's `distilbert-mixed`, so differences under about 0.0002 are noise.
 `Data-Pipeline/data/splits/`, writing `predictions/{val,gate,bias_eval,h2_eval}.parquet` and
 `predictions/thresholds.json` (the stems in `configs/gate.yaml` as of PR #33).
 
-`kaggle/13_student_ablation_all.ipynb` is the same training and scoring as one committed
-session, without the sweep: the arms run in order of need (mixed, gold, stack, 5 epochs,
-MiniLM, ModernBERT; the attribution arms on request), and an arm starts only if its estimated
-time fits `BUDGET_H`, so a session with little GPU quota left ends cleanly with the arms it
-finished. `ablation_scored.zip` (ids, scores, metrics; no text, no weights) is rewritten after
-every arm.
+**The reported run** is `kaggle/13_student_ablation_all.ipynb`: all eight arms through the
+pipeline entry point (`src/pipeline/run.py`), two at a time on Kaggle's T4 x2, then latency,
+selection, the truncation sweep and the results across arms, in one committed session
+(`docs/pipeline.md`).
 
 **Caveat (applies equally to every soft-label arm):** the TF-IDF out-of-fold models, and so the
 stack, were fitted on raw train, which includes the validation rows' gold labels; and 263
@@ -205,3 +203,20 @@ Trial 26 (worker 0), the highest validation mean AUC in the merged study
 loss.alpha=0.3432987447660936 loss.temperature=3.71295432376268
 train.lr=9.22542696771891e-05 train.epochs=4 model.max_length=256
 ```
+
+## The 5-epoch check and the reported run (Nov 12)
+
+The reported run (notebook 13, all arms at code `80a4502`;
+`reports/student/phase2/README.md`):
+
+| Run | Val mean AUC | Gate mean AUC | H2 mean AUC | Epochs (best) |
+|---|---|---|---|---|
+| `distilbert-mixed` (the tuned values) | 0.99348 | 0.9848 | 0.9410 | 4 (4th) |
+| `distilbert-mixed-5ep` (`train.epochs=5`) | 0.99368 | 0.9845 | 0.9399 | 5 (5th) |
+
+* The tuned recipe reproduced: 0.99348 here, 0.99349 in the first ablation, 0.99364 as trial 26.
+* The fifth epoch adds +0.0002 on validation (the noise level) and nothing on the gate set or
+  H2: the 4-epoch edge of the space was not costing much. The tuned values stay as chosen;
+  the selection rule picked the 5-epoch run on its validation AUC and PR-AUC
+  (`reports/student/phase2/selection.md`).
+

@@ -1,0 +1,142 @@
+{
+  "task": "train",
+  "run_name": "distilbert-tfidf-20261112T190956Z",
+  "model_version": "student-distilbert-tfidf-20261112T190956Z",
+  "model_id": "distilbert-base-uncased",
+  "device": "cuda",
+  "alpha": 0.3432987447660936,
+  "temperature": 3.71295432376268,
+  "rows_in": 153751,
+  "data": {
+    "source": "ids",
+    "source_file": "/tmp/wiki/wiki_train_raw.parquet",
+    "source_sha256": "acde36e26ff64e063e40513b17c6a8dc1e6ecb9724e798f834eea9c940f5fe85",
+    "source_rows": 159571,
+    "split_ids_sha256": {
+      "train": "f4d640bf11c992d8217b7c5ad4c2aa7d9b08a5ad300b5bddd86879926b0c78a4",
+      "val": "7d3cf50e21e903fcdd71c0a2bb9b5943b3d3b52c006a3835bc833dbbeb64cfab"
+    },
+    "missing_split_ids": {
+      "train": 0,
+      "val": 0
+    },
+    "train_rows": 132388,
+    "val_rows": 21363,
+    "train_prevalence": {
+      "toxicity": 0.09639,
+      "severe_toxicity": 0.00992,
+      "obscene": 0.05315,
+      "threat": 0.00294,
+      "insult": 0.04963,
+      "identity_attack": 0.00883
+    },
+    "val_prevalence": {
+      "toxicity": 0.09638,
+      "severe_toxicity": 0.00992,
+      "obscene": 0.05318,
+      "threat": 0.00295,
+      "insult": 0.04967,
+      "identity_attack": 0.0088
+    }
+  },
+  "soft_labels": {
+    "arm": "tfidf",
+    "prefix": "tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet",
+    "shards": 1,
+    "rows": 159571,
+    "failed_rows": 0,
+    "full_validation": true,
+    "coverage_checked": true,
+    "check_field": "sha256",
+    "check_sha256": "86160b7e62c08a45f8c6236447b07d4ec69cd0c97af97e7bc264ba88870f86dd",
+    "stack_sha256": null,
+    "model_version": "tfidf-lr-v1",
+    "prompt_version": null,
+    "teacher_version": "tfidf-lr-v1"
+  },
+  "truncated_share_train": 0.06477,
+  "steps": 16552,
+  "best_epoch": 3,
+  "best_val_mean_auc": 0.9942629785446572,
+  "best_val_mean_pr_auc": 0.778808879267086,
+  "thresholds": {
+    "toxicity": 0.3030094504356384,
+    "severe_toxicity": 0.24310295283794403,
+    "obscene": 0.17245040833950043,
+    "threat": 0.12874406576156616,
+    "insult": 0.26076579093933105,
+    "identity_attack": 0.20165595412254333
+  },
+  "val_mean_f1_at_thresholds": 0.7400945702359752,
+  "val_mean_f1_at_0.5": 0.6469536174207363,
+  "package": {
+    "status": "ok",
+    "dir": "/kaggle/working/student/distilbert-tfidf-20261112T190956Z/package",
+    "onnx_parity": 3.814697265625e-06
+  },
+  "history": [
+    {
+      "epoch": 0,
+      "step": 4138,
+      "train_loss": 3.992440835066381,
+      "train_gold": 0.06109918421612617,
+      "train_soft": 0.43867588045373523,
+      "val_mean_auc": 0.9909767420991015,
+      "val_mean_pr_auc": 0.7222500731147607,
+      "val_auc_toxicity": 0.9874706820168477,
+      "val_auc_severe_toxicity": 0.9923991059791989,
+      "val_auc_obscene": 0.9936498688825492,
+      "val_auc_threat": 0.9956688277815038,
+      "val_auc_insult": 0.9884265962848824,
+      "val_auc_identity_attack": 0.9882453716496269
+    },
+    {
+      "epoch": 1,
+      "step": 8276,
+      "train_loss": 3.8991668291746446,
+      "train_gold": 0.03911521719412364,
+      "train_soft": 0.4292067463859491,
+      "val_mean_auc": 0.9931160200357971,
+      "val_mean_pr_auc": 0.7544145981708699,
+      "val_auc_toxicity": 0.9901550021365169,
+      "val_auc_severe_toxicity": 0.9938385535096694,
+      "val_auc_obscene": 0.9950026921553048,
+      "val_auc_threat": 0.9969222743870632,
+      "val_auc_insult": 0.990369223035649,
+      "val_auc_identity_attack": 0.99240837499058
+    },
+    {
+      "epoch": 2,
+      "step": 12414,
+      "train_loss": 3.8925711519191553,
+      "train_gold": 0.03513609939854621,
+      "train_soft": 0.42862909515881203,
+      "val_mean_auc": 0.9939367018656392,
+      "val_mean_pr_auc": 0.7683451021257142,
+      "val_auc_toxicity": 0.9907501171914233,
+      "val_auc_severe_toxicity": 0.9944524011086501,
+      "val_auc_obscene": 0.9954300816019865,
+      "val_auc_threat": 0.9979063268499888,
+      "val_auc_insult": 0.9909815833691652,
+      "val_auc_identity_attack": 0.9940997010726218
+    },
+    {
+      "epoch": 3,
+      "step": 16552,
+      "train_loss": 3.888659992328642,
+      "train_gold": 0.03234136331979043,
+      "train_soft": 0.42830305630426696,
+      "val_mean_auc": 0.9942629785446572,
+      "val_mean_pr_auc": 0.778808879267086,
+      "val_auc_toxicity": 0.9911853457081573,
+      "val_auc_severe_toxicity": 0.9949125916701382,
+      "val_auc_obscene": 0.9955061547910095,
+      "val_auc_threat": 0.9982293762575453,
+      "val_auc_insult": 0.9913382384059143,
+      "val_auc_identity_attack": 0.9944061644351779
+    }
+  ],
+  "run_dir": "/kaggle/working/student/distilbert-tfidf-20261112T190956Z",
+  "mlflow_run_id": "3345cd8bf132452e98dc2cd121a24558",
+  "duration_s": 3415.6
+}
