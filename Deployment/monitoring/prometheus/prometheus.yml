@@ -7,6 +7,8 @@ global:
   evaluation_interval: 15s
 
 rule_files:
+  # The active rules only. alert_rules_planned.yml (Phase 3) is not loaded: its rules need
+  # metrics nothing emits yet, or the int8 package's latency (see that file's header).
   - /etc/prometheus/alert_rules.yml
 
 scrape_configs:

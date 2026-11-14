@@ -7,14 +7,20 @@ Grafana) and routes the retrain alerts to `retrain_dag`.
 
 | File | What it is |
 |---|---|
-| `mock_service.py` | Mock of the serving API (v4 2.4): `POST /predict`, `GET /health`, and `GET /metrics` with the 2.4 metric names, counted from real traffic, plus any `*.prom` files in `--textfile-dir` (the canary's). Standard library only |
-| `prometheus/alert_rules.yml` | 14 alert rules: service health, canary, drift. Three carry `action: retrain` |
-| `prometheus/prometheus.yml` | Scrape config for the mock |
-| `grafana/dashboards/distillate_dashboard.json` | Dashboard: service, decisions, canary, drift (v4 section 6 panels; instances and gate history are Phase 3 placeholders) |
+| `mock_service.py` | Mock of the serving API (v4 2.4): `POST /predict`, `GET /health`, and `GET /metrics` with the 2.4 metric names, counted from real traffic, plus any `*.prom` files in `--textfile-dir` (the canary's). Bad input is a 422 (a request, not a service error); any failure on its side is a counted 500. Standard library only |
+| `prometheus/alert_rules.yml` | The **active** rules (9): service health and canary. Uses only metrics that exist today; Prometheus loads it |
+| `prometheus/alert_rules_planned.yml` | The **planned** rules (7), not loaded yet: latency (waits on the int8 package's p95), the canary retrain rule (waits on the promoted model's reference AUC), and drift (waits on `drift_ingest_dag`'s metrics). All three `action: retrain` rules are here |
+| `prometheus/alert_rules_test.yml` | `promtool` unit tests: no flag-rate alert when traffic goes idle, service down fires, a missing canary fires |
+| `prometheus/prometheus.yml` | Scrape config for the mock; loads the active rules only |
+| `grafana/dashboards/distillate_dashboard.json` | Dashboard: service, decisions, canary, drift (v4 section 6 panels). Panels that need Phase 3 metrics are titled "(planned)"; instances and gate history are placeholders |
 | `grafana/provisioning/` | Data source and dashboard provider, for the local stack |
 | `docker-compose.yml` | Prometheus and Grafana, for viewing the drafts locally |
 | `thresholds.md` | Every threshold and why it is set where it is |
-| `tests/` | The mock follows 2.4; the rules, dashboard and thresholds doc agree and use only metrics that exist |
+| `tests/` | The mock follows 2.4; active rules and unplanned panels use only metrics that exist (canary names read from `canary.py`); the thresholds doc covers every rule |
+| `ruff.toml` | Data-Pipeline's ruff settings, so lint gives the same result from the repo root or here |
+
+CI: `.github/workflows/monitoring-ci.yml` runs ruff, the tests, and `promtool check rules` and
+`promtool test rules` on every PR that touches this folder or `Data-Pipeline/scripts/canary.py`.
 
 ## Running it locally
 
@@ -39,12 +45,13 @@ the plumbing, not the numbers.
 
 **Checked end to end:** the canary replayed all 6,000 real canary comments through the mock in
 about 4 s with no errors (Wikipedia mean AUC 0.509; flag false positive rate about 11%, as the
-mock is designed to flag), and `promtool check rules` reports `SUCCESS: 14 rules found`.
+mock is designed to flag), and Prometheus scraped the mock and loaded the rules with no errors.
 
-Check the rule file with Prometheus's own validator:
+Check and test the rule files with Prometheus's own tool:
 
 ```bash
-docker run --rm -v "$PWD/prometheus:/p" --entrypoint promtool prom/prometheus:v2.55.1 check rules /p/alert_rules.yml
+docker run --rm -v "$PWD/prometheus:/p" --entrypoint promtool prom/prometheus:v2.55.1 check rules /p/alert_rules.yml /p/alert_rules_planned.yml
+docker run --rm -v "$PWD/prometheus:/p" --entrypoint promtool prom/prometheus:v2.55.1 test rules /p/alert_rules_test.yml
 ```
 
 ## Tests
@@ -53,4 +60,5 @@ docker run --rm -v "$PWD/prometheus:/p" --entrypoint promtool prom/prometheus:v2
 python -m pytest tests -v
 ```
 
-Needs only `pytest` and `pyyaml` (both in Data-Pipeline's `requirements-dev.txt`).
+Needs `pytest` and `pyyaml`, plus `pandas`, `numpy` and `scikit-learn` for the test that reads
+`Data-Pipeline/scripts/canary.py` (all in Data-Pipeline's `requirements-dev.txt`).

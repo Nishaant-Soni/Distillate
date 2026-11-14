@@ -1,9 +1,14 @@
-"""Consistency checks: the alert rules, dashboard and thresholds doc agree with each other and
-only use metrics that exist (the mock's section 2.4 names, the canary's, or the two drift
-metrics drift_ingest_dag exports in Phase 3)."""
+"""Consistency checks: the alert rules, dashboard and thresholds doc agree with each other, and
+active rules and panels only use metrics that exist today.
+
+"Exist today" means emitted by the mock (the section 2.4 names) or by scripts/canary.py, whose
+names are read from canary.py itself rather than a hand-copied list. Metrics that only Phase 3
+will emit may appear only in alert_rules_planned.yml and in dashboard panels titled "(planned)".
+"""
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,20 +17,14 @@ import yaml
 import mock_service as mock
 
 HERE = Path(__file__).resolve().parents[1]
-RULES = HERE / "prometheus" / "alert_rules.yml"
+DATA_PIPELINE = HERE.parents[1] / "Data-Pipeline"
+PROMETHEUS = HERE / "prometheus"
 DASHBOARD = HERE / "grafana" / "dashboards" / "distillate_dashboard.json"
 THRESHOLDS = HERE / "thresholds.md"
 
-# From scripts/canary.py's prometheus_text (Data-Pipeline, PR for canary.py).
-CANARY_METRICS = {
-    "distillate_canary_auc", "distillate_canary_f1", "distillate_canary_mean_auc",
-    "distillate_canary_flag_precision", "distillate_canary_flag_recall",
-    "distillate_canary_flag_f1", "distillate_canary_flag_false_positive_rate",
-    "distillate_canary_rows_scored", "distillate_canary_errors",
-    "distillate_canary_last_run_timestamp_seconds",
-}
-# Exported by drift_ingest_dag in Phase 3 (named in thresholds.md).
-PHASE3_DRIFT_METRICS = {"distillate_drift_psi", "distillate_delayed_label_mean_auc"}
+# Exported only in Phase 3 (named in thresholds.md and alert_rules_planned.yml).
+PLANNED_METRICS = {"distillate_drift_psi", "distillate_delayed_label_mean_auc",
+                   "distillate_canary_reference_mean_auc"}
 METRIC = re.compile(r"\b(distillate_[a-z_]+)\b")
 
 
@@ -34,17 +33,44 @@ def _family(name):
     return re.sub(r"_(bucket|sum|count)$", "", name)
 
 
-@pytest.fixture(scope="module")
-def known():
-    families = {line.split()[2] for line in mock.Metrics().text().splitlines()
-                if line.startswith("# TYPE")}
-    return families | CANARY_METRICS | PHASE3_DRIFT_METRICS
+def _families(exposition):
+    return {line.split()[2] for line in exposition.splitlines() if line.startswith("# TYPE")}
 
 
-@pytest.fixture(scope="module")
-def rules():
-    return [rule for group in yaml.safe_load(RULES.read_text())["groups"]
+def _used(expr):
+    return {_family(m) for m in METRIC.findall(expr)}
+
+
+def _rules(name):
+    return [rule for group in yaml.safe_load((PROMETHEUS / name).read_text())["groups"]
             for rule in group["rules"]]
+
+
+@pytest.fixture(scope="module")
+def canary_metrics():
+    """The metric families scripts/canary.py actually writes, from its own prometheus_text."""
+    sys.path.insert(0, str(DATA_PIPELINE))
+    canary = pytest.importorskip("scripts.canary", reason="needs Data-Pipeline/scripts/canary.py")
+    report = {"finished_at": 1.0, "sets": {"civil": {
+        "labels": {"toxicity": {"auc": 0.9, "f1": 0.5}}, "mean_auc": 0.9, "rows_scored": 1,
+        "errors": 0,
+        "flag": {"precision": 1.0, "recall": 1.0, "f1": 1.0, "false_positive_rate": 0.0}}}}
+    return _families(canary.prometheus_text(report))
+
+
+@pytest.fixture(scope="module")
+def known(canary_metrics):
+    return _families(mock.Metrics().text()) | canary_metrics
+
+
+@pytest.fixture(scope="module")
+def active():
+    return _rules("alert_rules.yml")
+
+
+@pytest.fixture(scope="module")
+def planned():
+    return _rules("alert_rules_planned.yml")
 
 
 @pytest.fixture(scope="module")
@@ -52,25 +78,46 @@ def dashboard():
     return json.loads(DASHBOARD.read_text(encoding="utf-8"))
 
 
-def test_every_rule_is_well_formed(rules):
-    names = [rule["alert"] for rule in rules]
-    assert len(names) == len(set(names)), "alert names must be unique"
-    for rule in rules:
+def _targets(dashboard):
+    for panel in dashboard["panels"]:
+        for target in panel.get("targets", []):
+            yield panel, target["expr"]
+
+
+def test_every_rule_is_well_formed(active, planned):
+    names = [rule["alert"] for rule in active + planned]
+    assert len(names) == len(set(names)), "alert names must be unique across both files"
+    for rule in active + planned:
         assert rule["expr"].strip() and rule["annotations"]["summary"], rule["alert"]
         assert rule["labels"]["severity"] in {"warning", "critical"}, rule["alert"]
         assert rule["labels"].get("action", "retrain") == "retrain", rule["alert"]
 
 
-def test_rules_only_use_known_metrics(rules, known):
-    for rule in rules:
-        used = {_family(m) for m in METRIC.findall(rule["expr"])}
-        assert used <= known, (rule["alert"], used - known)
+def test_active_rules_only_use_metrics_that_exist_today(active, known):
+    for rule in active:
+        assert _used(rule["expr"]) <= known, (rule["alert"], _used(rule["expr"]) - known)
 
 
-def test_dashboard_only_uses_known_metrics(dashboard, known):
-    for panel in dashboard["panels"]:
-        for target in panel.get("targets", []):
-            used = {_family(m) for m in METRIC.findall(target["expr"])}
+def test_planned_rules_only_use_existing_or_named_planned_metrics(planned, known):
+    for rule in planned:
+        extra = _used(rule["expr"]) - known - PLANNED_METRICS
+        assert not extra, (rule["alert"], extra)
+
+
+def test_no_active_rule_can_trigger_a_retrain(active, planned):
+    """Every retrain rule waits on a Phase 3 metric, so none is active yet."""
+    assert not [r["alert"] for r in active if r["labels"].get("action") == "retrain"]
+    retrain = {r["alert"] for r in planned if r["labels"].get("action") == "retrain"}
+    assert retrain == {"DistillateCanaryAUCDropVsPromoted", "DistillateInputDriftAlert",
+                       "DistillateDelayedLabelAUCDrop"}
+
+
+def test_dashboard_marks_every_panel_that_needs_a_planned_metric(dashboard, known):
+    for panel, expr in _targets(dashboard):
+        used = _used(expr)
+        if "(planned)" in panel["title"]:
+            assert used <= known | PLANNED_METRICS, (panel["title"], used)
+        else:
             assert used <= known, (panel["title"], used - known)
 
 
@@ -90,20 +137,16 @@ def test_dashboard_has_the_v4_panels(dashboard):
         assert needed in titles, needed
 
 
-def test_the_retrain_alerts_are_the_documented_ones(rules):
-    retrain = {rule["alert"] for rule in rules if rule["labels"].get("action") == "retrain"}
-    assert retrain == {"DistillateCanaryAUCDrop", "DistillateInputDriftAlert",
-                       "DistillateDelayedLabelAUCDrop"}
-
-
-def test_thresholds_doc_covers_every_alert(rules):
+def test_thresholds_doc_covers_every_alert(active, planned):
     doc = THRESHOLDS.read_text(encoding="utf-8")
-    missing = [rule["alert"] for rule in rules if f"`{rule['alert']}`" not in doc]
+    missing = [rule["alert"] for rule in active + planned if f"`{rule['alert']}`" not in doc]
     assert not missing, f"thresholds.md doesn't document {missing}"
 
 
-def test_prometheus_config_loads_the_rules():
-    config = yaml.safe_load((HERE / "prometheus" / "prometheus.yml").read_text())
+def test_prometheus_loads_only_the_active_rules():
+    config = yaml.safe_load((PROMETHEUS / "prometheus.yml").read_text())
     assert config["rule_files"] == ["/etc/prometheus/alert_rules.yml"]
     # DistillateServiceDown watches up{job="distillate"}, so the job name must match.
     assert config["scrape_configs"][0]["job_name"] == "distillate"
+    compose = (HERE / "docker-compose.yml").read_text()
+    assert "alert_rules_planned.yml" not in compose

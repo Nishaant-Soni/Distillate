@@ -35,8 +35,10 @@ LABEL_WEIGHTS = {"toxicity": 1.0, "insult": 0.9, "obscene": 0.85, "identity_atta
 THRESHOLD = 0.5
 LOW_CONFIDENCE_MARGIN = 0.1
 MODEL_VERSION = "mock-0"
-# Seconds. Fine buckets around the 50 ms latency target (v4 section 6).
-LATENCY_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 1.0)
+# Seconds. Fine buckets around the 50 ms latency target (v4 section 6) and around the measured
+# fp32 p95 (144 ms), so histogram_quantile can resolve either; without 0.15 and 0.2, a p95
+# near 144 ms would interpolate to about 240 ms.
+LATENCY_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.25, 0.5, 1.0)
 SCORE_BUCKETS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
 
@@ -97,6 +99,7 @@ class Metrics:
         self.scores = {label: Histogram(SCORE_BUCKETS) for label in LABELS}
 
     def record(self, response: dict | None, seconds: float) -> None:
+        """A request the service handled: response is None when it failed on our side."""
         with self.lock:
             self.requests += 1
             self.latency.observe(seconds)
@@ -108,6 +111,12 @@ class Metrics:
             for label in LABELS:
                 self.flagged[label] += response["flagged"][label]
                 self.scores[label].observe(response["scores"][label])
+
+    def reject(self) -> None:
+        """Bad client input (422): counted as a request, not as a service error, so malformed
+        requests don't trip the error-rate alerts."""
+        with self.lock:
+            self.requests += 1
 
     def text(self) -> str:
         with self.lock:
@@ -163,11 +172,18 @@ def make_handler(metrics: Metrics, textfile_dir: Path | None):
                 text = json.loads(self.rfile.read(length))["text"]
                 if not isinstance(text, str):
                     raise ValueError("text must be a string")
+                # Inside the try: text that can't be UTF-8 encoded (a lone surrogate such as
+                # "\ud800") raises UnicodeEncodeError, a ValueError, which is bad input.
+                response = score(text)
             except (ValueError, KeyError, TypeError):
-                metrics.record(None, time.perf_counter() - start)
-                self._json(422, {"detail": 'body must be {"text": "..."}'})
+                metrics.reject()
+                self._json(422, {"detail": 'body must be {"text": "..."} with valid text'})
                 return
-            response = score(text)
+            except Exception:  # noqa: BLE001 - a failure on our side: counted, never a dropped
+                # connection, and nothing about the request (no text, no traceback) is logged.
+                metrics.record(None, time.perf_counter() - start)
+                self._json(500, {"detail": "internal error"})
+                return
             seconds = time.perf_counter() - start
             response["latency_ms"] = round(seconds * 1000, 3)
             metrics.record(response, seconds)
