@@ -256,24 +256,28 @@ Against the mock (6.3), all 6,000 real canary comments are scored in about 4 s w
 
 | File | What it is |
 |---|---|
-| `mock_service.py` | Mock of the §2.4 service: `/predict`, `/health`, and `/metrics` with exactly the §2.4 metric names, counted from real traffic, plus the canary's `.prom` file. Flags about 11% of comments |
-| `prometheus/alert_rules.yml` | 14 rules in three groups (service, canary, drift); three carry `action: retrain` for Phase 3's `retrain_dag` |
-| `grafana/dashboards/distillate_dashboard.json` | v4 §6's panels: p50/p90/p95 latency, RPS, errors, flag rates, low confidence, canary AUC and flag precision/recall, drift PSI, delayed-label AUC; instances and gate history are Phase 3 placeholders |
+| `mock_service.py` | Mock of the §2.4 service: `/predict`, `/health`, and `/metrics` with exactly the §2.4 metric names, counted from real traffic, plus the canary's `.prom` file. Flags about 11% of comments; bad input is a 422, not counted as a service error |
+| `prometheus/alert_rules.yml` | The **active** rules (9, service health and canary), using only metrics that exist today; Prometheus loads it |
+| `prometheus/alert_rules_planned.yml` | The **planned** rules (7), not loaded until Phase 3 provides what they need: latency (the int8 package's p95), the canary retrain rule (the promoted model's reference AUC) and drift (`drift_ingest_dag`'s metrics). All three `action: retrain` rules are here |
+| `prometheus/alert_rules_test.yml` | `promtool` unit tests: no flag-rate alert when traffic goes idle, service down fires, a missing canary fires |
+| `grafana/dashboards/distillate_dashboard.json` | v4 §6's panels: p50/p90/p95 latency, RPS, errors, flag rates, low confidence, canary AUC and flag precision/recall, drift PSI, delayed-label AUC; panels that need Phase 3 metrics are titled "(planned)", and instances and gate history are placeholders |
 | `thresholds.md` | every threshold and why (6.4) |
 | `docker-compose.yml` | Prometheus and Grafana, to view the drafts locally |
 
-**Verified end to end:** Prometheus's own validator reports `SUCCESS: 14 rules found`. On the local stack, Prometheus scrapes the mock (target UP), evaluates all 14 rules with no errors (all inactive on the healthy mock), and Grafana loads the dashboard with data in every service, decision and canary panel. The drift panels stay empty until `drift_ingest_dag` exports its metrics in Phase 3. How to run it: `Deployment/monitoring/README.md`.
+**Verified end to end:** `promtool check rules` finds 9 valid active and 7 valid planned rules, and `promtool test rules` passes. On the local stack, Prometheus scrapes the mock (target UP), evaluates the active rules with no errors (all inactive on the healthy mock), and Grafana loads the dashboard with data in every service, decision and canary panel; the planned drift panels stay empty until `drift_ingest_dag` exports its metrics in Phase 3. `.github/workflows/monitoring-ci.yml` runs the tests, ruff and both `promtool` checks on every PR that touches the folder. How to run it: `Deployment/monitoring/README.md`.
 
 ### 6.4 Alert thresholds (`Deployment/monitoring/thresholds.md`)
 
 | Alert | Threshold | Why |
 |---|---|---|
-| Canary AUC drop | 0.02 below its 7-day average, for 3 runs | The canary replays the same comments, so an unchanged model gives an identical AUC every run; a drop means the service changed. 0.02 is about 2 standard errors of the Wikipedia canary's AUC; 3 runs rides out a transient failure. Retrains |
-| Delayed-label AUC drop | 0.03 below its 7-day average | Each drift batch is new comments, so noise is real (about ±0.04 for one batch); the rule uses the mean of two batches (about ±0.03). Retrains |
-| Input drift | warn 0.1, alert 0.25, against the **start of the Civil stream** | Against Wikipedia every Civil batch is already `warn` (6.1), so a warning there would fire permanently. Alert retrains |
-| Drift beyond the known shift | 0.25 against Wikipedia | The known shift tops out near 0.18, so 0.25 means traffic unlike anything measured |
-| Flag-rate drift | 0.25, against a Civil reference | Wikipedia thresholds don't transfer to Civil (toxicity recall 38% on H2, 3.3) |
-| Service | errors 2% / 5%; p95 50 ms (the int8 package, 3.3); flag rate outside 0.5x to 2x its 7-day average | v4 §6's latency target applies to the int8 package: the measured fp32 p95 is 144 ms (3.3), so against fp32 this alert would fire constantly. A halving or doubling of what gets flagged is worth a look before any labels arrive |
+| Canary AUC drop | 0.02 below a reference, for 3 runs | The canary replays the same comments, so an unchanged model gives an identical AUC every run; a drop means the service changed. 0.02 is about 2 standard errors of the Wikipedia canary's AUC; 3 runs rides out a transient failure. Active against the 7-day average, **notify only** (after a legitimate promotion it would keep firing for days); the **retrain** version (planned) compares with the promoted model's own canary AUC |
+| Delayed-label AUC drop (planned) | 0.03 below its 7-day average | Each drift batch is new comments, so noise is real (about ±0.04 for one batch); the rule uses the mean of two batches (about ±0.03). Retrains |
+| Input drift (planned) | warn 0.1, alert 0.25, against the **start of the Civil stream** | Against Wikipedia every Civil batch is already `warn` (6.1), so a warning there would fire permanently. Alert retrains |
+| Drift beyond the known shift (planned) | 0.25 against Wikipedia | The known shift tops out near 0.18, so 0.25 means traffic unlike anything measured |
+| Flag-rate drift (planned) | 0.25, against a Civil reference | Wikipedia thresholds don't transfer to Civil (toxicity recall 38% on H2, 3.3) |
+| Service (active) | errors 2% / 5% (service-side only); flag rate outside 0.5x to 2x its 7-day average, only with real traffic | Bad client input doesn't count as an error; with no traffic the flag-rate ratio is 0, so without the traffic guard it would fire every quiet night. A halving or doubling of what gets flagged is worth a look before any labels arrive |
+| Latency (planned) | p95 50 ms (the int8 package, 3.3) | v4 §6's target applies to the int8 package: the measured fp32 p95 is 144 ms (3.3), so against fp32 it would fire constantly. Activates once the int8 p95 is measured |
+| Canary missing or stale (active) | no run in 2 hours, or no canary series at all | `absent()` catches a series that disappears entirely, which the staleness check can't see |
 
 **Open for Phase 3:** the canary's mean AUC is fragile on rare labels. `canary_civil` has only 3 threat, 12 obscene and 14 identity_attack positives (against 286 for toxicity); with the mock's signal-free scores, threat landed at AUC 0.25 by chance and pulled the Civil mean to 0.42. Before the canary alert retrains anything, it should use a positives-weighted mean or toxicity AUC. The `civil_start` drift reference should be built from the first few batches or `canary_civil`, since 2,000 comments is a thin vocabulary for the OOV feature.
 
@@ -281,6 +285,6 @@ Against the mock (6.3), all 6,000 real canary comments are scored in about 4 s w
 
 - `Data-Pipeline/tests/test_drift.py` (16): PSI is 0 for identical distributions and stays finite with empty bins; each feature on known text; the baseline stores no words and is deterministic; a missing baseline is an error by default; a batch like training data shows no drift, while a shifted one alerts on every feature; flag-rate drift; JSON-ready results.
 - `Data-Pipeline/tests/test_canary.py` (23), against a local HTTP server following §2.4: a perfect service scores perfectly; five Civil labels; the Prometheus file parses; no comment text in the outputs; failed calls and bad responses, including NaN, out-of-range and non-numeric scores; a down service fails the health check before any replay; the CLI alerts on failure; mixed model versions warn.
-- `Deployment/monitoring/tests/` (18): the mock follows §2.4 (response shape, every metric name, counters following the traffic, cumulative histograms, no text in metrics); the rules, dashboard and thresholds doc agree and use only metrics that exist.
+- `Deployment/monitoring/tests/` (22): the mock follows §2.4 (response shape, every metric name, counters following the traffic, cumulative histograms, no text in metrics), rejects bad input such as a lone surrogate as a counted 422, counts its own failures as 500s, and resolves a p95 near 144 ms; active rules and unplanned panels use only metrics that exist, with the canary's names read from `canary.py`; no active rule can retrain; the thresholds doc covers every rule. Plus `prometheus/alert_rules_test.yml` (`promtool test rules`).
 
 All use small made-up data and no network beyond the local machine.
