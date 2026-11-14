@@ -10,7 +10,10 @@ bootstrap intervals, and one selected.
   validation).
 * **Selection:** rerun from the run's outputs with the rule as decided after the run
   (`configs/student.yaml` `select:`, below); the results tables are unchanged by it (they were
-  rebuilt from `phase2_results.zip` and `results.md` matches the session's exactly).
+  rebuilt from `phase2_results.zip` and `results.md` matches the session's exactly). `results.md`
+  was then rebuilt from the same zip with the teacher comparisons paired like for like (mixed
+  against TF-IDF and calibrated Qwen, same loss; `src/eval/results.py` `PAIRS`) and the best
+  epoch counted from 1; every other number is unchanged.
 
 ## Files
 
@@ -34,7 +37,8 @@ tuned mixed recipe (α 0.343, T 3.71, lr 9.23e-5, 256 tokens) trained for 5 epoc
 mean AUC 0.99368, PR-AUC 0.7678. Gate set 0.9845 [0.9836, 0.9852]; Civil H2 0.9399 [0.9263,
 0.9502]. Bias check passed (worst slice +4.6 FPR points, `race_or_ethnicity:white`, under the
 5-point flag). Gate report: passed (validation floors and bias; no production model yet).
-MLflow run `358772663fc34a5e81275c3ed073e598`.
+MLflow run `ab34619a27e84b07aae044e3a414c0be` (team server, experiment
+`distillate-student-ablation`; Kaggle run `358772663fc34a5e81275c3ed073e598`).
 
 **The rule** (decided Nov 13, after the run, and recorded in `configs/student.yaml`):
 
@@ -67,11 +71,13 @@ is within the effect of the recipe choice; the PR-AUC gain and H2 are far larger
 **H2, cross-domain (Civil Comments).** The gain is large: mixed vs gold +0.027 [+0.013,
 +0.041] mean AUC (0.9410 vs 0.9139).
 
-**What the LLM adds** (stack vs TF-IDF soft labels, the only gap creditable to the LLM): +0.0009
-[+0.0005, +0.0014] on the gate set and **+0.028 [+0.018, +0.038] on H2**. Calibrated Qwen alone
-is worse than TF-IDF in-domain (−0.0043) and not clearly better on H2 (+0.013 [−0.008,
-+0.033]); the stack beats both of its parts (vs calibrated Qwen: +0.015 [+0.001, +0.030] on H2).
-Gold labels on top of the stack help on both sets (mixed vs stack: +0.0013 gate, +0.0051 H2).
+**What the LLM adds** (mixed vs TF-IDF: stack against TF-IDF soft labels, both with the mixed
+loss at the tuned α, the only gap creditable to the LLM): +0.0022 [+0.0017, +0.0027] on the gate
+set and **+0.033 [+0.024, +0.044] on H2**. Calibrated Qwen alone is worse than TF-IDF in-domain
+(−0.0043) and not clearly better on H2 (+0.013 [−0.008, +0.033]); the stack beats both of its
+parts (mixed vs calibrated Qwen: +0.020 [+0.006, +0.036] on H2). The stack-only arm (α 0) is
+compared only with mixed, since against the α 0.343 arms it would mix the teacher with the loss:
+gold labels on top of the stack help on both sets (mixed vs stack: +0.0013 gate, +0.0051 H2).
 
 **Architectures** (same recipe and tuned values, tuned on DistilBERT):
 
@@ -84,8 +90,8 @@ Gold labels on top of the stack help on both sets (mixed vs stack: +0.0013 gate,
 MiniLM-L12 is as good as DistilBERT on the gate set and H2 (intervals overlap) with a lower
 validation AUC, and is the fastest. ModernBERT brings nothing for 2.5 times the latency.
 
-**Five epochs** (the check outside the study, `docs/tuning.md`): validation +0.0002 (at the
-noise level), gate −0.0003, H2 −0.0011. Every mixed run still peaked at its last epoch, but the
+**Five epochs** (the check outside the study, `docs/tuning.md`): validation +0.0002 (within
+the one-seed noise), gate −0.0003, H2 −0.0011. Every mixed run still peaked at its last epoch, but the
 fifth epoch adds about nothing.
 
 **Leak check** (validation-to-gate drop in mean AUC): gold 0.0053; mixed 0.0087; stack 0.0096;

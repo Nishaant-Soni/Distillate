@@ -126,8 +126,11 @@ not trained here.
 `ids` gives the same training data as `official` (the pipeline's `train.parquet`): the same
 132,388 / 21,363 ids, the same cleaning function, and `sample_weight` 1.0 everywhere (the bias
 step chose reweighting factor 1, `Data-Pipeline/reports/bias/bias_metrics.json`). Run-to-run
-noise at one seed: the tuned recipe gave val mean AUC 0.99364 as sweep trial 26 and 0.99349 as
-the ablation's `distilbert-mixed`, so differences under about 0.0002 are noise.
+noise at one seed: three runs of the tuned recipe gave val mean AUC 0.99364 (sweep trial 26),
+0.99349 (the first ablation run) and 0.99348 (the reported `distilbert-mixed`), a span of
+0.00016, so 0.0002 is at least the one-seed noise, not a measure of it: three runs can easily
+understate the spread between seeds, and larger gaps between arms are not shown to be real by
+this alone.
 
 **Scoring:** in ablation mode the notebook scores each arm right after training on the gate set
 (63,978), the Civil bias set (21,577) and H2 (10,000), by the id lists in
@@ -215,8 +218,10 @@ The reported run (notebook 13, all arms at code `80a4502`;
 | `distilbert-mixed-5ep` (`train.epochs=5`) | 0.99368 | 0.9845 | 0.9399 | 5 (5th) |
 
 * The tuned recipe reproduced: 0.99348 here, 0.99349 in the first ablation, 0.99364 as trial 26.
-* The fifth epoch adds +0.0002 on validation (the noise level) and nothing on the gate set or
-  H2: the 4-epoch edge of the space was not costing much. The tuned values stay as chosen;
+* The fifth epoch adds +0.0002 on validation (within the one-seed noise) and nothing on the gate set or
+  H2: the 4-epoch edge of the space was not costing much. Its validation AUC was still rising at
+  the fifth epoch (0.99355 after the fourth, 0.99368 after the fifth), so the epoch limit still
+  binds, but by no more than the one-seed noise. The tuned values stay as chosen;
   the selection rule picked the 5-epoch run on its validation AUC and PR-AUC
   (`reports/student/phase2/selection.md`).
 

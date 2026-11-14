@@ -8,9 +8,11 @@ Reads run folders of ``src.pipeline.run`` (``predictions/``, ``gold/``, ``eval/m
   flag FPR), validation numbers, the validation-to-gate drop (the soft-label leak check in
   docs/tuning.md), obfuscation recall against the same comments' originals, latency, and the
   truncation sweep where a run has one;
-* paired bootstrap differences for the comparisons the work plan names (mixed vs gold; stack
-  vs TF-IDF, the part creditable to the LLM; calibrated Qwen vs TF-IDF; stack vs calibrated
-  Qwen) on the gate set and H2;
+* paired bootstrap differences for the comparisons the work plan names (mixed vs gold; mixed
+  vs TF-IDF, the part creditable to the LLM; calibrated Qwen vs TF-IDF; mixed vs calibrated
+  Qwen; mixed vs stack, the loss) on the gate set and H2. The teacher comparisons pair arms
+  trained with the same loss (gold plus soft labels at the tuned alpha), so they differ only in
+  the soft labels; the stack-only arm (alpha 0) is compared with mixed, not with them;
 * plots: per-label AUC (dots) and PR-AUC (bars) across arms per split, the H1 / H2 figure,
   and the selected arm's confusion matrices.
 
@@ -48,8 +50,9 @@ from src.eval.plots import (
     per_label_dots,
 )
 
-PAIRS = (("distilbert-mixed", "distilbert-gold"), ("distilbert-stack", "distilbert-tfidf"),
-         ("distilbert-calqwen", "distilbert-tfidf"), ("distilbert-stack", "distilbert-calqwen"),
+# Each teacher comparison is like-for-like: both arms use the mixed loss at the tuned alpha.
+PAIRS = (("distilbert-mixed", "distilbert-gold"), ("distilbert-mixed", "distilbert-tfidf"),
+         ("distilbert-calqwen", "distilbert-tfidf"), ("distilbert-mixed", "distilbert-calqwen"),
          ("distilbert-mixed", "distilbert-stack"))
 CI_SPLITS = ("gate", "h2_eval")
 
@@ -174,7 +177,9 @@ def build(runs: Sequence[str | Path], out: str | Path, n_boot: int = 1000,
                           "bootstrap": n_boot, "selected": selected})
     (out / "results.json").write_text(json.dumps(result, indent=2) + "\n")
     (out / "results.md").write_text(render_markdown(result))
-    result["plots"] = plots(result, arms, out / "plots", selected)
+    # Relative to --out, so results.json doesn't record where it was built.
+    result["plots"] = [Path(f).relative_to(out).as_posix()
+                       for f in plots(result, arms, out / "plots", selected)]
     (out / "results.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
 
@@ -253,7 +258,7 @@ def render_markdown(result: Mapping[str, Any]) -> str:
         lines.append("")
     lines += ["## Validation, the leak check, robustness, latency", "",
               "| Arm | Val mean AUC | Val mean PR-AUC | Val-to-gate AUC drop | Obfuscation "
-              "toxicity recall (orig -> obf) | Latency p50 / p95 (ms) | Best epoch |",
+              "toxicity recall (orig -> obf) | Latency p50 / p95 (ms) | Best epoch (from 1) |",
               "|---|---|---|---|---|---|---|"]
     for arm, row in rows.items():
         val = row["metrics"].get("val", {})
@@ -263,7 +268,9 @@ def render_markdown(result: Mapping[str, Any]) -> str:
         lat_text = f"{lat['p50_ms']:.1f} / {lat['p95_ms']:.1f}" if lat else "-"
         lines.append(f"| {arm} | {_fmt(val.get('mean_auc'), 5)} | {_fmt(val.get('mean_pr_auc'))} "
                      f"| {_fmt(row.get('val_to_gate_auc_drop'))} | {obf_text} | {lat_text} | "
-                     f"{row['best_epoch']} |")
+                     f"{row['best_epoch'] + 1} |")
+    lines += ["", "Best epoch counts from 1 here; `best_epoch` in `results.json` and each run's "
+              "`summary.json` counts from 0, as `train.py` records it."]
     leak = result.get("leak_check")
     if leak:
         lines += ["", f"**Leak check** (docs/tuning.md): validation-to-gate mean AUC drop "
