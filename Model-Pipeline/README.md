@@ -6,12 +6,130 @@ This README documents Phase 2 of Distillate (the model pipeline): teacher labels
 
 In pipeline order; each lane fills in its section.
 
-1. Teacher and soft labels (Nishaant)
+1. Teacher, soft labels and sensitivity analysis (Nishaant)
 2. Teacher labels, data loading and EDA (Praniti)
 3. Student training and tuning (Shivam)
 4. Evaluation, gate and bias (Ruchita)
 5. CI/CD, registry and rollback (Vaishnavi)
 6. Monitoring preparation (Sai)
+
+## 1. Teacher, soft labels and sensitivity analysis (Nishaant)
+
+The teacher lane labels every training comment with soft probabilities for the six labels, which the student is distilled from. The labels come from a *stack*: the zero-shot LLM teacher `Qwen/Qwen3-4B-Instruct-2507` (pinned revision `cdbee75f…`) combined with a TF-IDF baseline trained on the gold labels, so they are **a gold-trained baseline corrected by Qwen**, not independent LLM judgments. The model card's section 3 says what the labels are and how good they are; `docs/teacher_prompts_and_shard_spec.md` is the full contract (prompts, shard format, checks, paths). Paths here are relative to `Model-Pipeline/` unless they start with `Data-Pipeline/`.
+
+### 1.1 What the other lanes use
+
+| You want | Use | Where |
+|---|---|---|
+| The student's targets | `p_<label>` from `soft_labels/stack-v1/p2-zs-v2b/` | `gs://distillate-mlops-data/` (Hugging Face `distillate-team/distillate-teacher-shards` is a backup copy, same paths) |
+| The same, joined onto the splits | `teacher_labels.parquet` (`p_<label>`, `p_<label>_raw`, `tfidf_oof_<label>`, `p_<label>_calqwen`) | `Data-Pipeline/data/processed/`, built by the data pipeline's `merge_teacher_labels`, read with `src/data/load_data.py` (section 2) |
+| The ablation's attribution arms | calibrated Qwen: `soft_labels/calqwen-v1/p2-zs-v2b/`; TF-IDF out-of-fold: `tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet` | same bucket |
+| Teacher and soft labels for the gate subset and the Civil drift stream | `…/gate/` and `…/drift/` under each prefix | same bucket |
+| Gate subset weights (gate-subset metrics must be weighted) | `artifacts/gate_subset_ids.parquet` (`weight`, `stratum`) | this repository |
+
+Never train on the `p_*` of the raw `teacher/` shards: they are uncalibrated.
+
+### 1.2 Results
+
+| | |
+|---|---|
+| Rows labeled | 159,571 training comments, 20,000 test comments (the gate subset), 40,000 Civil drift comments; 0 failed rows; about 9.4 T4 GPU-hours |
+| Held-out quality, gate subset (weighted mean AUC / PR-AUC / ECE) | stack **0.982 / 0.659 / 0.010**; TF-IDF 0.980 / 0.623 / 0.010; raw Qwen 0.959 / 0.475 / 0.086 |
+| Civil drift stream (five labels) | stack 0.924 mean AUC, TF-IDF 0.887, raw Qwen 0.882; the stack is best in all 20 batches |
+| What the LLM adds to the student (Phase 2 ablation, DistilBERT, same loss) | stack soft labels against TF-IDF soft labels (paired bootstrap): **+0.0022** [+0.0017, +0.0027] mean AUC on the gate set, **+0.033** [+0.024, +0.044] on Civil H2. Calibrated Qwen alone is not a better teacher than TF-IDF (−0.0043 on the gate set) |
+
+**Validation caveat:** the TF-IDF out-of-fold models saw the validation rows' gold labels, so students trained on soft labels score optimistically on validation (by about 0.003 to 0.006 mean AUC against gold-only). Gold-only and soft-label arms are compared on the gate set and H2; the selection compares only arms with the same teacher. Details: model card section 3.
+
+### 1.3 Setup
+
+1. **Python 3.12 environment:** `pip install -r requirements-dev.txt` from `Model-Pipeline/`.
+2. **Read access to the bucket** (from Vaishnavi), then `gcloud auth application-default login`, which the validator and the store code use. On Kaggle, a `GCS_TEACHER_KEY` secret (a service-account key) instead.
+3. **Optional, for the Hugging Face backup:** membership of the `MLOps-Distillate-Project` organization and a read token via `hf auth login` (or `HF_TOKEN`). Tokens and keys go in secrets or the environment, never in code or notebooks.
+4. **Local data copy** (git-ignored, it holds comment text): `data/wiki_train_raw.parquet` and `data/wiki_test_raw.parquet`, made by `kaggle/00_prepare_data.ipynb`.
+
+### 1.4 How the labels were made
+
+Every step reads and writes committed records (`artifacts/`), so its result can be checked without rerunning it. GPU steps ran on Kaggle (two T4s); the rest run on a laptop CPU.
+
+| Step | Command or notebook | Writes |
+|---|---|---|
+| 1. Pilot sample and gate subset | `python -m src.teacher.sampling pilot`, `python -m src.teacher.sampling gate` | `artifacts/pilot/pilot_ids.parquet`, `artifacts/gate_subset_ids.parquet` |
+| 2. TF-IDF baseline on the pilot | `python -m src.teacher.baseline_tfidf` | `artifacts/pilot/metrics_tfidf.json` |
+| 3. Pilot: prompts compared, calibration, prompt-injection test (GPU) | `kaggle/01_smoke_test.ipynb`, then `kaggle/02_pilot.ipynb` | `artifacts/pilot/` |
+| 4. Obscene prompt follow-up | `python -m src.teacher.prompt_tuning halves`, a GPU run, then `python -m src.teacher.prompt_tuning evaluate` | `artifacts/prompt_v2/` |
+| 5. Civil Comments shift check | `python -m src.teacher.shift sample`, then `evaluate` | `artifacts/shift/` |
+| 6. Out-of-fold TF-IDF scores (about 20 min CPU) | `python -m src.teacher.tfidf_oof` | `artifacts/oof/` and `tfidf/tfidf-lr-v1-oof/` in the store |
+| 7. Label the shards (GPU): `RUN = "train"` (about 3.6 h), `"gate"` (about 45 min), `"drift"` | `kaggle/label_shards.ipynb`, pinned to a commit (`REPO_REF`); reruns resume | `teacher/p2-zs-v2b/` (and `gate/`, `drift/`) in the store |
+| 8. Stack and soft labels | `python -m src.teacher.soft_labels [--upload]`; `--drift` for the drift stream | `artifacts/stack/`, `soft_labels/stack-v1/p2-zs-v2b/` |
+| 9. Calibrated-Qwen labels (ablation arm) | `python -m src.teacher.calqwen [--upload]` | `artifacts/calqwen/`, `soft_labels/calqwen-v1/p2-zs-v2b/` |
+
+`--upload` refuses to run unless `src/`, `configs/` and the step's `artifacts/` folder are committed, so every shard's manifest names a code commit that exists. Without `--upload`, steps 8 and 9 recompute and check everything but write nothing to the store.
+
+### 1.5 Checking the shards
+
+Every shard has a manifest (row count, id hash, prompt and model versions, code commit). The validator checks a run against the spec, including that every id is present exactly once:
+
+```bash
+python -m src.teacher.validate_local --prefix soft_labels/stack-v1/p2-zs-v2b/ \
+    --ids data/wiki_train_raw.parquet --plan artifacts/teacher_shards.json \
+    --model-version "stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554+tfidf-lr-v1"
+```
+
+The commands for all eight runs are in the spec (§8); `--backend hf` checks the backup copy. The data pipeline's `validate_teacher_shards` runs the same checks on all eight, plus the stack and calibration fingerprints, before merging the labels into `teacher_labels.parquet` (section 2.1).
+
+### 1.6 Tracking
+
+The lane's runs are in MLflow on the team server, experiment `distillate-teacher` (13 runs): the pilot with one child run per configuration compared, the three labeling runs, and both soft-label sets. They are logged from the committed records and manifests, so nothing is rerun (`src/teacher/mlflow_log.py`, PR #27):
+
+```bash
+python -m src.teacher.mlflow_log --dry-run   # what would be logged
+python -m src.teacher.mlflow_log             # MLFLOW_TRACKING_URI if set, else mlruns/
+```
+
+Rerunning skips any record already logged with the same content.
+
+### 1.7 Sensitivity analysis
+
+How the selected student (`distilbert-mixed-5ep`, chosen by the student lane's selection rule, section 3) depends on its hyperparameters, which words drive its predictions, and how it holds up on short inputs and obfuscated text, all on Wikipedia validation (`src/sensitivity/`, model card section 7):
+
+1. **Hyperparameter importance** (fANOVA and MDI) from the merged Optuna study `distilbert-mixed-v1` (28 trials), each recomputed under 11 seeds. Maximum length explains the most and ranks first under every seed (fANOVA 0.37 to 0.55 over the seeds), then epochs (0.238) and α (0.141); learning rate and T explain little. The objective varies little (validation mean AUC 0.988 to 0.9936).
+2. **Token attributions** (SHAP Partition explainer) per label for caught, missed and wrongly flagged comments, reported as top words and masked examples, never comment text. Identity words drive false alarms (for identity_attack: a racial slur, "gay", "nazi", "racist"), which explains the bias report's race-slice finding; missed toxic comments are mostly implicit, such as insults without profanity.
+3. **Input length**: validation rescored at 64, 128 and 256 tokens, and results by token-length band. 256 tokens truncates 6.4% of comments at little cost (mean AUC 0.994); 64 tokens gives 0.990 overall but drops comments of 129 to 256 tokens from 0.993 to 0.970.
+4. **Obfuscation strength**: the data pipeline's character substitutions at rates 0 to 1. The clearest weakness: changing 4.3% of characters makes the student miss 14.5% of the toxic comments it caught when clean, and 21% makes it miss 54% (threat 98%, 44 of 45). The flag rate falls too, so obfuscated comments pass as clean.
+
+```bash
+python -m src.sensitivity.run --model-dir <selected package> --rev <commit>
+python -m src.sensitivity.run --model-dir <dir> --sample 2000 --no-mlflow   # a quick look
+```
+
+`optuna.storage` and `optuna.study_name` in `configs/sensitivity.yaml` point at the study (`sqlite:///` of `gs://distillate-mlops-data/optuna/distilbert-mixed-v1.db`, downloaded). The report goes to `reports/sensitivity.md`, and the run to MLflow experiment `distillate-sensitivity`. **Status:** run on 2026-11-13 on all 21,363 validation rows (DVC revision `5808fdf`, 3 h 20 min on CPU); the report, with plots and hand-written findings (`reports/sensitivity_findings.md`), arrives with PR D (#46).
+
+### 1.8 Tests
+
+```bash
+cd Model-Pipeline
+pytest tests/teacher       # no network or GPU: synthetic data and fixtures
+pytest tests/sensitivity   # with PR D (#46)
+ruff check src tests
+```
+
+CI (`.github/workflows/model-pipeline-ci.yml`) runs `ruff check src tests` and the whole `pytest` suite on every pull request that touches `Model-Pipeline/`.
+
+### 1.9 Code
+
+| Module | What it does |
+|---|---|
+| `src/teacher/config.py`, `data.py`, `compat.py` | `configs/teacher.yaml` and the shared names; loading and light cleaning of the raw Wikipedia data; workarounds for the Kaggle GPU image |
+| `src/teacher/prompts.py`, `scoring.py` | the prompts and `prompt_version`; reading yes/no probabilities and log-odds from the token log-probabilities |
+| `src/teacher/sampling.py` | the pilot sample and the gate subset, with inclusion weights |
+| `src/teacher/baseline_tfidf.py`, `tfidf_oof.py` | the TF-IDF baseline and its out-of-fold scores |
+| `src/teacher/pilot.py`, `calibrate.py`, `injection.py`, `metrics.py` | the pilot's evaluation, Platt calibration, the prompt-injection test, weighted metrics |
+| `src/teacher/shift.py`, `prompt_tuning.py` | the Civil Comments shift check and the obscene prompt follow-up |
+| `src/teacher/label_worker.py`, `shards.py`, `storage.py` | GPU labeling, shard plan and manifests, the GCS and Hugging Face stores |
+| `src/teacher/validate_local.py` | the shard checks |
+| `src/teacher/stack.py`, `soft_labels.py`, `calqwen.py` | the stack and the two soft-label sets |
+| `src/teacher/mlflow_log.py` | the runs in MLflow (PR #27) |
+| `src/sensitivity/` | hyperparameter importance, SHAP attributions, length and obfuscation sweeps, the report (PR D, #46) |
 
 ## 2. Teacher labels, data loading and EDA (Praniti)
 
@@ -163,7 +281,7 @@ All eight arms ran through `src.pipeline.run` with the tuned values in one Kaggl
 | ModernBERT-base, mixed | 0.99349 | 0.9846 [0.9839, 0.9853] | 0.9384 [0.9233, 0.9498] |
 
 - **Distillation (H2):** mixed vs gold only, +0.027 [+0.013, +0.041] on Civil. On the gate set the AUC gain is small (+0.0007) and within the effect of the shared recipe; the PR-AUC gain (+0.064) is large.
-- **What the LLM adds:** stack vs TF-IDF soft labels, +0.028 [+0.018, +0.038] on H2.
+- **What the LLM adds:** stack vs TF-IDF soft labels, both with the mixed loss at the tuned α (`distilbert-mixed` − `distilbert-tfidf`, paired bootstrap): +0.033 [+0.024, +0.044] on H2 and +0.0022 [+0.0017, +0.0027] on the gate set (section 1.2, model card section 3).
 - **Every arm passes the bias check.**
 - **The thresholds don't transfer to Civil:** H2 AUC is 0.94, but toxicity recall at the validation thresholds is 38%. Phase 3 sets thresholds for news-comment traffic.
 - **Latency:** no fp32 package meets the 50 ms p95 budget (DistilBERT 144 ms, MiniLM 103 ms). The budget applies to the int8 package in Phase 3.
@@ -196,4 +314,4 @@ The image pins every version (`requirements-pipeline.txt`, CUDA 12.6 torch). CI 
 
 ### 3.6 Tests
 
-`tests/student/` and `tests/pipeline/` (100 tests): the loss, thresholds, the package and its parity check, the sweep's shared-study guard, MLflow logging, the evaluation tables, the selection rule, and every pipeline step end to end on a tiny model. All run offline with made-up data.
+`tests/student/` and `tests/pipeline/` (94 tests): the loss, thresholds, the package and its parity check, the sweep's shared-study guard, MLflow logging, the evaluation tables, the selection rule, and every pipeline step end to end on a tiny model. All run offline with made-up data.
