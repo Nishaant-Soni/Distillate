@@ -106,7 +106,7 @@ Compares the four score sources with the gold labels on train + validation (153,
 | Task | Phase 2 (now) | Phase 3 |
 |---|---|---|
 | `release_batch` | checks batch k's schema, size and ids against `civil_drift_ids.csv`; once all 20 are done, evaluates the last batch (once) and skips the rest | same |
-| `compute_drift` | basic statistics (stub) | `src/monitoring/drift.py` (PSI) |
+| `compute_drift` | basic statistics (stub) | `Data-Pipeline/scripts/drift.py` (PSI; section 6.1) |
 | `score_batch` | `POST /predict` (v4 §2.4) against a mock with the same response format; stores ids, text hashes and scores, never text | the live endpoint (`drift_ingest.service_url`), with batched or parallel requests and per-request retries |
 | `evaluate_previous` | AUC and F1 per label for the previous batch, with its delayed gold labels | same |
 | `merge_overrides` | stub | moderation-queue overrides from the GCS feedback log |
@@ -197,3 +197,86 @@ The image pins every version (`requirements-pipeline.txt`, CUDA 12.6 torch). CI 
 ### 3.6 Tests
 
 `tests/student/` and `tests/pipeline/` (100 tests): the loss, thresholds, the package and its parity check, the sweep's shared-study guard, MLflow logging, the evaluation tables, the selection rule, and every pipeline step end to end on a tiny model. All run offline with made-up data.
+
+## 6. Monitoring preparation (Sai)
+
+Phase 2 builds the monitoring pieces against mocks (v4 §5), so Phase 3 only points them at the live endpoint: **drift metrics** for each batch of the Civil stream, a **canary** that replays labeled comments through the service, and **dashboards and alert rules** with documented thresholds.
+
+### 6.1 Drift metrics (`Data-Pipeline/scripts/drift.py`)
+
+Each drift batch is compared with a baseline from the model's training data (Wikipedia train) using the population stability index (PSI): the baseline is split into equal-count bins (deciles), and PSI compares the batch's share of comments in each bin with the baseline's. 0 means no change; status is `ok` below 0.1, `warn` from 0.1, and `alert` from 0.25 (the usual rules of thumb, in the `drift:` section of `Data-Pipeline/config/pipeline.yaml`).
+
+| Feature | Measures | When |
+|---|---|---|
+| `char_len` | comment length | before scoring (`input_drift`) |
+| `oov_rate` | share of a comment's words not seen at least twice in training | before scoring |
+| `nonalpha_share` | share of non-space characters that aren't letters | before scoring |
+| `flag_rate` | share of comments the model flags | after scoring (`flag_rate_drift`) |
+
+```python
+from scripts import drift
+
+baseline = drift.load_baseline(cfg)                        # built by data_prep_dag
+drift.input_drift(batch, baseline, cfg)                    # in compute_drift
+drift.flag_rate_drift(predictions, reference_rate, cfg)    # in score_batch, after scoring
+```
+
+The baseline is built by the `drift_baseline` stage of `data_prep_dag`, after `split` and before `dvc_version`, so it is versioned in the same DVC commit as the data it describes; the drift DAG only loads it, and a missing baseline is an error. It stores bin edges, shares and means, and the vocabulary as truncated BLAKE2b hashes of single words: no comment text. The file lives at `Data-Pipeline/scripts/drift.py`, not the plan's `src/monitoring/drift.py`, so it imports as `scripts.drift` like the rest of Data-Pipeline and doesn't collide with Model-Pipeline's `src` package.
+
+**On the real data:** the baseline from 132,388 Wikipedia train comments has 76,508 known words and builds in 17 s. Against it, all 20 Civil drift batches show:
+
+| Feature | PSI across the 20 batches | Civil vs Wikipedia | Status |
+|---|---|---|---|
+| Length | 0.004 to 0.035 | ~295 vs 380 characters, similar distribution | ok |
+| OOV rate | 0.05 to 0.13 | 1.9% vs 1.3% unfamiliar words | ok to warn |
+| Non-alpha share | 0.11 to 0.18 | 5.4% vs 7.4% (talk pages carry markup, timestamps, signatures) | warn in every batch |
+
+Every batch is `warn`, none reaches `alert`, and there is no trend from batch 0 to batch 19 (the teacher lane's `drift_check.json` shows the same). That is the Wikipedia-to-Civil domain shift, not drift within the stream, which shapes the alert rules (6.4).
+
+### 6.2 Canary replay (`Data-Pipeline/scripts/canary.py`)
+
+Real traffic has no labels, so the canary replays the labeled canary sets (`canary_wikipedia`, 2,000 comments, and `canary_civil`, 4,000) through any service following the serving API (v4 §2.4) and compares the answers with the known labels: AUC (from `scores`) and F1 (from `flagged`) per label, plus the precision, recall, F1 and false positive rate of the service's `flag`. Civil covers five labels (no `severe_toxicity`, v4 §2.2).
+
+```bash
+python -m scripts.canary --url http://127.0.0.1:8000    # from Data-Pipeline/
+```
+
+- **Checks first:** `GET /health` must answer `ok`, so a down service fails before any comment is sent.
+- **Bad answers:** a failed call, or a response that breaks the API (including a score that isn't a finite number in [0, 1]), counts as an error and is left out of the metrics. More than 1% errors fails the run, and the CLI then sends a `fail` alert.
+- **Outputs (no comment text):** `reports/canary/canary_report.json`, and the same metrics in Prometheus format, `reports/canary/canary.prom`, for the dashboards. A run that sees two model versions (a rollout mid-run) logs a warning.
+- **Use `127.0.0.1`, not `localhost`,** on Windows: `localhost` tries IPv6 first, about 2 s per request.
+
+Against the mock (6.3), all 6,000 real canary comments are scored in about 4 s with no errors. The mock's scores are random, so the AUCs (Wikipedia 0.509) only test the plumbing, and they are identical on every run, as the alert design relies on.
+
+### 6.3 Dashboards and alert rules (`Deployment/monitoring/`)
+
+| File | What it is |
+|---|---|
+| `mock_service.py` | Mock of the §2.4 service: `/predict`, `/health`, and `/metrics` with exactly the §2.4 metric names, counted from real traffic, plus the canary's `.prom` file. Flags about 11% of comments |
+| `prometheus/alert_rules.yml` | 14 rules in three groups (service, canary, drift); three carry `action: retrain` for Phase 3's `retrain_dag` |
+| `grafana/dashboards/distillate_dashboard.json` | v4 §6's panels: p50/p90/p95 latency, RPS, errors, flag rates, low confidence, canary AUC and flag precision/recall, drift PSI, delayed-label AUC; instances and gate history are Phase 3 placeholders |
+| `thresholds.md` | every threshold and why (6.4) |
+| `docker-compose.yml` | Prometheus and Grafana, to view the drafts locally |
+
+**Verified end to end:** Prometheus's own validator reports `SUCCESS: 14 rules found`. On the local stack, Prometheus scrapes the mock (target UP), evaluates all 14 rules with no errors (all inactive on the healthy mock), and Grafana loads the dashboard with data in every service, decision and canary panel. The drift panels stay empty until `drift_ingest_dag` exports its metrics in Phase 3. How to run it: `Deployment/monitoring/README.md`.
+
+### 6.4 Alert thresholds (`Deployment/monitoring/thresholds.md`)
+
+| Alert | Threshold | Why |
+|---|---|---|
+| Canary AUC drop | 0.02 below its 7-day average, for 3 runs | The canary replays the same comments, so an unchanged model gives an identical AUC every run; a drop means the service changed. 0.02 is about 2 standard errors of the Wikipedia canary's AUC; 3 runs rides out a transient failure. Retrains |
+| Delayed-label AUC drop | 0.03 below its 7-day average | Each drift batch is new comments, so noise is real (about ±0.04 for one batch); the rule uses the mean of two batches (about ±0.03). Retrains |
+| Input drift | warn 0.1, alert 0.25, against the **start of the Civil stream** | Against Wikipedia every Civil batch is already `warn` (6.1), so a warning there would fire permanently. Alert retrains |
+| Drift beyond the known shift | 0.25 against Wikipedia | The known shift tops out near 0.18, so 0.25 means traffic unlike anything measured |
+| Flag-rate drift | 0.25, against a Civil reference | Wikipedia thresholds don't transfer to Civil (toxicity recall 38% on H2, 3.3) |
+| Service | errors 2% / 5%; p95 50 ms; flag rate outside 0.5x to 2x its 7-day average | v4 §6's latency target; a halving or doubling of what gets flagged is worth a look before any labels arrive |
+
+**Open for Phase 3:** the canary's mean AUC is fragile on rare labels. `canary_civil` has only 3 threat, 12 obscene and 14 identity_attack positives (against 286 for toxicity); with random scores, threat landed at AUC 0.25 by chance and pulled the Civil mean to 0.42. Before the canary alert retrains anything, it should use a positives-weighted mean or toxicity AUC. The `civil_start` drift reference should be built from the first few batches or `canary_civil`, since 2,000 comments is a thin vocabulary for the OOV feature.
+
+### 6.5 Tests
+
+- `Data-Pipeline/tests/test_drift.py` (16): PSI is 0 for identical distributions and stays finite with empty bins; each feature on known text; the baseline stores no words and is deterministic; a missing baseline is an error by default; a batch like training data shows no drift, while a shifted one alerts on every feature; flag-rate drift; JSON-ready results.
+- `Data-Pipeline/tests/test_canary.py` (23), against a local HTTP server following §2.4: a perfect service scores perfectly; five Civil labels; the Prometheus file parses; no comment text in the outputs; failed calls and bad responses, including NaN, out-of-range and non-numeric scores; a down service fails the health check before any replay; the CLI alerts on failure; mixed model versions warn.
+- `Deployment/monitoring/tests/` (18): the mock follows §2.4 (response shape, every metric name, counters following the traffic, cumulative histograms, no text in metrics); the rules, dashboard and thresholds doc agree and use only metrics that exist.
+
+All use small made-up data and no network beyond the local machine.
