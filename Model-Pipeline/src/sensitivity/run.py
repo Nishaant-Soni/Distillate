@@ -2,7 +2,8 @@
 
     python -m src.sensitivity.run --model-dir outputs/student/<run>/model
     python -m src.sensitivity.run --model-dir <dir> --rev <commit>   # validation at a DVC version
-    python -m src.sensitivity.run --model-dir <dir> --sample 2000 --no-mlflow   # a quick look
+    python -m src.sensitivity.run --model-dir <dir> --sample 2000 --no-mlflow   # a quick look,
+                                                          # written to outputs/sensitivity/sample/
 
 Scores validation once at the model's own length, then runs the four analyses (Optuna
 importance only when the study is configured) and writes:
@@ -60,6 +61,17 @@ def prepare_validation(frame: pd.DataFrame, sample: int | None, seed: int) -> pd
     return frame.sort_values("id", ignore_index=True)
 
 
+def sample_paths(cfg: Mapping[str, Any]) -> dict[str, Any]:
+    """A sampled run's report, plots and summary in ``out_dir/sample/``, not over the committed
+    report: only a run on all of validation writes ``reports/``."""
+    sample = Path(cfg["paths"]["out_dir"]) / "sample"
+    logger.info("data.sample is set: writing the report to %s, not %s", sample,
+                cfg["paths"]["report"])
+    return {**cfg, "paths": {**cfg["paths"], "report": str(sample / "sensitivity.md"),
+                             "report_dir": str(sample / "sensitivity"),
+                             "summary": str(sample / "summary.json")}}
+
+
 def load_validation(cfg: Mapping[str, Any]) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Validation and its lineage: through ``load_data`` (at ``data.rev``, or the files on
     disk), or from ``data.val_file`` when set. The sha256 is the validation file's either way."""
@@ -84,6 +96,8 @@ def run(cfg: Mapping[str, Any], scorer: Scorer | None = None,
         frame: pd.DataFrame | None = None, code_commit: str = "unknown") -> dict[str, Any]:
     """The whole analysis. ``scorer`` and ``frame`` default to the configured model and file."""
     started = time.time()
+    if cfg["data"].get("sample"):
+        cfg = sample_paths(cfg)
     paths, seed = cfg["paths"], int(cfg["seed"])
     model_dir = cfg["model"]["dir"]
     if scorer is None:

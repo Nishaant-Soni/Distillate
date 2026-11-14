@@ -16,7 +16,9 @@ def config(tmp_path, student_dir, mlflow=False, study=None):
     """configs/sensitivity.yaml with every input and output under ``tmp_path``."""
     cfg = copy.deepcopy(load_config(DEFAULT_CONFIG))
     frame = validation(n=60)
-    frame.loc[0, "text"] = f"{SECRET} {frame.loc[0, 'text']}"
+    # A unique rare word at both ends of every row, so whichever comments SHAP explains carry
+    # one, and none may reach the outputs.
+    frame["text"] = [f"{SECRET}{i} {t} {SECRET}end{i}" for i, t in enumerate(frame["text"])]
     frame.to_parquet(tmp_path / "val.parquet", index=False)
     cfg["model"]["dir"] = str(student_dir)
     cfg["data"]["val_file"] = str(tmp_path / "val.parquet")
@@ -65,6 +67,16 @@ def test_run_writes_the_report_without_text_or_ids(tmp_path, student_dir):
         assert not any(i.encode() in content for i in frame["id"])
     longest = max(frame["text"], key=len)
     assert longest.encode() not in b"".join(outputs.values())
+    # No three consecutive words of any comment, in the masked lines or anywhere else.
+    from tests.sensitivity.test_attributions import ngrams, visible_ngrams
+
+    results = json.loads((tmp_path / "reports" / "sensitivity" / "results.json").read_text())
+    assert results["shap"]["examples"]
+    comment_ngrams = set().union(*(ngrams(t) for t in frame["text"]))
+    for example in results["shap"]["examples"]:
+        assert not visible_ngrams(example["masked"]) & comment_ngrams
+    text = b" ".join(outputs.values()).decode("utf-8", "ignore")
+    assert not any(" ".join(g) in text for g in comment_ngrams)
     # The ids stay in the gitignored scratch folder.
     assert (tmp_path / "outputs" / "shap_selection.parquet").exists()
 
@@ -154,3 +166,14 @@ def test_headline_leaves_out_nan():
     obf = pd.DataFrame({"label": ["mean"], "rate": [0.5], "auc": [0.9], "missed": [0.1]})
     assert headline(overall, obf) == {"obfuscation_0.5_mean_auc": 0.9,
                                       "obfuscation_0.5_missed": 0.1}
+
+
+def test_a_sampled_run_leaves_the_committed_report_alone(tmp_path, student_dir):
+    cfg, _ = config(tmp_path, student_dir)
+    cfg["data"]["sample"] = 20
+    summary = run(cfg, code_commit="abc123")
+    assert summary["rows_in"] == 20
+    assert not (tmp_path / "reports" / "sensitivity.md").exists()
+    assert not (tmp_path / "reports" / "sensitivity").exists()
+    assert (tmp_path / "outputs" / "sample" / "sensitivity.md").exists()
+    assert (tmp_path / "outputs" / "sample" / "summary.json").exists()
