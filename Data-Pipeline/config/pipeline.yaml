@@ -88,6 +88,17 @@ bias:
 dvc:
   push: true                        # overridden by the DVC_PUSH env var
 
+drift:
+  # src: scripts/drift.py. PSI of each drift batch against a baseline from the model's training
+  # data. The baseline holds bin edges, shares and a hashed vocabulary, never comment text.
+  baseline_source: wikipedia/train.parquet                  # relative to paths.processed_dir
+  baseline_file: monitoring/drift_baseline.json             # relative to paths.processed_dir; DVC-tracked with the data
+  psi_bins: 10                      # equal-count (decile) bins from the baseline
+  vocab_min_count: 2                # a word is "known" if it appears at least twice in train
+  psi_warn: 0.1                     # PSI rules of thumb: below 0.1 ok, 0.1 to 0.25 warn,
+  psi_alert: 0.25                   # 0.25 or more alert
+  psi_epsilon: 0.0001               # floor for empty bins, so PSI stays finite
+
 canary:
   # scripts/canary.py: replay the labeled canary sets against a serving-API URL (v4 2.4).
   service_url: null                 # or --url, or the CANARY_URL env var
@@ -152,3 +163,23 @@ teacher:
     calqwen: soft_labels/calqwen-v1/p2-zs-v2b/ # -> p_<label>_calqwen (null to leave it out)
     tfidf: tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet          # -> tfidf_oof_<label>
     tfidf_manifest: ../Model-Pipeline/artifacts/oof/tfidf_oof.manifest.json
+
+drift_ingest:
+  # Phase 2 skeleton of drift_ingest_dag; Phase 3 points service_url at the live endpoint.
+  batches_dir: data/processed/civil/drift
+  manifest: data/splits/civil_drift_ids.csv
+  n_batches: 20
+  batch_size: 2000
+  state_file: reports/drift/state.json         # which batch is next, and what each run did
+  reports_dir: reports/drift
+  service_url: null                            # null: the mock service (v4 section 2.4 format)
+  request_timeout_s: 10
+  mock_threshold: 0.5                          # the live service reads thresholds.json instead
+  low_confidence_margin: 0.1                   # v4 section 2.4
+  eval_labels: [toxicity, obscene, threat, insult, identity_attack]   # Civil: no severe_toxicity
+  schedule: demo                               # demo or real
+  enabled: false                               # true: run on drift_ingest.schedule; false: manual only
+  schedules:
+    demo: "*/5 * * * *"                        # every 5 minutes, for the live demo
+    real: "@weekly"
+

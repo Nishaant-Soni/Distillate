@@ -34,6 +34,7 @@ STAGE_MODULES: dict[str, str] = {
     "split": "scripts.split",                # Sai
     "subsets": "scripts.subsets",            # Sai
     "obfuscate": "scripts.obfuscate",        # Sai
+    "drift_baseline": "scripts.drift_baseline",  # Sai
     "schema_stats": "scripts.schema_stats",  # Sai
     "anomalies": "scripts.anomalies",        # Sai
     "bias": "scripts.bias",                  # Ruchita

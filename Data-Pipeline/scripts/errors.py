@@ -26,3 +26,6 @@ class DataQualityError(RuntimeError):
 
 class TeacherShardError(RuntimeError):
     """Teacher or soft-label shards failed validation."""
+
+class DriftBatchError(RuntimeError):
+    """A drift batch is missing, has the wrong schema, or doesn't match the drift manifest."""
