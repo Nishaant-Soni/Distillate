@@ -197,11 +197,12 @@ Per-slice FPR at each model's tuned threshold, with each model's overall FPR as 
 The teacher itself isn't scored on the bias set (its labels cover the training rows and the
 gate subset), so its bias can only be inferred through the student arms.
 
-## 5. Likely mechanism
+## 5. Relation to the sensitivity analysis
 
-The sensitivity analysis (model card §7.2, SHAP token attributions) shows identity words
-driving identity_attack false alarms: comments that mention a race tend to be scored as
-attacks. That is consistent with the race-slice BPSN drop here.
+Model card §7.2 (SHAP token attributions) finds identity words driving identity_attack false
+alarms in the selected model. That is consistent with this finding but doesn't explain it: it
+is a different label, and one model's attributions can't show why the soft-label students
+differ from the gold-only student.
 
 ## 6. Mitigation decision: no variant in Phase 2
 

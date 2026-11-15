@@ -320,17 +320,15 @@ mean PR-AUC, a minus b:
 | mixed − gold | H2 | +0.0271 [+0.0125, +0.0414] | +0.0290 [−0.0141, +0.0645] |
 | mixed − stack only (adding gold) | gate | +0.0013 [+0.0011, +0.0015] | +0.0142 [+0.0098, +0.0185] |
 | mixed − stack only | H2 | +0.0051 [+0.0030, +0.0072] | +0.0244 [+0.0124, +0.0367] |
-| mixed − tfidf (the part creditable to the LLM) | gate | +0.0022 [+0.0017, +0.0027] | +0.036 [+0.029, +0.042] |
-| mixed − tfidf | H2 | +0.033 [+0.024, +0.044] | +0.055 [+0.029, +0.075] |
+| mixed − tfidf (the part creditable to the LLM) | gate | +0.0022 [+0.0017, +0.0027] | +0.0357 [+0.0291, +0.0421] |
+| mixed − tfidf | H2 | +0.033 [+0.024, +0.044] | +0.0548 [+0.0292, +0.0750] |
 | calqwen − tfidf (Qwen alone vs TF-IDF) | gate | −0.0043 [−0.0053, −0.0034] | −0.0129 [−0.0256, −0.0011] |
 | calqwen − tfidf | H2 | +0.0125 [−0.0080, +0.0329] | −0.0377 [−0.0814, +0.0085] |
-| mixed − calqwen | gate | +0.0065 [+0.0058, +0.0073] | |
-| mixed − calqwen | H2 | +0.020 [+0.006, +0.036] | |
+| mixed − calqwen | gate | +0.0065 [+0.0058, +0.0073] | +0.0486 [+0.0386, +0.0590] |
+| mixed − calqwen | H2 | +0.020 [+0.006, +0.036] | +0.0926 [+0.0505, +0.1269] |
 
 The mixed − tfidf and mixed − calqwen rows are section 3's like-for-like pairs (same loss,
-alpha and T; only the soft labels differ). `results.md`'s stack − tfidf and stack − calqwen
-rows compare the stack-only arm (alpha 0) with alpha-0.343 arms, mixing the teacher with the
-loss, so they aren't used.
+alpha and T; only the soft labels differ).
 
 **Reading the results.**
 
@@ -341,7 +339,8 @@ loss, so they aren't used.
   0.98937 in the ablation, a difference of about the size of the whole in-domain AUC gain
   (+0.0007). So the H1 AUC gain is within the recipe effect; the PR-AUC gain and H2 hold up.
 - **Compare arms on the gate set and H2, not validation:** soft-label arms' validation AUC is
-  optimistic by about 0.003 to 0.006 (section 3, validation caveat).
+  optimistic by up to about 0.003 to 0.006 relative to gold-only (section 3, validation
+  caveat).
 
 ### Thresholds don't transfer to Civil
 
@@ -354,7 +353,7 @@ validation split and are left for Phase 3.
 ### Robustness (obfuscation set)
 
 Toxicity recall on the 3,000 toxic gate comments, originals versus their seeded obfuscated
-copies (look-alike characters, spacing, homoglyphs):
+copies (character substitution, spacing or homoglyphs, one trick per comment):
 
 | Arm | Original | Obfuscated |
 |---|---|---|
@@ -367,8 +366,8 @@ copies (look-alike characters, spacing, homoglyphs):
 | minilm-mixed | 0.905 | 0.705 |
 | modernbert-mixed | 0.877 | 0.718 |
 
-Every arm loses about a quarter of its recall. Section 7.4 sweeps obfuscation strength on
-validation.
+Every arm loses recall, 13% to 31% of it; the selected model loses about a quarter (26%).
+Section 7.4 sweeps obfuscation strength on validation.
 
 ## 7. Sensitivity analysis
 
@@ -535,8 +534,10 @@ Relative to the gold-only student (paired BPSN AUC, selected minus gold, 1,000 r
 - **Unchanged for religion and disability** in the selected model; small gender differences
   (about −0.009) are treated as noise across 18 slices.
 - The teacher itself isn't scored on the bias set, so its bias is inferred through the student
-  arms. A likely mechanism, consistent with this finding, is in section 7.2: identity words
-  drive false alarms (shown there for identity_attack).
+  arms.
+- Section 7.2 finds identity words driving identity_attack false alarms in the selected model.
+  That is consistent with this finding but doesn't explain it: it is a different label, and one
+  model's attributions can't show why the soft-label students differ from the gold-only student.
 
 **Mitigation: no variant in Phase 2** (team decision, Nov 13). The planned variant retrains with
 Phase 1's `sample_weight`, but Phase 1 chose factor 1, so every weight is 1.0 and the variant
