@@ -18,8 +18,10 @@
 
 - **Name:** `distillate-student` (MLflow registered model; aliases `staging` and `production`).
 - **Version:** `student-distilbert-mixed-5ep-20261112T210931Z` (code `80a4502`), registered
-  as **v1** of `distillate-student` on Nov 15, holding `@staging` and `@production`, and
-  published in Artifact Registry (`distillate-models`, package `distillate-student`, version 1).
+  as **v1** of `distillate-student` on Nov 15, holding `@production`, and published in
+  Artifact Registry (`distillate-models`, package `distillate-student`, version 1). v2
+  (`minilm-mixed`, also passed the gate) holds `@staging`; the rollback was demonstrated by
+  promoting v2 to `@production` and moving it back to v1 (Model-Pipeline README section 5.2).
   Training run: `358772663fc34a5e81275c3ed073e598` in the Kaggle session's store, copied to the
   team MLflow server as `ab34619a27e84b07aae044e3a414c0be` (its `kaggle_run_id` tag names the
   original), which is the run v1 links to.
@@ -618,3 +620,4 @@ scores and metrics.
 | 2026-11-14 | Sections 6 (results), 8 (final gate values), 9 (bias: per-group table, findings, mitigation), 10 (H2 and race limits) and 11 (licences); status banner and contact (Ruchita) |
 | 2026-11-15 | Section 1: registered as v1 (`@staging`, `@production`, Artifact Registry version 1) and the training run's server copy; section 8: production now exists (Nishaant) |
 | 2026-11-15 | Section 4: the selected run's id on the team server, with the Kaggle id it came from (Nishaant) |
+| 2026-11-15 | Section 1: v1 holds `@production`, v2 (`minilm-mixed`) `@staging`; the rollback demonstration (Nishaant) |
