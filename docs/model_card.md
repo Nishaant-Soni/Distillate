@@ -17,9 +17,12 @@
 ## 1. Model details
 
 - **Name:** `distillate-student` (MLflow registered model; aliases `staging` and `production`).
-- **Version:** `student-distilbert-mixed-5ep-20261112T210931Z` (training MLflow run
-  `358772663fc34a5e81275c3ed073e598`, code `80a4502`). The registered MLflow model version
-  is assigned when the gate registers it (Phase 3 CI).
+- **Version:** `student-distilbert-mixed-5ep-20261112T210931Z` (code `80a4502`), registered
+  as **v1** of `distillate-student` on Nov 15, holding `@staging` and `@production`, and
+  published in Artifact Registry (`distillate-models`, package `distillate-student`, version 1).
+  Training run: `358772663fc34a5e81275c3ed073e598` in the Kaggle session's store, copied to the
+  team MLflow server as `ab34619a27e84b07aae044e3a414c0be` (its `kaggle_run_id` tag names the
+  original), which is the run v1 links to.
 - **Type:** multi-label text classifier, six sigmoid outputs (`toxicity`, `severe_toxicity`,
   `obscene`, `threat`, `insult`, `identity_attack`).
 - **Architecture:** DistilBERT (`distilbert-base-uncased`, 6 layers, 66M parameters) with a
@@ -471,9 +474,10 @@ A candidate is registered only if `src/eval/gate.py` passes (`configs/gate.yaml`
   above overall, or rising more than 2 points over production. The bias report flags gaps
   from 5 points.
 
-Values are in `Model-Pipeline/configs/gate.yaml` (agreed by the team, PR #33). There is no
-production model yet, so the no-regression and FPR-rise checks start with the first
-promotion. The selected candidate's report:
+Values are in `Model-Pipeline/configs/gate.yaml` (agreed by the team, PR #33). The selected
+candidate was gated before any production model existed, so its no-regression and FPR-rise
+checks were skipped; since it became `@production` (v1, Nov 15), every later candidate is
+compared against it. The selected candidate's report:
 `Model-Pipeline/reports/student/phase2/runs/distilbert-mixed-5ep/gate_report.md`. Gate
 history is exported to Grafana in Phase 3.
 
@@ -609,3 +613,4 @@ scores and metrics.
 | 2026-11-13 | Section 7.2 to 7.5: the sensitivity run's results and findings, with its data revision and MLflow run; section 10's obfuscation limit quantified from section 7.4 (Nishaant) |
 | 2026-11-14 | Section 7 after review (#46): the masked-example rule (no adjacent words, ends hidden), slurs masked, the importance share as a range over seeds, threat counts (Nishaant) |
 | 2026-11-14 | Sections 6 (results), 8 (final gate values), 9 (bias: per-group table, findings, mitigation), 10 (H2 and race limits) and 11 (licences); status banner and contact (Ruchita) |
+| 2026-11-15 | Section 1: registered as v1 (`@staging`, `@production`, Artifact Registry version 1) and the training run's server copy; section 8: production now exists (Nishaant) |
