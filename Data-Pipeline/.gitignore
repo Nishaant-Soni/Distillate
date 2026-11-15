@@ -21,3 +21,6 @@ data/cache/
 
 # Canary run outputs (metrics only, no comment text): regenerated on every run.
 reports/canary/
+
+# drift_ingest_dag run outputs (state, predictions without text, batch records)
+reports/drift/
