@@ -22,35 +22,43 @@ push to main (Model-Pipeline/src, configs, Dockerfile, requirements)   or   run 
 **Rollback:** a blocked candidate never gets an alias. To undo a promotion, use
 `python -m src.pipeline.rollback_model --previous` (see `docs/registry.md`).
 
-## The training job's contract
+## The training job
 
-This is what CI needs from the student lane's entry point (work plan 5.1: "one entry point …
-inside one Docker image"). CI starts the container with exactly:
+The job runs the student lane's entry point, `src.pipeline.run` (the `Model-Pipeline/Dockerfile`
+image, built from the repository root). The image has the code and the `.dvc` pointers but no
+data, so the job first copies the processed tables from the DVC remote:
 
 ```bash
-python -m src.pipeline.run --config <config> --out /gcs/distillate-mlops-data/ci/<run>
+python -m src.pipeline.fetch_data --out /tmp/processed --tables train val gate bias
+python -m src.pipeline.run --config configs/student.yaml --set <overrides> \
+    pipeline.data_dir=/tmp/processed paths.official_dir=/tmp/processed/wikipedia \
+    paths.out_dir=/gcs/distillate-mlops-data/ci/<run>
 ```
 
-* `<config>` is relative to `Model-Pipeline/`. The default is `configs/ci.yaml`, a small run:
-  the gate is expected to block it, which still proves every step.
-* `/gcs/<bucket>/…` is Vertex's Cloud Storage mount, so the job writes there as to a local folder.
-* `MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD` and `CODE_COMMIT`
-  are set in the environment.
-* The job exits 0 only if every file below was written.
+* **Smoke overrides** (`SMOKE_OVERRIDES` in the workflow): gold-only MiniLM, maximum length 64,
+  2,000 training rows, one epoch, CPU, the package on, and only the gate and bias sets scored.
+  This takes minutes, and the gate is expected to block it. A manual run can pass its own
+  `overrides`, for example the selected recipe, to train a real candidate.
+* **`fetch_data`** reads at `HEAD` (the image's commit). Without a revision, DVC only looks at
+  the workspace, which has no data in the image. This was checked against the real bucket from
+  a data-less copy of the repository: gate 63,978 rows, bias 21,577.
+* **Output location:** `/gcs/<bucket>/…` is Vertex's Cloud Storage mount. `run.py` writes one
+  `<run_name>-<time>/` folder there, and CI picks it up.
+* **Environment:** `MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD`
+  and `CODE_COMMIT` are set.
+* **Overrides:** every key was checked against `configs/student.yaml` (unknown keys fail the
+  run).
 
-The output folder, which `python -m src.pipeline.ci check-outputs` checks before the gate runs:
+The run folder, which `python -m src.pipeline.ci check-outputs` checks before the gate runs:
 
 | Path | Contents |
 |---|---|
 | `package/` | the section 2.5 package (`src.student.package`): `model.onnx`, `tokenizer/`, `thresholds.json`, `meta.json` with `model_version` and `mlflow_run_id` |
-| `predictions/val.parquet`, `gate.parquet`, `bias.parquet` | prediction files (CONTRACTS.md §2.2) on validation, the gate set and the Civil bias set |
-| `gold/val.parquet`, `gate.parquet`, `bias.parquet` | `id` and the label columns, plus the identity columns for `bias`; never text |
+| `predictions/val.parquet`, `gate.parquet`, `bias_eval.parquet` | prediction files (CONTRACTS.md §2.2) on validation, the gate set and the Civil bias set |
+| `gold/val.parquet`, `gate.parquet`, `bias_eval.parquet` | `id` and the label columns, plus the identity columns for `bias_eval`; never text |
 
 The file stems come from `configs/gate.yaml` (`splits`). If the gate scores the 20,000-row gate
 subset, set `design.gate` there and write predictions for those ids only.
-
-The image (`Model-Pipeline/Dockerfile`, student lane) must have `src/` and `configs/` in its
-working directory, so that `python -m src.pipeline.run` resolves.
 
 ## One-time setup
 
@@ -65,7 +73,7 @@ All of this is done except the items marked ⏳.
 | `vertex-trainer` and `github-ci` bucket and log access (commands below) | GCP | ⏳ |
 | Variables `GCP_WIF_PROVIDER`, `GCP_CI_SERVICE_ACCOUNT`, `MLFLOW_TRACKING_URI` | GitHub → Settings → Actions → Variables | ⏳ |
 | Secrets `MLFLOW_TRACKING_PASSWORD`, `SLACK_WEBHOOK_URL` | GitHub → Settings → Actions → Secrets | ⏳ |
-| `Model-Pipeline/Dockerfile` and `src.pipeline.run` | student lane | ⏳ |
+| `Model-Pipeline/Dockerfile` and `src.pipeline.run` | student lane | done (on main) |
 
 ```bash
 P=distillate-mlops; B=gs://distillate-mlops-data

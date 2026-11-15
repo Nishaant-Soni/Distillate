@@ -6,7 +6,7 @@ The training job (``python -m src.pipeline.run``, docs/ci.md) leaves one output 
     <out>/predictions/<stem>.parquet    prediction files for every split the gate reads
     <out>/gold/<stem>.parquet           id + labels (+ identity columns for the bias set), no text
 
-with the stems from configs/gate.yaml (``val``, ``gate``, ``bias``). Subcommands:
+with the stems from configs/gate.yaml (``val``, ``gate``, ``bias_eval``). Subcommands:
 
     python -m src.pipeline.ci check-outputs --dir <out>
     python -m src.pipeline.ci fetch-production --out <dir>     # @production's predictions

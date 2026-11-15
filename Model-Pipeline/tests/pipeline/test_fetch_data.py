@@ -25,7 +25,8 @@ def test_files_land_in_the_load_data_layout(tmp_path):
     assert (tmp_path / "wikipedia" / "train.parquet").read_bytes() == \
         b"bytes of Data-Pipeline/data/processed/wikipedia/train.parquet"
     assert (tmp_path / "civil" / "bias_eval.parquet").exists()
-    assert [c[0] for c in opener.calls][-1] == "Data-Pipeline/data/processed/civil/bias_eval.parquet"
+    last_path = opener.calls[-1][0]
+    assert last_path == "Data-Pipeline/data/processed/civil/bias_eval.parquet"
 
 
 def test_revision_is_passed_through(tmp_path):

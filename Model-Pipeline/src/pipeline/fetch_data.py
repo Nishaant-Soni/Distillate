@@ -7,6 +7,9 @@ with the job's own credentials) into ``--out``, in the layout ``load_data`` read
 can point ``paths.official_dir`` and ``pipeline.data_dir`` at it:
 
     python -m src.pipeline.fetch_data --out /tmp/processed --tables train val gate bias
+
+Files are read at a Git revision (default ``HEAD``, the image's own commit). Without one, DVC
+only looks at the workspace, and the image's workspace has no data, so every read fails.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ def _dvc_open(path: str, repo: str, rev: str | None):
     return dvc.api.open(path, repo=repo, rev=rev, mode="rb")
 
 
-def fetch(tables: list[str], out: Path, repo: Path = REPO_ROOT, rev: str | None = None,
+def fetch(tables: list[str], out: Path, repo: Path = REPO_ROOT, rev: str | None = "HEAD",
           opener=_dvc_open) -> dict[str, int]:
     """Copy each table's file to ``out/<relative path>``; return the bytes written per table."""
     unknown = sorted(set(tables) - set(TABLES))
@@ -52,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--tables", nargs="+", required=True, choices=sorted(TABLES))
-    parser.add_argument("--rev", default=None, help="Git revision; default: the image's code")
+    parser.add_argument("--rev", default="HEAD", help="Git revision (default: HEAD)")
     args = parser.parse_args(argv)
     fetch(args.tables, args.out, rev=args.rev)
     return 0

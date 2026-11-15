@@ -11,7 +11,7 @@ from src.pipeline import ci
 from src.pipeline import register_model as reg
 from tests.pipeline.test_registry import NAME, FakeRunner, make_package, make_report, training_run
 
-STEMS = ["val", "gate", "bias"]
+STEMS = ci.gate_stems()                # val, gate, bias_eval (configs/gate.yaml)
 
 
 def job_output(root, stems=STEMS, model_version="student-a", run_id=None):
@@ -28,7 +28,7 @@ def job_output(root, stems=STEMS, model_version="student-a", run_id=None):
 
 
 def test_gate_stems_come_from_gate_yaml():
-    assert ci.gate_stems() == STEMS
+    assert ci.gate_stems() == ["val", "gate", "bias_eval"]
 
 
 def test_complete_output_passes(tmp_path):
@@ -39,8 +39,8 @@ def test_missing_files_are_named(tmp_path):
     out = job_output(tmp_path, stems=["val", "gate"])
     (out / "package" / "thresholds.json").unlink()
     missing = ci.check_outputs(out, STEMS)
-    assert set(missing) == {"package/thresholds.json", "predictions/bias.parquet",
-                            "gold/bias.parquet"}
+    assert set(missing) == {"package/thresholds.json", "predictions/bias_eval.parquet",
+                            "gold/bias_eval.parquet"}
 
 
 def test_check_outputs_cli_exit_codes(tmp_path):
@@ -83,7 +83,7 @@ def test_fetch_production_downloads_predictions_and_thresholds(cfg, store, tmp_p
     found = ci.fetch_production(store, cfg, tmp_path / "prod")
     assert found["version"] == "1" and found["model_version"] == "student-a"
     files = {p.name for p in (tmp_path / "prod").iterdir()}
-    assert files == {"val.parquet", "gate.parquet", "bias.parquet", "thresholds.json"}
+    assert files == {f"{stem}.parquet" for stem in STEMS} | {"thresholds.json"}
     assert json.loads((tmp_path / "prod" / "thresholds.json").read_text()) == {"toxicity": 0.4}
 
 
