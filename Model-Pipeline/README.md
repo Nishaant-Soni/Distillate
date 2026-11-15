@@ -233,7 +233,7 @@ The baseline is built by the `drift_baseline` stage of `data_prep_dag`, after `s
 |---|---|---|---|
 | Length | 0.004 to 0.035 | ~295 vs 380 characters, similar distribution | ok |
 | OOV rate | 0.05 to 0.13 | 1.9% vs 1.3% unfamiliar words | ok to warn |
-| Non-alpha share | 0.11 to 0.18 | 5.4% vs 7.4% (talk pages carry markup, timestamps, signatures) | warn in every batch |
+| Non-alpha share | 0.10 to 0.18 | 5.4% vs 7.3% (talk pages carry markup, timestamps, signatures) | warn in every batch |
 
 Every batch is `warn`, none reaches `alert`, and there is no trend from batch 0 to batch 19 (the teacher lane's `Model-Pipeline/artifacts/stack/drift_check.json` shows the same). That is the Wikipedia-to-Civil domain shift, not drift within the stream, which shapes the alert rules (6.4).
 
