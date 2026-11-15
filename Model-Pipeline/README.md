@@ -416,7 +416,16 @@ One registered model, **`distillate-student`**, with the aliases **`staging`** (
 
 It then creates the version with lineage tags (`model_version`, `code_commit`, `training_data_sha256`, `teacher_version`, α, T, the gate's mean AUC and more), uploads the package to Artifact Registry (`distillate-models`, generic package `distillate-student`) and sets `@staging` **last**, only after both succeed. If the upload fails, the version is tagged `ar_upload=failed`, gets no alias, and rerunning the command retries the upload on the same version; a model already published is never registered twice. Every outcome is logged, and posted to Slack once `SLACK_WEBHOOK_URL` is set (5.4).
 
-**Registered so far (Nov 15):** **v1** is the selected student, `distilbert-mixed-5ep` (`student-distilbert-mixed-5ep-20261112T210931Z`, section 3.4). It is linked to its training run on the server (`ab34619a…`, found through its `kaggle_run_id` tag), published in Artifact Registry as `distillate-student` version 1, and holds `@staging` and `@production`. Its prediction files are logged with it, so from now on CI's regression check compares every candidate against it.
+**Registered so far (Nov 15):**
+
+| Version | Model | Gate (H1) mean AUC | Aliases |
+|---|---|---|---|
+| v1 | `distilbert-mixed-5ep`, the selected student (section 3.4) | 0.9845 | `@production` |
+| v2 | `minilm-mixed` | 0.9849 | `@staging` |
+
+Both passed the gate, are linked to their training runs on the server (found through their `kaggle_run_id` tags), are published in Artifact Registry (`distillate-student` versions 1 and 2) and carry their prediction files, so CI's regression check compares every candidate against `@production`.
+
+**Rollback, done on the team server:** v2 was promoted to `@production` (v1 → v2), then `rollback_model --previous` moved it back (v2 → v1), leaving the selected model in production. Both moves are recorded: `production_previous = 2` on the registered model, and `last_alias_move` on each version with from, to, reason and time.
 
 ### 5.3 Rollback (`src/pipeline/rollback_model.py`)
 
