@@ -159,6 +159,7 @@ pipeline:
   data_dir: null            # processed-data folder; null = Data-Pipeline/data/processed
   data_rev: null            # a Git revision to read through DVC; null = the files on disk
   tables: [gate, h2, bias, obfuscation]
+  eval_limit: null          # score at most N seeded rows per table (quick runs); null = all
   gate_config: configs/gate.yaml
   score_batch_size: 256
   latency: true             # the package's batch-1 CPU latency (needs package.enabled)

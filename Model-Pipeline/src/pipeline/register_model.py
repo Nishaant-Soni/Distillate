@@ -1,0 +1,317 @@
+"""Register a candidate that passed the gate: MLflow alias ``staging`` plus Artifact Registry.
+
+Runs after ``src.eval.gate`` in CI (model-ci.yml) and in retrain_dag. In order:
+
+1. Check the package folder (train.py's ``model/``: weights, tokenizer, ``meta.json``, and
+   ``thresholds.json`` once tuned) and the gate report. Only a report with ``passed: true``
+   for this package's ``model_version`` is accepted, so a blocked model is never registered.
+2. Log the package and the gate report to the training run in MLflow (``meta.json`` names
+   it), then create a new version of ``distillate-student`` from that package.
+3. Upload the package to the ``distillate-models`` generic repository in Artifact Registry,
+   with the MLflow version number as the package version.
+4. Only after both succeed, point the ``staging`` alias at the new version.
+
+If the upload fails, the version stays registered without the alias, is tagged
+``ar_upload=failed``, and the command exits 1, so a half-published model never becomes the
+candidate. Rerunning the same command reuses that version and retries the upload; a model
+already published is refused rather than registered twice. One Slack message goes out
+either way (logged only, without SLACK_WEBHOOK_URL).
+
+    python -m src.pipeline.register_model --package outputs/student/<run>/model \\
+        --gate-report outputs/student/<run>/gate/gate_report.json
+    python -m src.pipeline.register_model ... --no-upload     # MLflow only, no GCP access
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from src.pipeline.registry import client, load_config, notify
+from src.teacher.config import get_logger
+
+logger = get_logger(__name__)
+REGISTRY_EXPERIMENT = "distillate-registry"   # for packages whose training run is unknown
+
+
+class RegistrationError(RuntimeError):
+    """The package or gate report can't be registered; the message says why."""
+
+
+class UnpublishedError(RegistrationError):
+    """The version exists in MLflow but its Artifact Registry upload failed: no alias set."""
+
+    def __init__(self, message: str, version: str):
+        super().__init__(message)
+        self.version = version
+
+
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
+
+def check_package(package: Path, cfg: dict[str, Any]) -> dict[str, Any]:
+    """Return ``meta.json`` after checking the folder holds a complete model package."""
+    if not package.is_dir():
+        raise RegistrationError(f"package folder {package} not found")
+    spec = cfg["package"]
+    names = {p.name for p in package.iterdir()}
+    missing = [n for n in spec["required"] if n not in names]
+    if not names & set(spec["model_any"]):
+        missing.append(f"model (one of {spec['model_any']})")
+    if not names & set(spec["tokenizer_any"]):
+        missing.append(f"tokenizer (one of {spec['tokenizer_any']})")
+    weights = names & {"model.safetensors", "pytorch_model.bin"}
+    if weights and "model.onnx" not in names and "config.json" not in names:
+        missing.append("config.json (needed next to PyTorch weights)")
+    if missing:
+        raise RegistrationError(f"package {package} is missing: {', '.join(missing)}")
+    meta = json.loads((package / "meta.json").read_text(encoding="utf-8"))
+    if not meta.get("model_version"):
+        raise RegistrationError(f"{package / 'meta.json'} has no model_version")
+    return meta
+
+
+def check_gate(report_path: Path, meta: dict[str, Any]) -> dict[str, Any]:
+    """Return the gate report if it passed this exact model; raise otherwise."""
+    if not report_path.exists():
+        raise RegistrationError(f"gate report {report_path} not found: run src.eval.gate first")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if report.get("model_version") != meta["model_version"]:
+        raise RegistrationError(
+            f"gate report is for {report.get('model_version')!r}, but the package is "
+            f"{meta['model_version']!r}")
+    if report.get("passed") is not True:
+        failed = ", ".join(report.get("failed_checks") or []) or "unknown"
+        raise RegistrationError(f"gate did not pass ({failed}); nothing registered")
+    return report
+
+
+# ---------------------------------------------------------------------------
+# MLflow and Artifact Registry
+# ---------------------------------------------------------------------------
+
+def _run_logged_from(mlflow_client, kaggle_run_id: str) -> str | None:
+    """The server run copied from another store's run ``kaggle_run_id``, if there is one.
+
+    Runs trained on Kaggle were logged to a local store there and copied to the team server
+    later (src/student/mlflow_log.py), which gives them a new id and keeps the old one in the
+    ``kaggle_run_id`` tag. A package's meta.json still names the old id.
+    """
+    ids = [e.experiment_id for e in mlflow_client.search_experiments()]
+    if not ids:
+        return None
+    found = mlflow_client.search_runs(ids, f"tags.kaggle_run_id = '{kaggle_run_id}'",
+                                      max_results=2)
+    if len(found) > 1:
+        logger.warning("%d runs carry kaggle_run_id %s; using %s", len(found), kaggle_run_id,
+                       found[0].info.run_id)
+    return found[0].info.run_id if found else None
+
+
+def _training_run(mlflow_client, meta: dict[str, Any]) -> str:
+    """The run that trained this package, or a new registry run when it isn't on the server."""
+    from mlflow.exceptions import MlflowException
+
+    run_id = meta.get("mlflow_run_id")
+    if run_id:
+        try:
+            mlflow_client.get_run(run_id)
+            return run_id
+        except MlflowException:
+            copied = _run_logged_from(mlflow_client, run_id)
+            if copied:
+                logger.info("training run %s is on this server as %s", run_id, copied)
+                return copied
+            logger.warning("training run %s is not on this server; logging to %s", run_id,
+                           REGISTRY_EXPERIMENT)
+    experiment = mlflow_client.get_experiment_by_name(REGISTRY_EXPERIMENT)
+    if experiment is None:
+        experiment_id = mlflow_client.create_experiment(REGISTRY_EXPERIMENT)
+    else:
+        experiment_id = experiment.experiment_id
+        # Deleting an experiment only soft-deletes it and keeps its name reserved.
+        if experiment.lifecycle_stage == "deleted":
+            mlflow_client.restore_experiment(experiment_id)
+    run = mlflow_client.create_run(experiment_id, run_name=f"register-{meta['model_version']}",
+                                   tags={"model_version": meta["model_version"]})
+    mlflow_client.set_terminated(run.info.run_id)
+    return run.info.run_id
+
+
+def _ensure_registered_model(mlflow_client, name: str) -> None:
+    from mlflow.exceptions import MlflowException
+
+    try:
+        mlflow_client.get_registered_model(name)
+    except MlflowException:
+        mlflow_client.create_registered_model(
+            name, description="Distillate toxicity student (six sigmoid labels).")
+
+
+def version_tags(meta: dict[str, Any], report: dict[str, Any]) -> dict[str, str]:
+    """Lineage tags on the model version: what it is, what it was trained on, that it passed."""
+    keys = ("model_version", "model_id", "alpha", "temperature", "teacher_version",
+            "prompt_version", "stack_sha256", "training_data_sha256", "training_data_dvc_hash",
+            "code_commit", "max_length")
+    tags = {k: str(meta[k]) for k in keys if meta.get(k) is not None}
+    gate_auc = report.get("metrics", {}).get("gate", {}).get("mean_auc")
+    tags.update(gate_passed="true", registered_at=datetime.now(UTC).isoformat(timespec="seconds"))
+    if gate_auc is not None:
+        tags["gate_mean_auc"] = f"{float(gate_auc):.6f}"
+    return tags
+
+
+def artifact_registry_path(ar: dict[str, Any], version: str) -> str:
+    return (f"projects/{ar['project']}/locations/{ar['location']}/repositories/"
+            f"{ar['repository']}/packages/{ar['package']}/versions/{version}")
+
+
+def upload_package(package: Path, version: str, ar: dict[str, Any], runner=subprocess.run) -> str:
+    """Upload every file in ``package`` as one generic package version; return its path."""
+    command = ["gcloud", "artifacts", "generic", "upload", f"--project={ar['project']}",
+               f"--location={ar['location']}", f"--repository={ar['repository']}",
+               f"--package={ar['package']}", f"--version={version}",
+               f"--source-directory={package}", "--quiet"]
+    logger.info("uploading %s to Artifact Registry as %s version %s", package, ar["package"],
+                version)
+    result = runner(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RegistrationError(f"Artifact Registry upload failed: {result.stderr.strip()[-500:]}")
+    return artifact_registry_path(ar, version)
+
+
+def existing_version(mlflow_client, name: str, model_version: str):
+    """The version already registered for ``model_version``, or None.
+
+    A failed search raises rather than returning None, which would register a second version.
+    """
+    from mlflow.exceptions import MlflowException
+
+    try:
+        versions = mlflow_client.search_model_versions(f"name = '{name}'")
+    except MlflowException as exc:
+        raise RegistrationError(f"could not look up existing versions of {name}: {exc}") from exc
+    same = [v for v in versions if v.tags.get("model_version") == model_version]
+    return max(same, key=lambda v: int(v.version)) if same else None
+
+
+def register(cfg: dict[str, Any], package: Path, gate_report: Path, mlflow_client,
+             upload: bool = True, alias: str | None = None, runner=subprocess.run,
+             predictions: Path | None = None) -> dict[str, Any]:
+    """Register ``package``; return a summary. Raises RegistrationError on any refusal.
+
+    ``predictions`` (the folder the gate scored) is logged with the version, so a later gate
+    can compare a new candidate against this one once it holds ``production``.
+    """
+    meta = check_package(package, cfg)
+    report = check_gate(gate_report, meta)
+    if predictions is not None and not predictions.is_dir():
+        raise RegistrationError(f"predictions folder {predictions} not found")
+    name = cfg["mlflow"]["registered_model"]
+    alias = alias or cfg["mlflow"]["candidate_alias"]
+
+    _ensure_registered_model(mlflow_client, name)
+    ar = cfg["artifact_registry"]
+    ar_enabled = ar.get("enabled", True)
+    publish = upload and ar_enabled
+    # Checked before anything is logged, so a refused re-registration uploads nothing.
+    previous = existing_version(mlflow_client, name, meta["model_version"])
+    if previous is not None:
+        state = previous.tags.get("ar_upload")
+        # A retry after a failed (or skipped) upload reuses that version instead of adding a
+        # second one for the same model; a version already published is never registered twice.
+        if state == "ok" or not publish:
+            raise RegistrationError(f"{meta['model_version']} is already registered as "
+                                    f"v{previous.version} (ar_upload={state})")
+        version, run_id, source = str(previous.version), previous.run_id, previous.source
+        mlflow_client.set_model_version_tag(name, version, "upload_retried", "true")
+        logger.info("retrying the upload for %s v%s (was ar_upload=%s)", name, version, state)
+    else:
+        run_id = _training_run(mlflow_client, meta)
+        mlflow_client.log_artifacts(run_id, str(package), "package")
+        mlflow_client.log_artifact(run_id, str(gate_report), "gate")
+        if gate_report.with_suffix(".md").exists():
+            mlflow_client.log_artifact(run_id, str(gate_report.with_suffix(".md")), "gate")
+        if predictions is not None:
+            mlflow_client.log_artifacts(run_id, str(predictions), "predictions")
+        source = f"{mlflow_client.get_run(run_id).info.artifact_uri}/package"
+        mv = mlflow_client.create_model_version(
+            name, source, run_id=run_id, tags=version_tags(meta, report),
+            description=f"{meta['model_version']}, gate passed")
+        version = str(mv.version)
+        logger.info("registered %s version %s from run %s", name, version, run_id)
+
+    ar_path = None
+    if publish:
+        try:
+            ar_path = upload_package(package, version, ar, runner)
+        except RegistrationError as exc:
+            mlflow_client.set_model_version_tag(name, version, "ar_upload", "failed")
+            raise UnpublishedError(f"registered as v{version} but not published: {exc}; no "
+                                   f"alias set (rerun to retry the upload)", version) from exc
+        mlflow_client.set_model_version_tag(name, version, "ar_upload", "ok")
+        mlflow_client.set_model_version_tag(name, version, "ar_package", ar_path)
+    else:
+        mlflow_client.set_model_version_tag(name, version, "ar_upload", "skipped")
+
+    # Same rule as rollback_model: with Artifact Registry on, an alias only points at a
+    # published package, so a --no-upload version is registered but gets no alias.
+    if publish or not ar_enabled:
+        mlflow_client.set_registered_model_alias(name, alias, version)
+    else:
+        logger.warning("v%s was registered with --no-upload while Artifact Registry is on; "
+                       "@%s not set", version, alias)
+        alias = None
+    return {"registered_model": name, "version": version, "alias": alias,
+            "model_version": meta["model_version"], "run_id": run_id, "source": source,
+            "artifact_registry": ar_path}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--package", required=True, type=Path,
+                        help="package folder: train.py's <run>/model (+ thresholds.json)")
+    parser.add_argument("--gate-report", required=True, type=Path,
+                        help="gate_report.json from src.eval.gate for this package")
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--tracking-uri", default=None)
+    parser.add_argument("--alias", default=None, help="default: mlflow.candidate_alias")
+    parser.add_argument("--no-upload", action="store_true", help="skip Artifact Registry")
+    parser.add_argument("--predictions", type=Path, default=None,
+                        help="the prediction files the gate scored, logged with the version")
+    parser.add_argument("--out", type=Path, default=None, help="write the summary JSON here")
+    args = parser.parse_args(argv)
+
+    cfg = load_config(args.config)
+    try:
+        summary = register(cfg, args.package, args.gate_report, client(args.tracking_uri),
+                           upload=not args.no_upload, alias=args.alias,
+                           predictions=args.predictions)
+    except UnpublishedError as exc:
+        notify(cfg, "fail", f"Registered as v{exc.version} but not published; no alias set",
+               {"package": str(args.package), "reason": str(exc)})
+        return 1
+    except RegistrationError as exc:
+        notify(cfg, "fail", "Model not registered", {"package": str(args.package),
+                                                     "reason": str(exc)})
+        return 1
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    held = f"as {summary['alias']}" if summary["alias"] else "(no alias, not published)"
+    notify(cfg, "ok", f"Registered {summary['registered_model']} v{summary['version']} {held}",
+           {"model_version": summary["model_version"],
+            "artifact_registry": summary["artifact_registry"] or "skipped"})
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

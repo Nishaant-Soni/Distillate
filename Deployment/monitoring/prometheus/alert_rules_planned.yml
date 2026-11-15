@@ -1,0 +1,89 @@
+# PLANNED alert rules (Phase 3). Prometheus does NOT load this file yet (prometheus.yml lists
+# only alert_rules.yml). Each rule waits on something that doesn't exist today:
+#
+#   DistillateLatencyP95High         the int8 package's measured p95. The 50 ms budget is for int8
+#                                    (README 3.3, model card section 4); the fp32 model's CPU p95 is
+#                                    144 ms, so against fp32 this would fire constantly
+#   DistillateCanaryAUCDropVsPromoted  distillate_canary_reference_mean_auc{set}: the canary mean AUC
+#                                    recorded when a model is promoted (exported with the promotion)
+#   distillate-drift group           distillate_drift_psi{feature, reference} and
+#                                    distillate_delayed_label_mean_auc from drift_ingest_dag, plus a
+#                                    civil_start reference that drift.py (#45) doesn't build yet
+#
+# promtool still checks this file (CI), so the rules stay valid while they wait. Move a rule into
+# alert_rules.yml once what it needs exists. Thresholds and reasoning: ../thresholds.md.
+
+groups:
+  - name: distillate-service-planned
+    rules:
+      - alert: DistillateLatencyP95High
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(distillate_request_latency_seconds_bucket[5m]))) > 0.05
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "p95 latency is above the 50 ms target"
+          description: "p95 is {{ $value | humanizeDuration }} (target 50 ms for the int8 package, v4 section 6)."
+
+  - name: distillate-canary-planned
+    rules:
+      - alert: DistillateCanaryAUCDropVsPromoted
+        # Against the promoted model's own canary value, not a rolling average: a promoted model
+        # with a slightly lower canary AUC sets a new reference instead of firing for days.
+        expr: |
+          (distillate_canary_reference_mean_auc - on(set) distillate_canary_mean_auc) > 0.02
+        for: 3h
+        labels: {severity: critical, action: retrain}
+        annotations:
+          summary: "Canary mean AUC is more than 0.02 below the promoted model's on {{ $labels.set }}"
+          description: "Down {{ $value | printf \"%.3f\" }} from the value recorded at promotion, for 3 runs."
+
+  - name: distillate-drift-planned
+    rules:
+      - alert: DistillateInputDriftWarning
+        # Against the start of the Civil stream, not Wikipedia: every Civil batch already sits at
+        # PSI 0.1 to 0.18 against Wikipedia (domain shift), so warning on that reference would
+        # fire permanently.
+        expr: distillate_drift_psi{reference="civil_start", feature!="flag_rate"} >= 0.1
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: "Input drift on {{ $labels.feature }} against the start of the stream"
+          description: "PSI {{ $value | printf \"%.3f\" }} (warn from 0.1)."
+
+      - alert: DistillateInputDriftAlert
+        expr: distillate_drift_psi{reference="civil_start", feature!="flag_rate"} >= 0.25
+        for: 0m
+        labels: {severity: critical, action: retrain}
+        annotations:
+          summary: "Strong input drift on {{ $labels.feature }}"
+          description: "PSI {{ $value | printf \"%.3f\" }} against the start of the stream (alert from 0.25)."
+
+      - alert: DistillateDomainShiftBeyondKnown
+        # Against Wikipedia only alert-level PSI matters: the known Civil shift tops out around
+        # 0.18, so 0.25 means traffic unlike anything measured so far.
+        expr: distillate_drift_psi{reference="wikipedia_train", feature!="flag_rate"} >= 0.25
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.feature }} is further from the training data than ever measured"
+          description: "PSI {{ $value | printf \"%.3f\" }} against Wikipedia train."
+
+      - alert: DistillateOutputDrift
+        expr: distillate_drift_psi{reference="civil_start", feature="flag_rate"} >= 0.25
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: "The model's flag rate shifted against the start of the stream"
+          description: "Flag-rate PSI {{ $value | printf \"%.3f\" }}."
+
+      - alert: DistillateDelayedLabelAUCDrop
+        # Delayed gold labels arrive one batch late (drift_ingest_dag). A 2,000-comment batch is
+        # noisy, so the exporter publishes the mean over the last two batches.
+        expr: |
+          (avg_over_time(distillate_delayed_label_mean_auc[7d]) - distillate_delayed_label_mean_auc) > 0.03
+        for: 0m
+        labels: {severity: critical, action: retrain}
+        annotations:
+          summary: "Accuracy on delayed-label batches dropped by more than 0.03"
+          description: "Mean AUC is {{ $value | printf \"%.3f\" }} below its 7-day average."

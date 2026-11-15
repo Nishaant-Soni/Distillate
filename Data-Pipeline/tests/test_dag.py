@@ -69,6 +69,24 @@ def test_optimized_graph_actually_parallelises():
     assert graph.critical_path_minutes("optimized") < graph.critical_path_minutes("baseline")
 
 
+@pytest.mark.parametrize("mode", sorted(graph.MODES))
+def test_teacher_labels_are_validated_then_merged_before_versioning(mode):
+    """The merge writes data/processed/teacher_labels.parquet, so it must land before
+    dvc_version; it reads the validation report, so validation must come first; and
+    validation needs the raw train ids and the drift batch ids from subsets."""
+    order = graph.topological_order(mode)
+    at = order.index
+    assert at("subsets") < at("validate_teacher_shards") < at("merge_teacher_labels")
+    assert at("merge_teacher_labels") < at("dvc_version")
+
+
+def test_teacher_branch_runs_beside_the_validation_chain():
+    optimized = set(graph.edges("optimized"))
+    assert ("subsets", "validate_teacher_shards") in optimized
+    assert not any("teacher" in d for u, d in optimized
+                   if u in ("schema_stats", "anomalies", "bias"))
+
+
 def test_unknown_mode_is_rejected():
     with pytest.raises(ValueError):
         graph.edges("sideways")

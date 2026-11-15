@@ -1,0 +1,120 @@
+# Prometheus alert rules for the Distillate service: the ACTIVE set (work plan v4 section 5,
+# drafted against the mock). Every rule here uses only metrics that exist today: the service's
+# section 2.4 metrics and scripts/canary.py's metrics. Prometheus loads this file.
+#
+# Rules that need metrics nothing emits yet (drift PSI, delayed-label AUC, the promoted model's
+# canary reference) or a measurement not taken yet (the int8 package's latency) are in
+# alert_rules_planned.yml, which Prometheus does not load until Phase 3 provides them. All three
+# action: retrain rules are planned, so nothing here can trigger a retrain yet.
+#
+# Thresholds and the reasoning behind each: ../thresholds.md. Tests: alert_rules_test.yml
+# (promtool test rules) and ../tests/test_rules_and_dashboard.py.
+
+groups:
+  - name: distillate-service
+    rules:
+      - alert: DistillateServiceDown
+        expr: up{job="distillate"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Serving API is not answering scrapes"
+          description: "Prometheus has not reached {{ $labels.instance }} for 2 minutes."
+
+      - alert: DistillateHighErrorRate
+        # errors_total counts failures on the service's side only; bad client input (422) is
+        # not an error, so malformed requests don't trip this.
+        expr: |
+          rate(distillate_errors_total[5m]) / clamp_min(rate(distillate_requests_total[5m]), 1e-9) > 0.02
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 2% of /predict requests are failing"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: DistillateErrorRateCritical
+        expr: |
+          rate(distillate_errors_total[5m]) / clamp_min(rate(distillate_requests_total[5m]), 1e-9) > 0.05
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: "More than 5% of /predict requests are failing"
+          description: "Error rate is {{ $value | humanizePercentage }}; consider rolling back."
+
+      - alert: DistillateFlagRateShift
+        # Hourly flag rate against its own 7-day average. Only with real traffic (more than one
+        # request a minute over the hour): with no requests the hourly ratio is 0, which would
+        # otherwise read as "flag rate halved" and fire every quiet night.
+        expr: |
+          (
+            (
+              (rate(distillate_flag_total[1h]) / clamp_min(rate(distillate_requests_total[1h]), 1e-9))
+              /
+              clamp_min(rate(distillate_flag_total[7d]) / clamp_min(rate(distillate_requests_total[7d]), 1e-9), 1e-9)
+            ) > 2
+            or
+            (
+              (rate(distillate_flag_total[1h]) / clamp_min(rate(distillate_requests_total[1h]), 1e-9))
+              /
+              clamp_min(rate(distillate_flag_total[7d]) / clamp_min(rate(distillate_requests_total[7d]), 1e-9), 1e-9)
+            ) < 0.5
+          )
+          and rate(distillate_requests_total[1h]) > 0.0167
+        for: 30m
+        labels: {severity: warning}
+        annotations:
+          summary: "Flag rate moved by more than 2x against its 7-day average"
+          description: "Current/7-day flag-rate ratio is {{ $value | printf \"%.2f\" }}."
+
+  - name: distillate-canary
+    rules:
+      - alert: DistillateCanaryAUCDrop
+        # Notify only. Against a 7-day average, a legitimately promoted model with a slightly
+        # lower canary AUC would keep firing for days, so this can't be what triggers a retrain;
+        # the retrain rule (planned) compares with the promoted model's own canary value. One
+        # window is one canary run: with hourly runs, "for: 3h" means three runs in a row.
+        expr: |
+          (avg_over_time(distillate_canary_mean_auc[7d]) - distillate_canary_mean_auc) > 0.02
+        for: 3h
+        labels: {severity: warning}
+        annotations:
+          summary: "Canary mean AUC dropped by more than 0.02 on {{ $labels.set }}"
+          description: "Down {{ $value | printf \"%.3f\" }} from its 7-day average for 3 runs."
+
+      - alert: DistillateCanaryFlagRecallDrop
+        expr: |
+          (avg_over_time(distillate_canary_flag_recall[7d]) - distillate_canary_flag_recall) > 0.05
+        for: 3h
+        labels: {severity: warning}
+        annotations:
+          summary: "Canary flag recall dropped by more than 5 points on {{ $labels.set }}"
+          description: "More toxic canary comments are getting through unflagged."
+
+      - alert: DistillateCanaryStale
+        expr: time() - distillate_canary_last_run_timestamp_seconds > 7200
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "No canary run in over 2 hours"
+          description: "The canary schedule may have stopped; accuracy is unmonitored."
+
+      - alert: DistillateCanaryMissing
+        # The stale rule needs the series to exist. If it disappears (the canary never ran, or
+        # its metrics are scraped through a service that is down), only absent() notices.
+        expr: absent(distillate_canary_last_run_timestamp_seconds)
+        for: 2h
+        labels: {severity: warning}
+        annotations:
+          summary: "No canary metrics for 2 hours"
+          description: "The canary series is missing entirely; check the canary schedule and its metrics target."
+
+      - alert: DistillateCanaryErrors
+        # The gauge holds the last run's error count until the next run, so this stays active
+        # until a clean run (up to the canary interval). Any failure matters: the canary sends
+        # the same comments every time.
+        expr: distillate_canary_errors > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: "The last canary run had failed calls on {{ $labels.set }}"
+          description: "{{ $value }} canary requests failed or returned a bad response; clears on the next clean run."

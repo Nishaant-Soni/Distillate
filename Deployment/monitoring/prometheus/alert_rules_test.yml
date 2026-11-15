@@ -1,0 +1,60 @@
+# promtool unit tests for alert_rules.yml:
+#   docker run --rm -v "$PWD/prometheus:/p" --entrypoint promtool prom/prometheus:v2.55.1 test rules /p/alert_rules_test.yml
+# Each case is one of the misfires found in review, so they can't come back.
+
+rule_files:
+  - alert_rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # Flag rate: 6 hours of steady traffic (100 requests/min, 10% flagged), then 3 hours idle.
+  # Before the minimum-traffic guard, the idle hour's ratio of 0 read as "halved" and fired.
+  - interval: 1m
+    input_series:
+      - series: 'distillate_requests_total{job="distillate", instance="mock:8000"}'
+        values: '0+100x360 36000+0x180'
+      - series: 'distillate_flag_total{job="distillate", instance="mock:8000"}'
+        values: '0+10x360 3600+0x180'
+    alert_rule_test:
+      - eval_time: 5h            # steady traffic, steady flag rate
+        alertname: DistillateFlagRateShift
+        exp_alerts: []
+      - eval_time: 9h            # idle for 3 hours: must stay quiet
+        alertname: DistillateFlagRateShift
+        exp_alerts: []
+
+  # Service down: scrapes succeed for 10 minutes, then fail.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="distillate", instance="mock:8000"}'
+        values: '1x10 0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DistillateServiceDown
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: DistillateServiceDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: distillate, instance: "mock:8000"}
+            exp_annotations:
+              summary: "Serving API is not answering scrapes"
+              description: "Prometheus has not reached mock:8000 for 2 minutes."
+
+  # Canary missing: the service is up, but no canary series exists at all. The stale rule can't
+  # see this (it needs the series); absent() can.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="distillate", instance="mock:8000"}'
+        values: '1x200'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: DistillateCanaryMissing
+        exp_alerts: []
+      - eval_time: 3h
+        alertname: DistillateCanaryMissing
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: "No canary metrics for 2 hours"
+              description: "The canary series is missing entirely; check the canary schedule and its metrics target."

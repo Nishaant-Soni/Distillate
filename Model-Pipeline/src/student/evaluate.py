@@ -73,7 +73,10 @@ def score_run(run_dir: str | Path, tables: Mapping[str, Any], batch_size: int = 
         pred.to_parquet(run_dir / "predictions" / f"{stem}.parquet", index=False)
         files[stem] = {"rows": len(pred), "seconds": round(time.perf_counter() - start, 1)}
         logger.info("%s: %s scored, %d rows", run_dir.name, stem, len(pred))
-    shutil.copy(run_dir / "model" / "thresholds.json", run_dir / "predictions" / "thresholds.json")
+    # copyfile, not copy: copy also sets the permission bits, which the /gcs mount on Vertex
+    # refuses (Operation not permitted).
+    shutil.copyfile(run_dir / "model" / "thresholds.json",
+                    run_dir / "predictions" / "thresholds.json")
     record = {"model_version": meta["model_version"], "code_commit": meta.get("code_commit"),
               "device": str(device), "fp16": fp16, "files": files}
     (run_dir / "scoring.json").write_text(json.dumps(record, indent=2) + "\n")
