@@ -89,7 +89,7 @@ docker compose exec airflow-scheduler airflow dags list-runs data_prep_dag   # q
 |---|---|---|
 | `SLACK_WEBHOOK_URL` | posts alerts to Slack instead of only logging them | section 9 |
 | `DVC_PUSH=true` | `dvc_version` also pushes the data to the GCS remote | section 7 |
-| `PIPELINE_MODE=baseline` | runs the 12 tasks as one sequential chain | section 8 |
+| `PIPELINE_MODE=baseline` | runs the 14 tasks as one sequential chain | section 8 |
 
 Containers read `.env` only when they are created, so after changing it run
 `docker compose up -d` again before triggering.
@@ -202,7 +202,8 @@ and the schema tests skip outside the TFDV environment.
 
 ```text
 Data-Pipeline/
-├── dags/data_prep_dag.py     the DAG: 12 tasks built from the graph below
+├── dags/data_prep_dag.py     the DAG: 14 tasks built from the graph below
+├── dags/retrain_dag.py       Phase 2 skeleton: pull data → Vertex job → gate → register → notify
 ├── config/
 │   ├── pipeline.yaml         every tunable value; seed 42; no script hard-codes these
 │   ├── identity_terms.txt    identity lexicon (owner: Ruchita; others only read it)
@@ -213,6 +214,7 @@ Data-Pipeline/
 │   ├── stubs.py              contract-shaped placeholder output for unmerged stages
 │   ├── utils.py              get_logger, load_config, atomic_write, write_summary, timed
 │   ├── alerts.py             send_alert plus the Airflow on_failure_callback
+│   ├── retrain.py            retrain_dag's five steps (stubs until Phase 3)
 │   ├── columns.py            label names and the Kaggle-to-contract column renames
 │   ├── errors.py             the pipeline's typed errors
 │   ├── parquet_io.py         chunked Parquet writing and SHA-256 helpers
@@ -254,15 +256,23 @@ flowchart LR
     split --> drift_baseline --> schema_stats
     preprocess --> subsets --> schema_stats
     schema_stats --> anomalies --> bias --> dvc_version --> notify_success
+    subsets --> validate_teacher_shards --> merge_teacher_labels --> dvc_version
 ```
 
 The same DAG in the Airflow UI (Graph view of an optimized run, every task green):
 
 ![Airflow Graph view of data_prep_dag](docs/images/airflow_graph.png)
 
-With `PIPELINE_MODE=baseline`, the same 12 tasks run as one chain, in this order: `acquire`,
+The teacher branch (Phase 2) validates the teacher's label shards and merges them into
+`data/processed/teacher_labels.parquet` before `dvc_version`, so the labels are versioned with
+the data they join onto. It starts after `subsets` because validation needs the drift batch
+ids. Without access to the shard store both tasks warn and skip, so a run without GCP
+credentials stays green. The screenshot above predates it.
+
+With `PIPELINE_MODE=baseline`, the same 14 tasks run as one chain, in this order: `acquire`,
 `preprocess`, `dedupe`, `split`, `subsets`, `obfuscate`, `drift_baseline`, `schema_stats`,
-`anomalies`, `bias`, `dvc_version`, `notify_success`. Section 8 compares the two shapes.
+`anomalies`, `bias`, `validate_teacher_shards`, `merge_teacher_labels`, `dvc_version`,
+`notify_success`. Section 8 compares the two shapes (measured before the teacher branch).
 
 **Task settings and failure handling**
 
@@ -278,13 +288,16 @@ With `PIPELINE_MODE=baseline`, the same 12 tasks run as one chain, in this order
 | `schema_stats` | `/opt/tfenv`, through a BashOperator | 60 | 1 |
 | `anomalies` | main | 30 | 1 |
 | `bias` | main | 60 | 1 |
+| `validate_teacher_shards` | main | 30 | 1 |
+| `merge_teacher_labels` | main | 30 | 1 |
 | `dvc_version` | main | 60 | 1 |
 | `notify_success` | main | 10 | 0 |
 
 - **Timeouts.** Every task has an execution timeout, so a stage that hangs fails and sends an
   alert instead of running forever.
-- **Retries.** `acquire` is the only task that uses the network, so it retries twice, two
-  minutes apart. Other tasks retry once after one minute. `notify_success` doesn't retry,
+- **Retries.** `acquire` downloads from Kaggle, the least reliable source, so it retries
+  twice, two minutes apart. Other tasks, including the two teacher tasks that read the shard
+  store on GCS, retry once after one minute. `notify_success` doesn't retry,
   since it never fails the run.
 - **Failure alerts.** Every task has the same `on_failure_callback`, set in the DAG's
   `default_args`, so a new task can't be added without it. It posts the DAG id, task id, error

@@ -196,6 +196,14 @@ def run(cfg: dict[str, Any], stage: str) -> dict[str, Any]:
                     with atomic_path(train) as tmp:
                         df.to_parquet(tmp, index=False)
                 summary["sample_weight_rows"] = len(df)
+        elif stage == "validate_teacher_shards":
+            # There are no shards to check without the store; the real stage skips the
+            # same way when it can't reach it.
+            summary["skipped"] = True
+            summary["note"] = "stub validated no shards; scripts.validate_teacher_shards does"
+        elif stage == "merge_teacher_labels":
+            summary["skipped"] = True
+            summary["note"] = "no teacher_labels.parquet written by the stub"
         else:
             raise ValueError(f"No stub defined for stage {stage!r}")
 

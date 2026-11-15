@@ -164,6 +164,20 @@ teacher:
     tfidf: tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet          # -> tfidf_oof_<label>
     tfidf_manifest: ../Model-Pipeline/artifacts/oof/tfidf_oof.manifest.json
 
+retrain:
+  # Phase 2 skeleton of retrain_dag (scripts/retrain.py); Phase 3 submits the job and fills in
+  # each step. The job is model-ci's: same image, same identity, same gate and registry.
+  reports_dir: reports/retrain                 # one <run_id>.json record per run
+  project: distillate-mlops
+  region: us-east1
+  bucket: distillate-mlops-data                # outputs under ci/retrain/<run_id>/ (vertex-trainer writes only ci/)
+  image: us-east1-docker.pkg.dev/distillate-mlops/distillate-images/trainer
+  service_account: vertex-trainer@distillate-mlops.iam.gserviceaccount.com
+  machine_type: n1-standard-4
+  config: configs/student.yaml                 # Phase 3: a retraining config with the drift batches
+  overrides: []                                # --set overrides for src.pipeline.run
+  candidate_alias: staging
+
 drift_ingest:
   # Phase 2 skeleton of drift_ingest_dag; Phase 3 points service_url at the live endpoint.
   batches_dir: data/processed/civil/drift
