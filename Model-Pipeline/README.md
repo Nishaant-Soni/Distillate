@@ -92,8 +92,8 @@ Rerunning skips any record already logged with the same content.
 
 How the selected student (`distilbert-mixed-5ep`, chosen by the student lane's selection rule, section 3) depends on its hyperparameters, which words drive its predictions, and how it holds up on short inputs and obfuscated text, all on Wikipedia validation (`src/sensitivity/`, model card section 7):
 
-1. **Hyperparameter importance** (fANOVA and MDI) from the merged Optuna study `distilbert-mixed-v1` (28 trials), each recomputed under 11 seeds. Maximum length explains the most and ranks first under every seed (fANOVA 0.37 to 0.55 over the seeds), then epochs (0.238) and α (0.141); learning rate and T explain little. The objective varies little (validation mean AUC 0.988 to 0.9936).
-2. **Token attributions** (SHAP Partition explainer) per label for caught, missed and wrongly flagged comments, reported as top words and masked examples, never comment text. Identity words drive false alarms (for identity_attack: a racial slur, "gay", "nazi", "racist"), which explains the bias report's race-slice finding; missed toxic comments are mostly implicit, such as insults without profanity.
+1. **Hyperparameter importance** (fANOVA and MDI) from the merged Optuna study `distilbert-mixed-v1` (28 trials), each recomputed under 11 seeds. Maximum length explains the most and ranks first under every seed (fANOVA 0.37 to 0.55 over the seeds), then epochs (0.24 to 0.34) and α (0.10 to 0.23); learning rate and T explain little. The objective varies little (validation mean AUC 0.988 to 0.9936).
+2. **Token attributions** (SHAP Partition explainer) per label for caught, missed and wrongly flagged comments, reported as top words and masked examples, never comment text. Identity words drive false alarms (for identity_attack: a racial slur, "gay", "nazi", "racist"), consistent with the bias report's race-slice finding but not an explanation of it (model card section 7.2); missed toxic comments are mostly implicit, such as insults without profanity.
 3. **Input length**: validation rescored at 64, 128 and 256 tokens, and results by token-length band. 256 tokens truncates 6.4% of comments at little cost (mean AUC 0.994); 64 tokens gives 0.990 overall but drops comments of 129 to 256 tokens from 0.993 to 0.970.
 4. **Obfuscation strength**: the data pipeline's character substitutions at rates 0 to 1. The clearest weakness: changing 4.3% of characters makes the student miss 14.5% of the toxic comments it caught when clean, and 21% makes it miss 54% (threat 98%, 44 of 45). The flag rate falls too, so obfuscated comments pass as clean.
 
@@ -102,14 +102,14 @@ python -m src.sensitivity.run --model-dir <selected package> --rev <commit>
 python -m src.sensitivity.run --model-dir <dir> --sample 2000 --no-mlflow   # a quick look
 ```
 
-`optuna.storage` and `optuna.study_name` in `configs/sensitivity.yaml` point at the study (`sqlite:///` of `gs://distillate-mlops-data/optuna/distilbert-mixed-v1.db`, downloaded). The report goes to `reports/sensitivity.md`, and the run to MLflow experiment `distillate-sensitivity`. **Status:** run on 2026-11-13 on all 21,363 validation rows (DVC revision `5808fdf`, 3 h 20 min on CPU); the report, with plots and hand-written findings (`reports/sensitivity_findings.md`), arrives with PR D (#46).
+`optuna.storage` and `optuna.study_name` in `configs/sensitivity.yaml` point at the study (`sqlite:///` of `gs://distillate-mlops-data/optuna/distilbert-mixed-v1.db`, downloaded). The report goes to `reports/sensitivity.md`, and the run to MLflow experiment `distillate-sensitivity`. **Status:** run on 2026-11-13 on all 21,363 validation rows (DVC revision `5808fdf`, 3 h 20 min on CPU); the report has plots and hand-written findings (`reports/sensitivity_findings.md`).
 
 ### 1.8 Tests
 
 ```bash
 cd Model-Pipeline
 pytest tests/teacher       # no network or GPU: synthetic data and fixtures
-pytest tests/sensitivity   # with PR D (#46)
+pytest tests/sensitivity
 ruff check src tests
 ```
 
