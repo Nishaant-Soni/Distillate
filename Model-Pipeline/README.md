@@ -438,7 +438,7 @@ An alias can only move to a version that passed the gate and is published in Art
 | `lint-test` | ruff and the Model-Pipeline tests |
 | `train` | builds `Model-Pipeline/Dockerfile`, pushes it to Artifact Registry (`distillate-images/trainer:<commit>`), and runs `python -m src.pipeline.run` as a CPU Vertex AI custom job. The image holds no data: `src.pipeline.fetch_data` streams the processed tables from the DVC remote at the image's commit |
 | `gate-register` | downloads the run folder, checks it is complete, fetches `@production`'s predictions for the regression check, runs `src.eval.gate`, and calls `register_model` if it passed |
-| `notify` | one Slack message per run: which step failed, or the gate's verdict and the new version |
+| `notify` | one Slack message per run: which step failed, or the gate's verdict and the new version. Messages go to the channel of the `SLACK_WEBHOOK_URL` repository secret; until it is set they are written to the job log only |
 
 **Identities:** GitHub signs in to GCP through Workload Identity Federation, so no service-account key exists. The provider accepts only this repository. `github-ci` can push images, start Vertex jobs and read and write `ci/` in the bucket. The training job runs as `vertex-trainer`, which can read the bucket and write only `ci/` (not the default compute account, which is a project editor).
 
