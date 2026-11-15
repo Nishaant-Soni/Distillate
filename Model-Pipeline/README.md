@@ -316,7 +316,7 @@ The image pins every version (`requirements-pipeline.txt`, CUDA 12.6 torch). CI 
 
 ### 3.6 Tests
 
-`tests/student/` and `tests/pipeline/` (100 tests): the loss, thresholds, the package and its parity check, the sweep's shared-study guard, MLflow logging, the evaluation tables, the selection rule, and every pipeline step end to end on a tiny model. All run offline with made-up data.
+`tests/student/` and `tests/pipeline/` (163 tests, including section 5's registry and CI tests): the loss, thresholds, the package and its parity check, the sweep's shared-study guard, MLflow logging, the evaluation tables, the selection rule, and every pipeline step end to end on a tiny model. All run offline with made-up data.
 
 ## 4. Evaluation, gate and bias (Ruchita)
 
