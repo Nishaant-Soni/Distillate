@@ -193,6 +193,7 @@ and the schema tests skip outside the TFDV environment.
 | `test_schema_stats.py` | Schema inference; clean files pass; a label out of range, missing text, a missing or unexpected column, a missing file and a missing schema are each caught |
 | `test_anomalies.py` | Clean data passes every check, and each check fires on crafted bad input: row counts, id overlap, missing text or labels, label domain, duplicate ids, long text, prevalence gap, dates, subset sizes; every check runs even after one fails |
 | `test_bias.py` | Word-boundary lexicon matching; per-group metrics against a hand computation; small slices not judged; reweighting touches only non-toxic identity rows; factor selection; an end-to-end run |
+| `test_canary.py` | Against a local HTTP server following the serving API: a perfect service scores perfectly; Civil has five labels, Wikipedia six; the Prometheus file parses; no comment text in outputs; failed calls and bad responses (including NaN, out-of-range or non-numeric scores) are left out, too many fail the run; a down service fails the health check before any replay; the CLI alerts on failure; mixed model versions are warned about |
 | `test_dag.py` | The DAG imports; tasks and dependencies match `pipeline_graph.py`; every task has a timeout and a failure alert; `acquire` retries twice; the DAG is manual-only and never backfills |
 | `test_stage.py` | The real module is used once merged, otherwise the stub; a broken import isn't hidden; stubs match the contract and never overwrite real output |
 | `test_utils.py`, `test_alerts.py`, `test_run_summary.py`, `test_dvc_version.py` | Logging split and level; config loading; atomic writes; alerts with and without a webhook, a broken webhook never raising; the run summary; `dvc add` and `dvc push` behaviour |
@@ -226,6 +227,7 @@ Data-Pipeline/
 │   ├── anomalies.py          every data check, each with a fail or warn severity
 │   ├── schema_stats.py       TFDV statistics and schema validation (runs in /opt/tfenv)
 │   ├── bias.py               slice metrics, reweighting, sample_weight into train.parquet
+│   ├── canary.py             replays the canary sets against a serving-API URL (Phase 2/3)
 │   ├── dvc_version.py        dvc add, then dvc push when DVC_PUSH is true
 │   └── run_summary.py        merges the task summaries and posts one Slack message
 ├── data/
