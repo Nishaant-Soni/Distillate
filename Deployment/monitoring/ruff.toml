@@ -1,0 +1,12 @@
+# Ruff settings for Deployment/monitoring, matching Data-Pipeline's (line length 100, the same
+# rule set). Ruff uses the nearest config to each file, so this gives the same result whether it
+# runs from the repo root or from this folder. mock_service is first-party here, so its import
+# sorts after third-party packages (I001 from the repo root without this).
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "I", "B"]
+
+[lint.isort]
+known-first-party = ["mock_service", "scripts"]
