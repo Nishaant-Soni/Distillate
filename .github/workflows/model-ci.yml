@@ -63,8 +63,9 @@ env:
   OVERRIDES: ${{ inputs.overrides }}
   MACHINE_TYPE: ${{ inputs.machine_type || 'n1-standard-4' }}
   RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-  MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
-  MLFLOW_TRACKING_USERNAME: team
+  # MLFLOW_TRACKING_URI and _USERNAME are set only in the jobs that talk to the team server
+  # (settings, train, gate-register), never in lint-test: the unit tests log to temporary local
+  # stores, and training code treats a set MLFLOW_TRACKING_URI as "log to that server".
 
 defaults:
   run:
@@ -79,6 +80,8 @@ jobs:
     defaults:
       run:
         working-directory: .      # nothing is checked out in this job
+    env:
+      MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
     steps:
       - name: Repository variables and secrets are set
         env:
@@ -125,6 +128,9 @@ jobs:
     needs: [settings, lint-test]
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    env:
+      MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+      MLFLOW_TRACKING_USERNAME: team
     outputs:
       job_name: ${{ steps.submit.outputs.job_name }}
       job_state: ${{ steps.wait.outputs.state }}
@@ -214,6 +220,8 @@ jobs:
       failed_checks: ${{ steps.gate.outputs.failed_checks }}
       version: ${{ steps.register.outputs.version }}
     env:
+      MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+      MLFLOW_TRACKING_USERNAME: team
       MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
       OUT: ${{ github.workspace }}/job
     steps:
