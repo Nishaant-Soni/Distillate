@@ -278,18 +278,33 @@ def build_records(cfg: Mapping[str, Any], storage: Storage | None, out_dir: Path
     return records
 
 
+# MLflow's own defaults (7 retries, backoff factor 2, 120 s timeout) take about 4 minutes to give
+# up on an unreachable server, for example outside the VM's hours. Logging is safe to rerun
+# (records already there are skipped), so fail fast instead. Variables already set win.
+FAIL_FAST = {"MLFLOW_HTTP_REQUEST_MAX_RETRIES": "2", "MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR": "1",
+             "MLFLOW_HTTP_REQUEST_TIMEOUT": "30"}
+
+
 def tracking(cfg: Mapping[str, Any]) -> str:
     """Point MLflow at ``MLFLOW_TRACKING_URI`` or the local store; return the experiment id."""
     import mlflow
 
     # Read before set_tracking_uri, which writes MLFLOW_TRACKING_URI into the environment.
     server = os.environ.get("MLFLOW_TRACKING_URI")
+    if server:
+        for key, value in FAIL_FAST.items():
+            os.environ.setdefault(key, value)
+        logger.info("logging to the MLflow server at %s", server)
     uri = server
     if not uri:
         db = Path(cfg["paths"]["mlflow_db"])
         db.parent.mkdir(parents=True, exist_ok=True)
         uri = f"sqlite:///{db}"
     mlflow.set_tracking_uri(uri)
+    if not server:
+        # Otherwise the local URI stays in the environment, and later code in this process
+        # (tests especially) would take it for a server.
+        os.environ.pop("MLFLOW_TRACKING_URI", None)
     name = cfg["mlflow"]["experiment"]
     if mlflow.get_experiment_by_name(name) is None:
         # A server stores artifacts where it's configured to; the local store next to its db.

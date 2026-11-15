@@ -36,7 +36,7 @@ paths:
   calqwen_dir: artifacts/calqwen             # calibrated-Qwen soft-label check (calqwen.py)
   drift_dir: data/civil_drift                # local copy of the data lane's drift batches
                                              # (gitignored: comment text)
-  mlflow_db: mlruns/mlflow.db                # local MLflow store until the VM's (gitignored)
+  mlflow_db: mlruns/mlflow.db                # local MLflow store, used only when MLFLOW_TRACKING_URI isn't set (gitignored)
   mlflow_artifacts: mlruns/artifacts
 
 prompt:

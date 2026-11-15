@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 import shutil
 
 import pytest
@@ -103,6 +104,7 @@ def test_logs_once_into_the_experiment_and_skips_on_rerun(tmp_path, monkeypatch)
 
     first = log_records(cfg, records)
     assert [r["status"] for r in first] == ["logged"] * len(records)
+    assert "MLFLOW_TRACKING_URI" not in os.environ  # a local run leaves no "server" behind
     again = log_records(cfg, build_records(cfg, storage, tmp_path))
     assert [r["status"] for r in again] == ["skipped (already logged)"] * len(records)
     assert [r["run_id"] for r in again] == [r["run_id"] for r in first]
@@ -166,3 +168,21 @@ def test_a_run_that_fails_partway_is_logged_again(tmp_path, monkeypatch):
     # Logged in full this time, so a third run skips it.
     assert log_records(cfg, build_records(cfg, None, tmp_path, ["pilot"]))[0]["status"] \
         == "skipped (already logged)"
+
+
+def test_a_server_fails_fast_unless_told_otherwise(tmp_path, monkeypatch):
+    pytest.importorskip("mlflow")
+    from src.teacher.mlflow_log import FAIL_FAST, tracking
+
+    for name in FAIL_FAST:  # set, then delete, so monkeypatch restores whatever was there
+        monkeypatch.setenv(name, "x")
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("MLFLOW_HTTP_REQUEST_TIMEOUT", "60")
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path}/server.db")
+    cfg = copy.deepcopy(load_config())
+    cfg["paths"]["mlflow_db"] = str(tmp_path / "unused.db")
+    tracking(cfg)
+    assert os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] == "2"
+    assert os.environ["MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR"] == "1"
+    assert os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] == "60"  # an explicit value wins
+    assert os.environ["MLFLOW_TRACKING_URI"].endswith("server.db")  # a server stays set
