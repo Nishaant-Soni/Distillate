@@ -244,8 +244,10 @@ time. Phase 3: int8 with the parity check (validation AUC within 0.002), then Mi
 
 **Compute.** Kaggle, NVIDIA T4, fp16. The selected run: 71 minutes of training. The Phase 2
 run of all eight arms: 5.9 hours on two T4s (`kaggle/13_student_ablation_all.ipynb`, code
-`80a4502`). MLflow experiment `distillate-student-ablation`, run
-`358772663fc34a5e81275c3ed073e598` (in the session's store, the Kaggle version's output).
+`80a4502`). MLflow experiment `distillate-student-ablation` on the team server, run
+`ab34619a27e84b07aae044e3a414c0be`, logged from the committed records
+(`src/student/mlflow_log.py`); its `kaggle_run_id` tag keeps the Kaggle session's id,
+`358772663fc34a5e81275c3ed073e598`.
 
 ## 5. Evaluation data
 
@@ -614,3 +616,4 @@ scores and metrics.
 | 2026-11-14 | Section 7 after review (#46): the masked-example rule (no adjacent words, ends hidden), slurs masked, the importance share as a range over seeds, threat counts (Nishaant) |
 | 2026-11-14 | Sections 6 (results), 8 (final gate values), 9 (bias: per-group table, findings, mitigation), 10 (H2 and race limits) and 11 (licences); status banner and contact (Ruchita) |
 | 2026-11-15 | Section 1: registered as v1 (`@staging`, `@production`, Artifact Registry version 1) and the training run's server copy; section 8: production now exists (Nishaant) |
+| 2026-11-15 | Section 4: the selected run's id on the team server, with the Kaggle id it came from (Nishaant) |

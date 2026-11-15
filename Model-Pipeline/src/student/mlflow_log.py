@@ -170,12 +170,22 @@ def build_records(records_dir: Path = RECORDS_DIR) -> list[Record]:
     return [*(arm_record(p, tuned) for p in arms), selection_record(records_dir)]
 
 
+# MLflow's own defaults (7 retries, backoff factor 2, 120 s timeout) take about 4 minutes to give
+# up on an unreachable server. Logging is safe to rerun (records already there are skipped), so
+# fail fast instead. Variables already set in the environment win.
+FAIL_FAST = {"MLFLOW_HTTP_REQUEST_MAX_RETRIES": "2", "MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR": "1",
+             "MLFLOW_HTTP_REQUEST_TIMEOUT": "30"}
+
+
 def tracking(cfg: Mapping[str, Any], experiment: str) -> str:
     """Point MLflow at ``MLFLOW_TRACKING_URI`` or the local store; return the experiment id."""
     import mlflow
 
     # Read before set_tracking_uri, which writes MLFLOW_TRACKING_URI into the environment.
     server = os.environ.get("MLFLOW_TRACKING_URI")
+    if server:
+        for name, value in FAIL_FAST.items():
+            os.environ.setdefault(name, value)
     uri = server
     if not uri:
         db = Path(cfg["paths"]["mlflow_db"])

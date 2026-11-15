@@ -75,3 +75,19 @@ def test_an_unknown_run_id_is_not_an_error(tmp_path, monkeypatch):
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     tracking(local_cfg(tmp_path), "test-student")
     assert run_exists("0" * 32) is False
+
+
+def test_a_server_fails_fast_unless_told_otherwise(tmp_path, monkeypatch):
+    import os
+
+    from src.student.mlflow_log import FAIL_FAST, tracking
+
+    for name in FAIL_FAST:  # set, then delete, so monkeypatch restores whatever was there
+        monkeypatch.setenv(name, "x")
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("MLFLOW_HTTP_REQUEST_TIMEOUT", "60")
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path}/server.db")
+    tracking(local_cfg(tmp_path), "test-student")
+    assert os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] == "2"
+    assert os.environ["MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR"] == "1"
+    assert os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] == "60"  # an explicit value wins
