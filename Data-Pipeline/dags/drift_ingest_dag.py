@@ -4,8 +4,8 @@ Each run takes the next of the 20 drift batches through scripts/drift_ingest.py:
 release (schema, size and id checks), drift statistics, scoring through the serving API,
 evaluation of the previous batch with its delayed gold labels, the moderation overrides, and
 finish (the batch record, and the stream moved on by one). Phase 2 scores against a mock of the
-v4 section 2.4 API; Phase 3 sets drift_ingest.service_url to the live endpoint. The drift and
-overrides steps are stubs until src/monitoring/drift.py and the feedback log exist.
+v4 section 2.4 API; Phase 3 sets drift_ingest.service_url to the live endpoint. Drift comes from
+scripts/drift.py; the overrides step is a stub until the feedback log exists.
 
 The DAG is created paused and only gets a schedule when drift_ingest.enabled is true
 (drift_ingest.schedule picks demo or real), so it never advances the stream by itself:

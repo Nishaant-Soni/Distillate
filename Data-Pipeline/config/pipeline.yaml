@@ -176,6 +176,8 @@ drift_ingest:
   request_timeout_s: 10
   mock_threshold: 0.5                          # the live service reads thresholds.json instead
   low_confidence_margin: 0.1                   # v4 section 2.4
+  reference_flag_rate: null                    # Civil reference flag rate for flag_rate_drift; null: status unknown
+  build_baseline_if_missing: false             # tests only: data_prep_dag (drift_baseline) builds the baseline
   eval_labels: [toxicity, obscene, threat, insult, identity_attack]   # Civil: no severe_toxicity
   schedule: demo                               # demo or real
   enabled: false                               # true: run on drift_ingest.schedule; false: manual only
