@@ -69,7 +69,10 @@ Lineage tags on every version: `model_version`, `model_id`, `alpha`, `temperatur
 `training_data_dvc_hash`, `code_commit`, `max_length`, `gate_passed`, `gate_mean_auc`,
 `registered_at`, `ar_upload`, `ar_package`.
 
-`--no-upload` registers in MLflow only, for runs without GCP access.
+`--no-upload` registers in MLflow only, for runs without GCP access. With Artifact Registry
+on, that version gets no alias (the same rule rollback follows: an alias only points at a
+published package). If looking up existing versions fails, registration stops rather than
+risk a second version for the same model.
 
 ## Rolling back
 
@@ -108,7 +111,8 @@ fake `gcloud` for the upload, so it needs no network and no GCP. What they check
   incomplete package, and a package without thresholds are each refused; the ONNX package
   layout is accepted.
 * **Failed upload:** it leaves no alias.
-* **Other registration cases:** `--no-upload`; an unknown training run; a soft-deleted registry
+* **Other registration cases:** `--no-upload` (no alias unless Artifact Registry is off); a failed
+  version lookup; a refused re-registration logs nothing; an unknown training run; a soft-deleted registry
   experiment.
 * **Retry:** a retry after a failed upload reuses the version; a published model isn't
   registered twice; the Slack title after a failed upload.
