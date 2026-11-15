@@ -232,8 +232,10 @@ jobs:
 
       - name: Download the job's outputs
         run: |
-          # src.pipeline.run writes one <run_name>-<time>/ folder under paths.out_dir.
-          run_dir=$(gcloud storage ls "gs://$BUCKET/ci/$RUN_ID/" | head -1)
+          # src.pipeline.run writes one <run_name>-<time>/ folder under paths.out_dir. The /gcs
+          # mount also stores a marker object for ci/$RUN_ID/ itself, which ls lists first, so
+          # keep only its subfolders. `|| true` so no match reaches the error below.
+          run_dir=$(gcloud storage ls "gs://$BUCKET/ci/$RUN_ID/" | grep -E "/ci/$RUN_ID/[^/]+/$" | head -1 || true)
           if [ -z "$run_dir" ]; then echo "::error::no run folder under ci/$RUN_ID/"; exit 1; fi
           echo "RUN_DIR=${run_dir%/}" >> "$GITHUB_ENV"
           mkdir -p "$OUT"
