@@ -318,7 +318,7 @@ The image pins every version (`requirements-pipeline.txt`, CUDA 12.6 torch). CI 
 
 ## 4. Evaluation, gate and bias (Ruchita)
 
-Every model is scored the same way: a prediction file (`id`, `p_<label>`, `model_version`, CONTRACTS §2.2) and the gold labels go into one evaluation harness, the **gate** decides whether a candidate may be registered, and the **bias analysis** checks identity slices on the Civil bias set. The teacher, the TF-IDF baseline and every student arm go through the same code, so their numbers are comparable.
+Every model is scored the same way: a prediction file (`id`, `p_<label>`, `model_version`, CONTRACTS §2.2) and the gold labels go into one evaluation harness, the **gate** decides whether a candidate may be registered, and the **bias analysis** checks identity slices on the Civil bias set. Every student arm goes through the same code, and its metric definitions match the teacher's (4.1), so the numbers are comparable.
 
 | Document | What it covers |
 |---|---|
@@ -345,7 +345,7 @@ The selected student passes ([`reports/student/phase2/runs/distilbert-mixed-5ep/
 
 ### 4.3 Bias analysis (`src/eval/bias.py`)
 
-For each arm, per identity attribute and group on the Civil bias set (gender, sexual orientation, religion, race or ethnicity, disability): subgroup, BPSN and BNSP AUC, and FPR, FNR and F1 at the tuned threshold. The Wikipedia-tuned thresholds give a low overall Civil FPR (about 2%), so the analysis also reports the FPR ratio, compares arms by BPSN AUC (threshold-free) and at a matched 5% overall FPR, and gives paired bootstrap intervals for the differences.
+For each arm, per identity attribute and group on the Civil bias set (gender, sexual orientation, religion, race or ethnicity, disability): subgroup, BPSN and BNSP AUC, and FPR, FNR and F1 at the tuned threshold. The Wikipedia-tuned thresholds give a low overall Civil FPR (about 2%), so the analysis also reports the FPR ratio, compares arms by BPSN AUC (threshold-free) and at a matched 5% overall FPR, and gives paired bootstrap intervals for the differences. The code also covers Wikipedia lexicon slices (identity mention, length in characters, obfuscation flag), but they weren't computed in Phase 2: the final gold validation file lacks the derived columns (a Phase 3 follow-up).
 
 **Findings** (selected student vs gold-only, paired BPSN AUC):
 
@@ -358,7 +358,8 @@ For each arm, per identity attribute and group on the Civil bias set (gender, se
 ```bash
 # from Model-Pipeline/: score one prediction file (gate subset: weighted, with intervals)
 python -m src.eval.metrics --pred <predictions>.parquet --gold <gold>.parquet \
-  --design artifacts/gate_subset_ids.parquet --bootstrap 1000 --out metrics.json
+  --thresholds <run>/thresholds.json --design artifacts/gate_subset_ids.parquet \
+  --bootstrap 1000 --out metrics.json
 
 # the gate on a candidate's prediction folder (val, gate, bias_eval + thresholds.json)
 python -m src.eval.gate --config configs/gate.yaml --candidate <preds dir> \
