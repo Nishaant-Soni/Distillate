@@ -9,18 +9,25 @@ every case.
 
 ```text
 push to main (Model-Pipeline/src, configs, Dockerfile, requirements)   or   run by hand
+  0. settings        the repository variables and secrets are set (fails fast otherwise)
   1. lint-test       ruff + pytest
   2. train           build Model-Pipeline/Dockerfile → distillate-images/trainer:<sha>
                      Vertex AI custom job (CPU, vertex-trainer identity), wait for it
   3. gate-register   download gs://distillate-mlops-data/ci/<run>/ → check it is complete
                      fetch @production's predictions → src.eval.gate
                      passed: register_model → @staging + Artifact Registry
-                     blocked: nothing registered, run marked failed
+                     blocked: nothing registered; the run fails, except for the
+                     smoke candidate, which is expected to be blocked and only warns
   4. notify          one Slack message: failed step, gate passed + version, or blocked + why
 ```
 
 **Rollback:** a blocked candidate never gets an alias. To undo a promotion, use
 `python -m src.pipeline.rollback_model --previous` (see `docs/registry.md`).
+
+**Why the settings check:** without `MLFLOW_TRACKING_URI` and `MLFLOW_TRACKING_PASSWORD`,
+nothing would fail. MLflow would fall back to a local `mlruns/` in the container and on the
+runner, the regression check would find no production model, and a passing gate would
+"register" into a throwaway store. So the first job stops the run, naming what is missing.
 
 ## The training job
 
@@ -37,8 +44,10 @@ python -m src.pipeline.run --config configs/student.yaml --set <overrides> \
 
 * **Smoke overrides** (`SMOKE_OVERRIDES` in the workflow): gold-only MiniLM, maximum length 64,
   2,000 training rows, one epoch, CPU, the package on, and only the gate and bias sets scored.
-  This takes minutes, and the gate is expected to block it. A manual run can pass its own
-  `overrides`, for example the selected recipe, to train a real candidate.
+  This takes minutes, and the gate is expected to block it, so a blocked smoke run is a
+  warning (yellow in Slack), not a failure. A manual run can pass its own
+  `overrides`, for example the selected recipe, to train a real candidate. A blocked real
+  candidate fails the run.
 * **`fetch_data`** reads at `HEAD` (the image's commit). Without a revision, DVC only looks at
   the workspace, which has no data in the image. This was checked against the real bucket from
   a data-less copy of the repository: gate 63,978 rows, bias 21,577.
@@ -46,6 +55,11 @@ python -m src.pipeline.run --config configs/student.yaml --set <overrides> \
   `<run_name>-<time>/` folder there, and CI picks it up.
 * **Environment:** `MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD`
   and `CODE_COMMIT` are set.
+* **Known limitation, the MLflow password:** it is passed as an environment variable in the
+  Vertex job spec, so anyone who can view custom jobs in the project (project owners today) can
+  read it, and it stays with every job. Phase 3: store it in Secret Manager, grant
+  `vertex-trainer` `roles/secretmanager.secretAccessor` on that one secret, and read it when the
+  job starts.
 * **Overrides:** every key was checked against `configs/student.yaml` (unknown keys fail the
   run).
 

@@ -70,6 +70,38 @@ defaults:
     working-directory: Model-Pipeline
 
 jobs:
+  # Without these the run would not fail: MLflow would fall back to a local mlruns/ store in the
+  # container and on the runner, and "registered vN" would mean nothing reached the team server.
+  settings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .      # nothing is checked out in this job
+    steps:
+      - name: Repository variables and secrets are set
+        env:
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_CI_SERVICE_ACCOUNT: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          missing=()
+          for name in GCP_WIF_PROVIDER GCP_CI_SERVICE_ACCOUNT MLFLOW_TRACKING_URI; do
+            [ -n "${!name}" ] || missing+=("variable $name")
+          done
+          [ -n "$MLFLOW_TRACKING_PASSWORD" ] || missing+=("secret MLFLOW_TRACKING_PASSWORD")
+          if [ ${#missing[@]} -gt 0 ]; then
+            for m in "${missing[@]}"; do
+              echo "::error::Missing repository $m (Settings → Secrets and variables → Actions; docs/ci.md)"
+            done
+            exit 1
+          fi
+          case "$MLFLOW_TRACKING_URI" in
+            http://*|https://*) ;;
+            *) echo "::error::MLFLOW_TRACKING_URI must be the team server's http(s) URL"; exit 1 ;;
+          esac
+          echo "All settings present; MLflow server: $MLFLOW_TRACKING_URI"
+
   lint-test:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -89,7 +121,7 @@ jobs:
       - run: pytest -q
 
   train:
-    needs: lint-test
+    needs: [settings, lint-test]
     runs-on: ubuntu-latest
     timeout-minutes: 240
     outputs:
@@ -124,7 +156,8 @@ jobs:
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
         run: |
           # The password reaches the job as an environment variable in its spec, so anyone who
-          # can view Vertex jobs in the project can read it (project owners only, today).
+          # can view Vertex jobs in the project can read it (project owners only, today), and it
+          # stays with every job. Phase 3: read it at run time from Secret Manager (docs/ci.md).
           sets="${OVERRIDES:-$SMOKE_OVERRIDES} pipeline.data_dir=/tmp/processed"
           sets="$sets paths.official_dir=/tmp/processed/wikipedia paths.out_dir=/gcs/$BUCKET/ci/$RUN_ID"
           script="python -m src.pipeline.fetch_data --out /tmp/processed --tables train val gate bias"
@@ -240,14 +273,20 @@ jobs:
           version=$(python -c "import json;print(json.load(open('$OUT/registration.json'))['version'])")
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Blocked models fail the run
+      # The smoke candidate (no `overrides`) is expected to be blocked, so that only warns:
+      # every model-code push to main would otherwise show a red X. A blocked real run fails.
+      - name: A blocked real candidate fails the run
         if: steps.gate.outputs.result == 'blocked'
         run: |
+          if [ -z "$OVERRIDES" ]; then
+            echo "::warning::Smoke candidate blocked by the gate, as expected: ${{ steps.gate.outputs.failed_checks }}"
+            exit 0
+          fi
           echo "::error::Gate blocked the candidate: ${{ steps.gate.outputs.failed_checks }}"
           exit 1
 
   notify:
-    needs: [lint-test, train, gate-register]
+    needs: [settings, lint-test, train, gate-register]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -262,6 +301,7 @@ jobs:
       - run: pip install pyyaml
       - name: One Slack message for the run
         env:
+          SETTINGS: ${{ needs.settings.result }}
           LINT: ${{ needs.lint-test.result }}
           TRAIN: ${{ needs.train.result }}
           JOB_STATE: ${{ needs.train.outputs.job_state }}
@@ -270,14 +310,18 @@ jobs:
           VERSION: ${{ needs.gate-register.outputs.version }}
           GATE_JOB: ${{ needs.gate-register.result }}
         run: |
-          if [ "$LINT" != success ]; then
+          if [ "$SETTINGS" != success ]; then
+            level=fail; title="model-ci: repository variables or secrets missing"; detail="see the settings job"
+          elif [ "$LINT" != success ]; then
             level=fail; title="model-ci: lint or tests failed"; detail="see the lint-test job"
           elif [ "$TRAIN" != success ]; then
             level=fail; title="model-ci: training job failed"; detail="Vertex state: ${JOB_STATE:-not submitted}"
           elif [ "$GATE" = passed ] && [ -n "$VERSION" ]; then
             level=ok; title="model-ci: gate passed, registered v$VERSION as @staging"; detail="all checks passed"
+          elif [ "$GATE" = blocked ] && [ -z "$OVERRIDES" ]; then
+            level=warn; title="model-ci: smoke candidate blocked by the gate (expected)"; detail="failed: $FAILED"
           elif [ "$GATE" = blocked ]; then
-            level=warn; title="model-ci: gate blocked the candidate"; detail="failed: $FAILED"
+            level=fail; title="model-ci: gate blocked the candidate"; detail="failed: $FAILED"
           else
             level=fail; title="model-ci: gate or registration error"; detail="gate-register job: $GATE_JOB"
           fi
