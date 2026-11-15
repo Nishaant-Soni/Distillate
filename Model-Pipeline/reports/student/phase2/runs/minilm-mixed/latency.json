@@ -1,0 +1,19 @@
+{
+  "model_version": "student-minilm-mixed-20261112T180732Z",
+  "format": "onnx fp32",
+  "batch_size": 1,
+  "threads": 2,
+  "requests": 300,
+  "warmup": 20,
+  "max_length": 256,
+  "mean_tokens": 72.27,
+  "max_tokens": 256,
+  "p50_ms": 19.468866501483717,
+  "p90_ms": 70.92039500057585,
+  "p95_ms": 102.92408950044774,
+  "p99_ms": 106.82261076890425,
+  "mean_ms": 29.717409763325122,
+  "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+  "cpu_count": 4,
+  "onnxruntime": "1.31.1"
+}

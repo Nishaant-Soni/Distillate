@@ -1,0 +1,19 @@
+{
+  "model_version": "student-modernbert-mixed-20261112T185501Z",
+  "format": "onnx fp32",
+  "batch_size": 1,
+  "threads": 2,
+  "requests": 300,
+  "warmup": 20,
+  "max_length": 256,
+  "mean_tokens": 70.83666666666667,
+  "max_tokens": 256,
+  "p50_ms": 75.08763550140429,
+  "p90_ms": 246.97112730173114,
+  "p95_ms": 373.4294650988886,
+  "p99_ms": 394.0903703797085,
+  "mean_ms": 110.27873719654356,
+  "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+  "cpu_count": 4,
+  "onnxruntime": "1.31.1"
+}

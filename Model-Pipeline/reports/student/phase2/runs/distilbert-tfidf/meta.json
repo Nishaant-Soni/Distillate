@@ -1,0 +1,32 @@
+{
+  "model_version": "student-distilbert-tfidf-20261112T190956Z",
+  "model_id": "distilbert-base-uncased",
+  "max_length": 256,
+  "labels": [
+    "toxicity",
+    "severe_toxicity",
+    "obscene",
+    "threat",
+    "insult",
+    "identity_attack"
+  ],
+  "alpha": 0.3432987447660936,
+  "temperature": 3.71295432376268,
+  "teacher_version": "tfidf-lr-v1",
+  "teacher_model_version": "tfidf-lr-v1",
+  "prompt_version": null,
+  "stack_sha256": null,
+  "soft_label_arm": "tfidf",
+  "soft_label_prefix": "tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet",
+  "soft_label_check": {
+    "sha256": "86160b7e62c08a45f8c6236447b07d4ec69cd0c97af97e7bc264ba88870f86dd"
+  },
+  "soft_label_model_version": "tfidf-lr-v1",
+  "data_source": "ids",
+  "training_data_sha256": "acde36e26ff64e063e40513b17c6a8dc1e6ecb9724e798f834eea9c940f5fe85",
+  "training_data_dvc_hash": null,
+  "seed": 42,
+  "best_epoch": 3,
+  "code_commit": "80a4502d97d882ddf7de90c87cd3db743bcedb36",
+  "mlflow_run_id": "3345cd8bf132452e98dc2cd121a24558"
+}

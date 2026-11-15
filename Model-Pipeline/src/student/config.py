@@ -3,6 +3,10 @@
 Shares ``LABELS`` and the logger with the teacher lane, so both use one label order and one
 log format. Relative paths resolve against ``Model-Pipeline/`` after overrides are applied,
 so ``--set paths.raw_train=...`` behaves like the file.
+
+``soft_labels.arm`` picks the teacher: after the overrides, the chosen arm's values in
+``soft_labels.arms`` replace the stack's, so the rest of the code reads one flat
+``soft_labels`` section whatever the arm (``--set soft_labels.arm=calqwen``).
 """
 
 from __future__ import annotations
@@ -17,6 +21,9 @@ import yaml
 from src.teacher.config import LABELS, PIPELINE_ROOT
 
 DEFAULT_CONFIG = PIPELINE_ROOT / "configs" / "student.yaml"
+SOURCES = ("temp", "ids", "official")
+ARMS = ("stack", "calqwen", "tfidf")
+FORMATS = ("shards", "oof")
 
 
 def apply_overrides(cfg: Mapping[str, Any], overrides: Sequence[str]) -> dict[str, Any]:
@@ -66,12 +73,38 @@ def load_config(path: str | Path | None = None,
         raise ValueError(f"loss.alpha must be in [0, 1], got {cfg['loss']['alpha']}")
     if float(cfg["loss"]["temperature"]) <= 0:
         raise ValueError(f"loss.temperature must be positive, got {cfg['loss']['temperature']}")
-    if cfg["data"]["source"] not in ("temp", "official"):
-        raise ValueError(f"data.source must be temp or official, got {cfg['data']['source']!r}")
+    if cfg["data"]["source"] not in SOURCES:
+        raise ValueError(f"data.source must be one of {list(SOURCES)}, got "
+                         f"{cfg['data']['source']!r}")
+    cfg["soft_labels"] = resolve_arm(cfg["soft_labels"])
     for key, value in cfg.get("paths", {}).items():
         cfg["paths"][key] = _resolve(value)
-    cfg["soft_labels"]["local_root"] = _resolve(cfg["soft_labels"].get("local_root"))
+    for key in ("local_root", "check_file"):
+        cfg["soft_labels"][key] = _resolve(cfg["soft_labels"].get(key))
     return cfg
+
+
+def resolve_arm(soft_labels: Mapping[str, Any]) -> dict[str, Any]:
+    """The flat ``soft_labels`` section for ``soft_labels.arm`` (``arms`` is kept as is)."""
+    sl = copy.deepcopy(dict(soft_labels))
+    arm = sl.get("arm", "stack")
+    if arm not in ARMS:
+        raise ValueError(f"soft_labels.arm must be one of {list(ARMS)}, got {arm!r}")
+    arms = sl.get("arms") or {}
+    for name, values in arms.items():   # every arm, so a typo fails before that arm is run
+        if name not in ARMS or name == "stack":
+            raise ValueError(f"soft_labels.arms.{name}: not an attribution arm "
+                             f"({[a for a in ARMS if a != 'stack']})")
+        unknown = sorted(set(values or {}) - set(sl) - {"arms"})
+        if unknown:
+            raise KeyError(f"soft_labels.arms.{name}: unknown keys {unknown}")
+    if arm != "stack":
+        if arm not in arms:
+            raise ValueError(f"soft_labels.arms has no {arm!r} entry")
+        sl.update(copy.deepcopy(arms[arm]))
+    if sl.get("format", "shards") not in FORMATS:
+        raise ValueError(f"soft_labels.format must be one of {list(FORMATS)}")
+    return sl
 
 
 def uses_soft_labels(cfg: Mapping[str, Any]) -> bool:

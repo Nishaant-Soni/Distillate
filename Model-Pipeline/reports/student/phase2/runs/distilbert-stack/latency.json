@@ -1,0 +1,19 @@
+{
+  "model_version": "student-distilbert-stack-20261112T181004Z",
+  "format": "onnx fp32",
+  "batch_size": 1,
+  "threads": 2,
+  "requests": 300,
+  "warmup": 20,
+  "max_length": 256,
+  "mean_tokens": 72.27,
+  "max_tokens": 256,
+  "p50_ms": 31.041095999171375,
+  "p90_ms": 104.1445536997344,
+  "p95_ms": 145.68307784938952,
+  "p99_ms": 151.62901196152234,
+  "mean_ms": 44.6692361033638,
+  "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+  "cpu_count": 4,
+  "onnxruntime": "1.31.1"
+}

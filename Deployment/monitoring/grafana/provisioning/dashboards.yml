@@ -1,0 +1,11 @@
+# Grafana dashboard provider for the local draft stack: loads every JSON file in
+# /var/lib/grafana/dashboards (mounted from ./grafana/dashboards).
+apiVersion: 1
+
+providers:
+  - name: distillate
+    folder: Distillate
+    type: file
+    disableDeletion: false
+    options:
+      path: /var/lib/grafana/dashboards

@@ -89,7 +89,7 @@ docker compose exec airflow-scheduler airflow dags list-runs data_prep_dag   # q
 |---|---|---|
 | `SLACK_WEBHOOK_URL` | posts alerts to Slack instead of only logging them | section 9 |
 | `DVC_PUSH=true` | `dvc_version` also pushes the data to the GCS remote | section 7 |
-| `PIPELINE_MODE=baseline` | runs the 11 tasks as one sequential chain | section 8 |
+| `PIPELINE_MODE=baseline` | runs the 12 tasks as one sequential chain | section 8 |
 
 Containers read `.env` only when they are created, so after changing it run
 `docker compose up -d` again before triggering.
@@ -189,9 +189,11 @@ and the schema tests skip outside the TFDV environment.
 | `test_split.py` | Same seed, same split; row order doesn't matter; sets are disjoint; validation within 1 point of 15%; exact canary size; every label in every set; gate unchanged |
 | `test_subsets.py` | Configured sizes; no overlap; drift sorted by date and drawn from the whole period; stratification keeps the toxic rate; teacher shift-check ids never reach the canary or drift; a missing exclusion list stops the stage |
 | `test_obfuscate.py` | Configured size; `_obf` ids; text changes but labels don't; deterministic; all three tricks used; derived columns recomputed |
+| `test_drift.py` | PSI is 0 for identical distributions and finite with empty bins; letters in any alphabet count as letters (matching `preprocess`); the baseline stores no words and is deterministic; a missing baseline is an error by default; an empty batch is `unknown`, not an alert; shifted batches alert on every feature; flag-rate drift; paths follow `processed_dir` |
 | `test_schema_stats.py` | Schema inference; clean files pass; a label out of range, missing text, a missing or unexpected column, a missing file and a missing schema are each caught |
 | `test_anomalies.py` | Clean data passes every check, and each check fires on crafted bad input: row counts, id overlap, missing text or labels, label domain, duplicate ids, long text, prevalence gap, dates, subset sizes; every check runs even after one fails |
 | `test_bias.py` | Word-boundary lexicon matching; per-group metrics against a hand computation; small slices not judged; reweighting touches only non-toxic identity rows; factor selection; an end-to-end run |
+| `test_canary.py` | Against a local HTTP server following the serving API: a perfect service scores perfectly; Civil has five labels, Wikipedia six; the Prometheus file parses; no comment text in outputs; failed calls and bad responses (including NaN, out-of-range or non-numeric scores) are left out, too many fail the run; a down service fails the health check before any replay; the CLI alerts on failure; mixed model versions are warned about |
 | `test_dag.py` | The DAG imports; tasks and dependencies match `pipeline_graph.py`; every task has a timeout and a failure alert; `acquire` retries twice; the DAG is manual-only and never backfills |
 | `test_stage.py` | The real module is used once merged, otherwise the stub; a broken import isn't hidden; stubs match the contract and never overwrite real output |
 | `test_utils.py`, `test_alerts.py`, `test_run_summary.py`, `test_dvc_version.py` | Logging split and level; config loading; atomic writes; alerts with and without a webhook, a broken webhook never raising; the run summary; `dvc add` and `dvc push` behaviour |
@@ -200,7 +202,7 @@ and the schema tests skip outside the TFDV environment.
 
 ```text
 Data-Pipeline/
-├── dags/data_prep_dag.py     the DAG: 11 tasks built from the graph below
+├── dags/data_prep_dag.py     the DAG: 12 tasks built from the graph below
 ├── config/
 │   ├── pipeline.yaml         every tunable value; seed 42; no script hard-codes these
 │   ├── identity_terms.txt    identity lexicon (owner: Ruchita; others only read it)
@@ -220,9 +222,12 @@ Data-Pipeline/
 │   ├── split.py              seeded multilabel train/val split, canary carve-out, gate
 │   ├── subsets.py            Civil H2, canary, bias set, 20 drift batches
 │   ├── obfuscate.py          3,000 disguised toxic gate comments
+│   ├── drift.py              drift metrics (PSI) and the drift baseline; used by drift_ingest_dag
+│   ├── drift_baseline.py     the data_prep_dag stage that builds the drift baseline
 │   ├── anomalies.py          every data check, each with a fail or warn severity
 │   ├── schema_stats.py       TFDV statistics and schema validation (runs in /opt/tfenv)
 │   ├── bias.py               slice metrics, reweighting, sample_weight into train.parquet
+│   ├── canary.py             replays the canary sets against a serving-API URL (Phase 2/3)
 │   ├── dvc_version.py        dvc add, then dvc push when DVC_PUSH is true
 │   └── run_summary.py        merges the task summaries and posts one Slack message
 ├── data/
@@ -246,6 +251,7 @@ Wikipedia chain and the Civil chain are independent, so they run side by side an
 flowchart LR
     acquire --> preprocess
     preprocess --> dedupe --> split --> obfuscate --> schema_stats
+    split --> drift_baseline --> schema_stats
     preprocess --> subsets --> schema_stats
     schema_stats --> anomalies --> bias --> dvc_version --> notify_success
 ```
@@ -254,9 +260,9 @@ The same DAG in the Airflow UI (Graph view of an optimized run, every task green
 
 ![Airflow Graph view of data_prep_dag](docs/images/airflow_graph.png)
 
-With `PIPELINE_MODE=baseline`, the same 11 tasks run as one chain, in this order: `acquire`,
-`preprocess`, `dedupe`, `split`, `subsets`, `obfuscate`, `schema_stats`, `anomalies`, `bias`,
-`dvc_version`, `notify_success`. Section 8 compares the two shapes.
+With `PIPELINE_MODE=baseline`, the same 12 tasks run as one chain, in this order: `acquire`,
+`preprocess`, `dedupe`, `split`, `subsets`, `obfuscate`, `drift_baseline`, `schema_stats`,
+`anomalies`, `bias`, `dvc_version`, `notify_success`. Section 8 compares the two shapes.
 
 **Task settings and failure handling**
 
@@ -268,6 +274,7 @@ With `PIPELINE_MODE=baseline`, the same 11 tasks run as one chain, in this order
 | `split` | main | 30 | 1 |
 | `subsets` | main | 30 | 1 |
 | `obfuscate` | main | 15 | 1 |
+| `drift_baseline` | main | 15 | 1 |
 | `schema_stats` | `/opt/tfenv`, through a BashOperator | 60 | 1 |
 | `anomalies` | main | 30 | 1 |
 | `bias` | main | 60 | 1 |
@@ -540,6 +547,14 @@ Runs after every data stage and checks all of their outputs. Fail-level checks s
 
 Run on its own: `python -m scripts.anomalies --config config/pipeline.yaml`. Every result, with its severity and a detail message, is recorded in `reports/summaries/anomalies.json`.
 
+### 5.6 Drift baseline (`scripts/drift.py`, stage `drift_baseline`)
+
+The `drift_baseline` stage builds the reference that `drift_ingest_dag` compares each Civil drift batch with (Phase 2). It runs after `split` and before `dvc_version`, so the baseline is versioned in the same DVC commit as the data it comes from; the drift DAG only loads it, and a missing baseline is an error there.
+
+From Wikipedia train (the model's training data) it records, for three features (comment length, out-of-vocabulary rate, and non-alphabetic share, the same measure as `has_obfuscation`), equal-count decile bin edges and the share of comments in each bin, plus the vocabulary of words seen at least twice, stored only as truncated BLAKE2b hashes: no comment text. Output: `data/processed/monitoring/drift_baseline.json` (paths in the `drift:` section of `config/pipeline.yaml`, relative to `paths.processed_dir`). On the full data: 132,388 comments, 76,508 known words, about 17 s, 1.5 MB.
+
+The drift metrics themselves (PSI per batch, with `ok`/`warn`/`alert` at 0.1 and 0.25) and the real-data results are in the Phase 2 README (`Model-Pipeline/README.md`, section 6.1). Run the stage on its own: `python -m scripts.drift_baseline --config config/pipeline.yaml`.
+
 ## 6. Bias detection and mitigation
 
 `scripts/bias.py` checks whether a toxicity model treats identity groups differently, reweights the training data if the selection rule calls for it, and writes [reports/bias/bias_report.md](reports/bias/bias_report.md) and `reports/bias/bias_metrics.json`. Run on its own: `python -m scripts.bias --config config/pipeline.yaml`.
@@ -627,11 +642,12 @@ is what makes a past result reproducible.
 
 ## 8. Pipeline flow optimization
 
-The DAG runs in two shapes, set by `PIPELINE_MODE` in `.env`. `baseline` wires all eleven
+The DAG runs in two shapes, set by `PIPELINE_MODE` in `.env`. `baseline` wires all twelve
 tasks into one sequential chain; `optimized` (the default) splits the Wikipedia and Civil
 work into parallel branches that rejoin at `schema_stats`. Both are built from the same
 `scripts/pipeline_graph.py`, so the comparison is the same tasks in two orders, not two
-different pipelines.
+different pipelines. (The measurements below predate the `drift_baseline` stage, added in
+Phase 2; it takes about 17 s on the full data and runs in parallel with `obfuscate`.)
 
 Measured on a Windows laptop (Intel Core i5-1235U, 10 cores / 12 threads, about 7.6 GB of memory for Docker), with the competition downloads already cached, on commit 993ec40. Each mode was run once after a warm-up run. Durations are seconds.
 

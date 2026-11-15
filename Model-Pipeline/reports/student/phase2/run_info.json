@@ -1,0 +1,13 @@
+{
+  "code_commit": "80a4502d97d882ddf7de90c87cd3db743bcedb36",
+  "tuned": [
+    "loss.alpha=0.3432987447660936",
+    "loss.temperature=3.71295432376268",
+    "train.lr=9.22542696771891e-05",
+    "train.epochs=4",
+    "model.max_length=256"
+  ],
+  "selected": null,
+  "hours": 5.88,
+  "gpus": 2
+}

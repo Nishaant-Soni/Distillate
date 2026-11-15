@@ -172,6 +172,9 @@ def run(cfg: dict[str, Any], stage: str) -> dict[str, Any]:
             df = wikipedia_frame(max(1, n // 4), seed, "wiki_test")
             df["id"] = df["id"] + "_obf"
             _write(df, processed / "obfuscation.parquet", summary)
+        elif stage == "drift_baseline":
+            # The baseline needs real training text to mean anything; record the gap.
+            summary["note"] = "no drift baseline written by the stub; scripts.drift builds it"
         elif stage == "schema_stats":
             # A stub cannot produce a real TFDV schema; Sai's --infer mode does
             # that once and commits the result. Record the gap instead of faking it.
