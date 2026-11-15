@@ -133,6 +133,7 @@ def test_finished_stream_evaluates_the_last_batch_once(tmp_path):
     assert (tmp_path / "reports" / "batch_01_final_metrics.json").exists()
     assert di.run(cfg)["skipped"] is True  # and later runs don't redo it
 
+
 def test_drift_step_records_input_psi(tmp_path):
     cfg = setup(tmp_path)
     di.run(cfg)

@@ -6,8 +6,9 @@ Each run of drift_ingest_dag handles the next batch of data/processed/civil/drif
    data/splits/civil_drift_ids.csv;
 2. drift: PSI of the batch's length, OOV rate and non-alphabetic share against the training
    baseline (scripts/drift.py);
-3. score: send every comment through the serving API (v4 section 2.4), store the responses, and
-   compute flag-rate drift (status unknown until a Civil reference rate is configured)
+3. score: send every comment through the serving API (v4 section 2.4), store the responses
+   without the text (id, text_sha256, char_len and scores only), and compute flag-rate drift
+   (status unknown until a Civil reference rate is configured)
 4. evaluate: attach the gold labels to the previous batch's predictions (the "delayed" labels)
    and export its AUC and F1 per label;
 5. overrides: merge the moderation queue's overrides (a stub until the GCS feedback log exists).
@@ -136,7 +137,6 @@ def release_batch(dcfg: dict[str, Any], k: int) -> pd.DataFrame:
     if set(batch["id"].astype(str)) != expected:
         raise DriftBatchError(f"batch {k}: ids differ from {dcfg['manifest']}")
     return batch
-
 
 
 def score_batch(batch: pd.DataFrame, service) -> pd.DataFrame:
@@ -276,6 +276,8 @@ def step_score(cfg: dict[str, Any]) -> dict[str, Any]:
     work = _load_work(dcfg, k)
     work.update({
         "model_version": predictions["model_version"].iloc[0],
+        # The service's flag (all six labels; ~98% on the mock). flag_rate_drift below uses the
+        # five evaluated Civil labels instead, so the two rates aren't comparable.
         "flag_rate": float(predictions["flag"].mean()),
         "mean_latency_ms": float(np.mean(predictions["latency_ms"])),
         "flag_rate_drift": drift.flag_rate_drift(
