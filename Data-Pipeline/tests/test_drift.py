@@ -27,7 +27,8 @@ def cfg(tmp_path):
     source = tmp_path / "train.parquet"
     _frame(_comments(2000, seed=1)).to_parquet(source, index=False)
     return {
-        "paths": {"summaries_dir": str(tmp_path / "summaries")},
+        "paths": {"summaries_dir": str(tmp_path / "summaries"),
+                  "processed_dir": str(tmp_path)},
         "drift": {
             "baseline_source": str(source),
             "baseline_file": str(tmp_path / "monitoring" / "drift_baseline.json"),
@@ -68,6 +69,25 @@ def test_oov_rate_counts_unknown_words():
     tokens = drift.words(pd.Series(["edit the page", "edit zorblax quuxle", "123"]))
     rate = drift.oov_rate(tokens, {"edit", "the", "page"}, hashed=False)
     assert rate.tolist() == pytest.approx([0.0, 2 / 3, 0.0])
+
+
+def test_letters_in_any_alphabet_count_as_letters():
+    """Regression: under pandas 3, .str regex runs on pyarrow (ASCII-only), so "été" counted
+    2 non-letters. Both features now run in plain Python and match preprocess exactly."""
+    from scripts import preprocess
+
+    texts = pd.Series(["été café", "ＡＢＣ", "Привет!", "naïve 1d10t"])
+    shares = drift.nonalpha_share(texts)
+    assert shares[0] == 0.0 and shares[1] == 0.0  # accented and fullwidth letters are letters
+    assert shares[2] == pytest.approx(1 / 7)       # only the "!" is a non-letter
+    assert shares.tolist() == [preprocess.nonalpha_share(t) for t in texts]
+    assert drift.words(texts).tolist()[:3] == [["été", "café"], ["ａｂｃ"], ["привет"]]
+
+
+def test_oov_rate_works_with_a_repeated_index():
+    tokens = drift.words(pd.Series(["edit the page", "zorblax"], index=[7, 7]))
+    rate = drift.oov_rate(tokens, {"edit", "the", "page"}, hashed=False)
+    assert rate.tolist() == [0.0, 1.0] and rate.index.tolist() == [7, 7]
 
 
 def _string_values(obj):
@@ -141,6 +161,28 @@ def test_input_drift_works_without_a_char_len_column(cfg):
     baseline = drift.load_baseline(cfg, build_if_missing=True)
     batch = pd.DataFrame({"text": _comments(500, seed=4)})
     assert drift.input_drift(batch, baseline, cfg)["rows"] == 500
+
+
+def test_an_empty_batch_is_unknown_not_an_alert(cfg):
+    """Regression: with every bin floored at epsilon, an empty batch gave PSI around 7 to 9."""
+    baseline = drift.load_baseline(cfg, build_if_missing=True)
+    result = drift.input_drift(_frame([]), baseline, cfg)
+    assert result["status"] == "unknown" and result["max_psi"] is None
+    assert all(f["psi"] is None and f["status"] == "unknown"
+               for f in result["features"].values())
+    json.dumps(result)
+
+
+def test_baseline_paths_follow_processed_dir(cfg, tmp_path):
+    """Relative drift paths resolve under paths.processed_dir, like the rest of the pipeline."""
+    processed = tmp_path / "elsewhere"
+    (processed / "wikipedia").mkdir(parents=True)
+    _frame(_comments(300, seed=6)).to_parquet(processed / "wikipedia" / "train.parquet")
+    cfg["paths"]["processed_dir"] = str(processed)
+    cfg["drift"].update({"baseline_source": "wikipedia/train.parquet",
+                         "baseline_file": "monitoring/drift_baseline.json"})
+    drift.run(cfg)
+    assert (processed / "monitoring" / "drift_baseline.json").exists()
 
 
 def test_flag_rate_drift(cfg):

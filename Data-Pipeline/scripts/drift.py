@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from scripts import preprocess
 from scripts.utils import (
     PIPELINE_ROOT,
     atomic_write,
@@ -55,14 +57,21 @@ from scripts.utils import (
 logger = get_logger(__name__)
 TASK_ID = "drift_baseline"
 INPUT_FEATURES = ("char_len", "oov_rate", "nonalpha_share")
-WORD = r"[^\W\d_]+"          # a run of letters, in any alphabet
-LETTER = r"[^\W\d_]"
+# A run of letters, in any alphabet. Applied with Python's re (Unicode-aware), never pandas'
+# .str regex: under pandas 3, .str runs on pyarrow, whose regex classes are ASCII-only, so
+# "été" would split differently depending on the environment.
+WORD = re.compile(r"[^\W\d_]+")
 BASELINE_VERSION = 1
 
 
 def _resolve(path: str | Path) -> Path:
     p = Path(path)
     return p if p.is_absolute() else (PIPELINE_ROOT / p).resolve()
+
+
+def _processed(cfg: dict[str, Any], key: str) -> Path:
+    """drift.baseline_source / baseline_file, relative to paths.processed_dir."""
+    return _resolve(Path(cfg["paths"]["processed_dir"]) / cfg["drift"][key])
 
 
 def _hash_word(word: str) -> str:
@@ -75,7 +84,7 @@ def _hash_word(word: str) -> str:
 
 def words(texts: pd.Series) -> pd.Series:
     """Each comment's lowercased words (runs of letters); digits and punctuation split words."""
-    return texts.fillna("").str.lower().str.findall(WORD)
+    return texts.fillna("").astype(str).map(lambda t: WORD.findall(t.lower()))
 
 
 def char_len(frame: pd.DataFrame) -> pd.Series:
@@ -85,24 +94,27 @@ def char_len(frame: pd.DataFrame) -> pd.Series:
 
 
 def nonalpha_share(texts: pd.Series) -> pd.Series:
-    """Share of non-space characters that aren't letters (the preprocess obfuscation measure)."""
-    texts = texts.fillna("")
-    nonspace = texts.str.len() - texts.str.count(r"\s")
-    letters = texts.str.count(LETTER)
-    share = (nonspace - letters) / nonspace.where(nonspace > 0)
-    return share.fillna(0.0).astype(float)
+    """Share of non-space characters that aren't letters, per comment.
+
+    The same function preprocess uses for has_obfuscation, so the two measures agree. It runs
+    in plain Python (str.isalpha), which counts accented, fullwidth and non-Latin letters as
+    letters in every environment.
+    """
+    return texts.fillna("").astype(str).map(preprocess.nonalpha_share).astype(float)
 
 
 def oov_rate(tokens: pd.Series, known: set[str], hashed: bool) -> pd.Series:
     """Share of each comment's words not in the vocabulary; 0 for a comment with no words."""
-    exploded = tokens.explode().dropna()
+    positional = tokens.reset_index(drop=True)  # explode/groupby by position: any index works
+    exploded = positional.explode().dropna()
     if exploded.empty:
         return pd.Series(0.0, index=tokens.index)
     unique = pd.Index(exploded.unique())
     lookup = unique.map(_hash_word) if hashed else unique
     in_vocab = pd.Series([w in known for w in lookup], index=unique)
-    unknown = (~exploded.map(in_vocab)).groupby(level=0).mean()
-    return unknown.reindex(tokens.index, fill_value=0.0).astype(float)
+    unknown = (~exploded.map(in_vocab).astype(bool)).groupby(level=0).mean()
+    rates = unknown.reindex(range(len(positional)), fill_value=0.0).astype(float)
+    return pd.Series(rates.to_numpy(), index=tokens.index)
 
 
 # ---------------------------------------------------------------- PSI
@@ -155,7 +167,7 @@ def _feature_baseline(values: pd.Series, n_bins: int) -> dict[str, Any]:
 def build_baseline(cfg: dict[str, Any]) -> dict[str, Any]:
     """The baseline from training data: per-feature bins and a hashed vocabulary."""
     dcfg = cfg["drift"]
-    source = _resolve(dcfg["baseline_source"])
+    source = _processed(cfg, "baseline_source")
     if not source.exists():
         raise FileNotFoundError(
             f"Baseline source {source.as_posix()} not found; run data_prep_dag (split) first"
@@ -183,7 +195,7 @@ def build_baseline(cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 def save_baseline(baseline: dict[str, Any], cfg: dict[str, Any]) -> Path:
-    path = _resolve(cfg["drift"]["baseline_file"])
+    path = _processed(cfg, "baseline_file")
     atomic_write(path, json.dumps(baseline))
     return path
 
@@ -195,7 +207,7 @@ def load_baseline(cfg: dict[str, Any], build_if_missing: bool = False) -> dict[s
     error rather than built on the spot: building it here would change the DVC-versioned
     processed/ folder outside data_prep_dag. build_if_missing=True is for tests and ad hoc use.
     """
-    path = _resolve(cfg["drift"]["baseline_file"])
+    path = _processed(cfg, "baseline_file")
     if not path.exists():
         if not build_if_missing:
             raise FileNotFoundError(
@@ -218,8 +230,18 @@ def _thresholds(source: dict[str, Any]) -> tuple[float, float, float]:
 
 def input_drift(batch: pd.DataFrame, baseline: dict[str, Any],
                 cfg: dict[str, Any]) -> dict[str, Any]:
-    """PSI of the batch's length, OOV rate and non-alpha share against the baseline."""
+    """PSI of the batch's length, OOV rate and non-alpha share against the baseline.
+
+    An empty batch has nothing to compare, so every feature is "unknown" with no PSI (with
+    every bin floored at epsilon, PSI would otherwise come out around 7 to 9: a false alert).
+    """
     warn, alert, eps = _thresholds(cfg["drift"])
+    if len(batch) == 0:
+        features = {name: {"psi": None, "status": "unknown", "batch_mean": None,
+                           "baseline_mean": round(baseline["features"][name]["mean"], 4)}
+                    for name in INPUT_FEATURES}
+        return {"rows": 0, "features": features, "max_psi": None, "status": "unknown",
+                "thresholds": {"warn": warn, "alert": alert}}
     vocab = baseline.get("_vocab") or set(baseline["vocab_hashes"])
     values = {
         "char_len": char_len(batch),
@@ -253,7 +275,9 @@ def flag_rate_drift(predictions: pd.DataFrame, reference_rate: float | None,
     The reference should be the model's flag rate on Civil reference data (for example the
     first drift batches, or canary_civil), not on Wikipedia: thresholds tuned on Wikipedia
     don't transfer to Civil, so a Wikipedia rate would differ from every Civil batch for
-    that reason alone. Without a reference, PSI is None and status "unknown".
+    that reason alone. On Civil, both the reference and the batch should take the flag from
+    the five flagged_<label> columns, leaving severe_toxicity out (work plan v4 section 2.2).
+    Without a reference, PSI is None and status "unknown".
     """
     warn, alert, eps = _thresholds(cfg["drift"])
     rate = float(predictions["flag"].mean()) if len(predictions) else None
