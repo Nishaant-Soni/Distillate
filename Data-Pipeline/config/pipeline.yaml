@@ -88,6 +88,32 @@ bias:
 dvc:
   push: true                        # overridden by the DVC_PUSH env var
 
+drift:
+  # src: scripts/drift.py. PSI of each drift batch against a baseline from the model's training
+  # data. The baseline holds bin edges, shares and a hashed vocabulary, never comment text.
+  baseline_source: wikipedia/train.parquet                  # relative to paths.processed_dir
+  baseline_file: monitoring/drift_baseline.json             # relative to paths.processed_dir; DVC-tracked with the data
+  psi_bins: 10                      # equal-count (decile) bins from the baseline
+  vocab_min_count: 2                # a word is "known" if it appears at least twice in train
+  psi_warn: 0.1                     # PSI rules of thumb: below 0.1 ok, 0.1 to 0.25 warn,
+  psi_alert: 0.25                   # 0.25 or more alert
+  psi_epsilon: 0.0001               # floor for empty bins, so PSI stays finite
+
+canary:
+  # scripts/canary.py: replay the labeled canary sets against a serving-API URL (v4 2.4).
+  service_url: null                 # or --url, or the CANARY_URL env var
+  timeout_s: 10                     # per request
+  workers: 8                        # requests in flight at once
+  max_rows: null                    # per set; null replays all of it (for quick checks only)
+  max_error_fraction: 0.01          # more failed calls than this fails the run
+  output_dir: reports/canary        # canary_report.json and canary.prom; metrics only
+  sets:
+    wikipedia:
+      path: data/processed/wikipedia/canary_wikipedia.parquet   # 2,000, six labels
+    civil:
+      path: data/processed/civil/canary_civil.parquet           # 4,000, five labels
+      exclude_labels: [severe_toxicity]                         # v4 2.2
+
 stubs:
   # Rows each placeholder stage writes until the real module is merged. Small on
   # purpose: the point is that the DAG runs end to end in seconds, not that the
@@ -138,6 +164,20 @@ teacher:
     tfidf: tfidf/tfidf-lr-v1-oof/tfidf_oof.parquet          # -> tfidf_oof_<label>
     tfidf_manifest: ../Model-Pipeline/artifacts/oof/tfidf_oof.manifest.json
 
+retrain:
+  # Phase 2 skeleton of retrain_dag (scripts/retrain.py); Phase 3 submits the job and fills in
+  # each step. The job is model-ci's: same image, same identity, same gate and registry.
+  reports_dir: reports/retrain                 # one <run_id>.json record per run
+  project: distillate-mlops
+  region: us-east1
+  bucket: distillate-mlops-data                # outputs under ci/retrain/<run_id>/ (vertex-trainer writes only ci/)
+  image: us-east1-docker.pkg.dev/distillate-mlops/distillate-images/trainer
+  service_account: vertex-trainer@distillate-mlops.iam.gserviceaccount.com
+  machine_type: n1-standard-4
+  config: configs/student.yaml                 # Phase 3: a retraining config with the drift batches
+  overrides: []                                # --set overrides for src.pipeline.run
+  candidate_alias: staging
+
 drift_ingest:
   # Phase 2 skeleton of drift_ingest_dag; Phase 3 points service_url at the live endpoint.
   batches_dir: data/processed/civil/drift
@@ -150,6 +190,8 @@ drift_ingest:
   request_timeout_s: 10
   mock_threshold: 0.5                          # the live service reads thresholds.json instead
   low_confidence_margin: 0.1                   # v4 section 2.4
+  reference_flag_rate: null                    # Civil reference flag rate for flag_rate_drift; null: status unknown
+  build_baseline_if_missing: false             # tests only: data_prep_dag (drift_baseline) builds the baseline
   eval_labels: [toxicity, obscene, threat, insult, identity_attack]   # Civil: no severe_toxicity
   schedule: demo                               # demo or real
   enabled: false                               # true: run on drift_ingest.schedule; false: manual only

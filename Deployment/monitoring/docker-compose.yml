@@ -1,0 +1,27 @@
+# Local stack for drafting the dashboards: Prometheus (scrapes the mock, evaluates the alert
+# rules) and Grafana (provisioned with the data source and the dashboard). Phase 2 only; in
+# Phase 3 metrics go Cloud Run sidecar -> Managed Service for Prometheus -> Grafana (v4 section 6).
+#
+#   1. python mock_service.py --host 0.0.0.0 --port 8000 --textfile-dir ../../Data-Pipeline/reports/canary
+#   2. docker compose up -d
+#   3. Prometheus: http://localhost:9090 (Status > Rules, Alerts). Grafana: http://localhost:3000
+#      (admin / admin), dashboard "Distillate: service, canary and drift".
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    ports: ["9090:9090"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # the mock runs on the host
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+    volumes:
+      - ./grafana/provisioning/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./grafana/provisioning/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro

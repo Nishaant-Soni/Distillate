@@ -172,6 +172,9 @@ def run(cfg: dict[str, Any], stage: str) -> dict[str, Any]:
             df = wikipedia_frame(max(1, n // 4), seed, "wiki_test")
             df["id"] = df["id"] + "_obf"
             _write(df, processed / "obfuscation.parquet", summary)
+        elif stage == "drift_baseline":
+            # The baseline needs real training text to mean anything; record the gap.
+            summary["note"] = "no drift baseline written by the stub; scripts.drift builds it"
         elif stage == "schema_stats":
             # A stub cannot produce a real TFDV schema; Sai's --infer mode does
             # that once and commits the result. Record the gap instead of faking it.
@@ -193,6 +196,14 @@ def run(cfg: dict[str, Any], stage: str) -> dict[str, Any]:
                     with atomic_path(train) as tmp:
                         df.to_parquet(tmp, index=False)
                 summary["sample_weight_rows"] = len(df)
+        elif stage == "validate_teacher_shards":
+            # There are no shards to check without the store; the real stage skips the
+            # same way when it can't reach it.
+            summary["skipped"] = True
+            summary["note"] = "stub validated no shards; scripts.validate_teacher_shards does"
+        elif stage == "merge_teacher_labels":
+            summary["skipped"] = True
+            summary["note"] = "no teacher_labels.parquet written by the stub"
         else:
             raise ValueError(f"No stub defined for stage {stage!r}")
 

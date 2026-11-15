@@ -64,6 +64,16 @@ def load_eval_tables(p: Mapping[str, Any]):
                      with_teacher=False, tables=tuple(p["tables"]))
 
 
+def sample_tables(tables: Mapping[str, Any], limit: int | None, seed: int) -> dict[str, Any]:
+    """A seeded sample of at most ``limit`` rows from each table (all rows when ``limit`` is
+    unset). For quick runs such as the CI smoke run: scoring the full gate and bias sets on CPU
+    takes over half an hour."""
+    if not limit:
+        return dict(tables)
+    return {name: t if len(t) <= int(limit) else t.sample(n=int(limit), random_state=seed)
+            for name, t in tables.items()}
+
+
 def eval_metrics(run_dir: Path) -> dict[str, Any]:
     """Every metric for each prediction file against its gold file, at the tuned thresholds."""
     from src.eval.metrics import evaluate, load_thresholds, read_frame, to_jsonable
@@ -141,7 +151,10 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
         (run_dir / name).write_text(json.dumps(record, indent=2, default=str) + "\n")
 
     write()
-    tables = {TABLE_STEMS[k]: v for k, v in loaded.tables.items()}
+    tables = {TABLE_STEMS[k]: v for k, v in
+              sample_tables(loaded.tables, p.get("eval_limit"), cfg["seed"]).items()}
+    if p.get("eval_limit"):
+        record["data"]["scored_rows"] = {k: len(v) for k, v in tables.items()}
 
     # 3. Validate: prediction files, gold files, metrics.
     record["scoring"] = step("score", lambda: score_run(

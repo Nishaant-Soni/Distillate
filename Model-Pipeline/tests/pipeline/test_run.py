@@ -194,3 +194,41 @@ def test_truncation_sweep_writes_one_file_per_length(two_runs):
     assert sorted(written) == ["16", "8"]
     table = truncation(run_dir)
     assert list(table) == ["8", "16"] and 0 <= table["8"]["mean_auc"] <= 1
+
+
+def test_a_mount_that_refuses_permission_changes(tmp_path, monkeypatch):
+    """Vertex's /gcs mount refuses chmod, so shutil.copy fails there; the whole pipeline must
+    still finish. Also checks ``pipeline.eval_limit``, which the CI smoke run uses."""
+    import shutil
+
+    from src.pipeline.run import run
+    from src.student.synthetic import build
+
+    def refused(*args, **kwargs):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(shutil, "copymode", refused)
+    monkeypatch.setattr(shutil, "copystat", refused)
+    build(tmp_path, n=400)
+    data = write_eval_tables(tmp_path)
+    record = run(smoke_cfg(tmp_path, *FAST, f"pipeline.data_dir={data}",
+                           "pipeline.eval_limit=50", "pipeline.plots=false"))
+    assert [k for k in record["errors"] if not k.endswith("_traceback")] == []
+    assert record["package"]["status"] == "ok"
+    assert record["data"]["scored_rows"] == {"gate": 50, "h2_eval": 50, "bias_eval": 50,
+                                             "obfuscation": 30}
+    run_dir = Path(record["run_dir"])
+    for stem in ("gate", "bias_eval"):
+        pred = pd.read_parquet(run_dir / "predictions" / f"{stem}.parquet")
+        gold = pd.read_parquet(run_dir / "gold" / f"{stem}.parquet")
+        assert len(pred) == 50 and list(pred["id"]) == list(gold["id"])
+
+
+def test_sample_tables_is_seeded_and_keeps_small_tables():
+    from src.pipeline.run import sample_tables
+
+    tables = {"big": pd.DataFrame({"id": range(100)}), "small": pd.DataFrame({"id": range(5)})}
+    first, again = sample_tables(tables, 10, seed=42), sample_tables(tables, 10, seed=42)
+    assert len(first["big"]) == 10 and list(first["big"]["id"]) == list(again["big"]["id"])
+    assert first["small"] is tables["small"]
+    assert sample_tables(tables, None, seed=42)["big"] is tables["big"]

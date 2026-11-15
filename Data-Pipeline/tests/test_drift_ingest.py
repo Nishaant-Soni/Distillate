@@ -5,6 +5,7 @@ import json
 import pandas as pd
 import pytest
 
+from scripts import drift
 from scripts import drift_ingest as di
 from scripts.columns import LABELS
 from scripts.errors import DriftBatchError
@@ -24,6 +25,8 @@ def make_batch(k, n=4):
 
 
 def setup(tmp_path, n_batches=2, n=4):
+    train = make_batch(99, n=20)  # a tiny "training set" for the drift baseline
+    train.to_parquet(tmp_path / "train.parquet", index=False)
     batches = tmp_path / "drift"
     batches.mkdir()
     manifest_rows = []
@@ -32,14 +35,24 @@ def setup(tmp_path, n_batches=2, n=4):
         batch.to_parquet(batches / f"batch_{k:02d}.parquet", index=False)
         manifest_rows += [{"id": i, "batch": k} for i in batch["id"]]
     pd.DataFrame(manifest_rows).to_csv(tmp_path / "civil_drift_ids.csv", index=False)
-    return {"drift_ingest": {
-        "batches_dir": str(batches), "manifest": str(tmp_path / "civil_drift_ids.csv"),
-        "n_batches": n_batches, "batch_size": n,
-        "state_file": str(tmp_path / "reports" / "state.json"),
-        "reports_dir": str(tmp_path / "reports"), "service_url": None,
-        "mock_threshold": 0.5, "low_confidence_margin": 0.1,
-        "eval_labels": ["toxicity", "obscene", "threat", "insult", "identity_attack"],
-    }}
+    return {
+        "paths": {"processed_dir": str(tmp_path)},
+        "drift": {
+            "baseline_source": str(tmp_path / "train.parquet"),
+            "baseline_file": str(tmp_path / "monitoring" / "drift_baseline.json"),
+            "psi_bins": 10, "vocab_min_count": 1, "psi_warn": 0.1,
+            "psi_alert": 0.25, "psi_epsilon": 0.0001,
+        },
+        "drift_ingest": {
+            "batches_dir": str(batches), "manifest": str(tmp_path / "civil_drift_ids.csv"),
+            "n_batches": n_batches, "batch_size": n,
+            "state_file": str(tmp_path / "reports" / "state.json"),
+            "reports_dir": str(tmp_path / "reports"), "service_url": None,
+            "mock_threshold": 0.5, "low_confidence_margin": 0.1,
+            "eval_labels": ["toxicity", "obscene", "threat", "insult", "identity_attack"],
+            "reference_flag_rate": None, "build_baseline_if_missing": True,
+        },
+    }
 
 
 def test_runs_one_batch_per_run_and_evaluates_the_previous_one(tmp_path):
@@ -119,3 +132,30 @@ def test_finished_stream_evaluates_the_last_batch_once(tmp_path):
     assert final["batch"] == 1 and final["toxicity"]["positives"] == 2  # but batch 1 is evaluated
     assert (tmp_path / "reports" / "batch_01_final_metrics.json").exists()
     assert di.run(cfg)["skipped"] is True  # and later runs don't redo it
+
+
+def test_drift_step_records_input_psi(tmp_path):
+    cfg = setup(tmp_path)
+    di.run(cfg)
+    record = json.loads((tmp_path / "reports" / "batch_00.json").read_text())
+    assert set(record["drift"]["features"]) == set(drift.INPUT_FEATURES)
+    assert record["drift"]["status"] in {"ok", "warn", "alert"}
+
+
+def test_flag_rate_drift_is_unknown_without_a_reference(tmp_path):
+    cfg = setup(tmp_path)
+    di.run(cfg)
+    record = json.loads((tmp_path / "reports" / "batch_00.json").read_text())
+    assert record["flag_rate_drift"]["status"] == "unknown"
+
+
+def test_missing_baseline_fails_clearly(tmp_path):
+    cfg = setup(tmp_path)
+    cfg["drift_ingest"]["build_baseline_if_missing"] = False
+    with pytest.raises(FileNotFoundError, match="drift baseline"):
+        di.run(cfg)
+
+
+def test_zero_latency_is_kept():
+    predictions = di.score_batch(make_batch(0), di.MockService(threshold=0.5, margin=0.1))
+    assert (predictions["latency_ms"] == 0.0).all()  # the mock reports 0.0

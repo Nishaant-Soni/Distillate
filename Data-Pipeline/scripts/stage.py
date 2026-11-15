@@ -34,9 +34,12 @@ STAGE_MODULES: dict[str, str] = {
     "split": "scripts.split",                # Sai
     "subsets": "scripts.subsets",            # Sai
     "obfuscate": "scripts.obfuscate",        # Sai
+    "drift_baseline": "scripts.drift_baseline",  # Sai
     "schema_stats": "scripts.schema_stats",  # Sai
     "anomalies": "scripts.anomalies",        # Sai
     "bias": "scripts.bias",                  # Ruchita
+    "validate_teacher_shards": "scripts.validate_teacher_shards",  # Praniti (Phase 2)
+    "merge_teacher_labels": "scripts.merge_teacher_labels",        # Praniti (Phase 2)
 }
 
 # Stages whose stub writes under a different name than the stage itself.

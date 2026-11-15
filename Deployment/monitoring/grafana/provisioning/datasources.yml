@@ -1,0 +1,11 @@
+# Grafana provisioning for the local draft stack (docker-compose.yml): the Prometheus data
+# source, with the fixed uid the dashboard JSON points at, and the dashboard folder.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
