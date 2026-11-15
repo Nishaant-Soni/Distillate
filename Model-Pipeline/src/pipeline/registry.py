@@ -30,16 +30,18 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
 
 
 def client(tracking_uri: str | None = None):
-    """An ``MlflowClient`` for ``tracking_uri``, else ``MLFLOW_TRACKING_URI``."""
-    import mlflow
+    """An ``MlflowClient`` for ``tracking_uri``, else ``MLFLOW_TRACKING_URI``.
+
+    The URI is passed to the client only. ``mlflow.set_tracking_uri`` would also write it into
+    the environment, where it outlives the client: later code in the same process (tests
+    especially) would then log to this store instead of its own.
+    """
     from mlflow import MlflowClient
 
     uri = tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
     if not uri:
         raise RuntimeError("No MLflow server: set MLFLOW_TRACKING_URI (and the username and "
                            "password variables) or pass --tracking-uri")
-    mlflow.set_tracking_uri(uri)
-    mlflow.set_registry_uri(uri)
     return MlflowClient(tracking_uri=uri, registry_uri=uri)
 
 

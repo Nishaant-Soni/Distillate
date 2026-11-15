@@ -96,6 +96,24 @@ def check_gate(report_path: Path, meta: dict[str, Any]) -> dict[str, Any]:
 # MLflow and Artifact Registry
 # ---------------------------------------------------------------------------
 
+def _run_logged_from(mlflow_client, kaggle_run_id: str) -> str | None:
+    """The server run copied from another store's run ``kaggle_run_id``, if there is one.
+
+    Runs trained on Kaggle were logged to a local store there and copied to the team server
+    later (src/student/mlflow_log.py), which gives them a new id and keeps the old one in the
+    ``kaggle_run_id`` tag. A package's meta.json still names the old id.
+    """
+    ids = [e.experiment_id for e in mlflow_client.search_experiments()]
+    if not ids:
+        return None
+    found = mlflow_client.search_runs(ids, f"tags.kaggle_run_id = '{kaggle_run_id}'",
+                                      max_results=2)
+    if len(found) > 1:
+        logger.warning("%d runs carry kaggle_run_id %s; using %s", len(found), kaggle_run_id,
+                       found[0].info.run_id)
+    return found[0].info.run_id if found else None
+
+
 def _training_run(mlflow_client, meta: dict[str, Any]) -> str:
     """The run that trained this package, or a new registry run when it isn't on the server."""
     from mlflow.exceptions import MlflowException
@@ -106,6 +124,10 @@ def _training_run(mlflow_client, meta: dict[str, Any]) -> str:
             mlflow_client.get_run(run_id)
             return run_id
         except MlflowException:
+            copied = _run_logged_from(mlflow_client, run_id)
+            if copied:
+                logger.info("training run %s is on this server as %s", run_id, copied)
+                return copied
             logger.warning("training run %s is not on this server; logging to %s", run_id,
                            REGISTRY_EXPERIMENT)
     experiment = mlflow_client.get_experiment_by_name(REGISTRY_EXPERIMENT)

@@ -126,6 +126,17 @@ def version_table(mlflow_client, name: str) -> str:
     return "\n".join(rows)
 
 
+def describe_move(name: str, summary: dict[str, Any]) -> tuple[str, str]:
+    """Slack level and title for an alias move: a first assignment or a move to a newer
+    version is a promotion; only a move to an older version is a rollback."""
+    alias, old, new = summary["alias"], summary["from"], summary["to"]
+    if old is None:
+        return "ok", f"Set {name} @{alias} to v{new}"
+    if int(new) > int(old):
+        return "ok", f"Promoted {name} @{alias}: v{old} → v{new}"
+    return "warn", f"Rolled back {name} @{alias}: v{old} → v{new}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -157,9 +168,9 @@ def main(argv: list[str] | None = None) -> int:
         notify(cfg, "fail", f"Rollback of @{alias} refused", {"reason": str(exc)})
         return 1
     if summary["changed"]:
-        notify(cfg, "warn", f"Rolled back {name} @{alias}: v{summary['from']} → "
-               f"v{summary['to']}", {"model_version": summary["model_version"],
-                                     "reason": summary["reason"] or "not given"})
+        level, title = describe_move(name, summary)
+        notify(cfg, level, title, {"model_version": summary["model_version"],
+                                   "reason": summary["reason"] or "not given"})
     else:
         logger.info("@%s already points at v%s; nothing to do", alias, summary["to"])
     print(json.dumps(summary, indent=2))

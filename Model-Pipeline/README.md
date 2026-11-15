@@ -416,6 +416,8 @@ One registered model, **`distillate-student`**, with the aliases **`staging`** (
 
 It then creates the version with lineage tags (`model_version`, `code_commit`, `training_data_sha256`, `teacher_version`, α, T, the gate's mean AUC and more), uploads the package to Artifact Registry (`distillate-models`, generic package `distillate-student`) and sets `@staging` **last**, only after both succeed. If the upload fails, the version is tagged `ar_upload=failed`, gets no alias, and rerunning the command retries the upload on the same version; a model already published is never registered twice. Every outcome posts to Slack.
 
+**Registered so far (Nov 15):** **v1** is the selected student, `distilbert-mixed-5ep` (`student-distilbert-mixed-5ep-20261112T210931Z`, section 3.4). It is linked to its training run on the server (`ab34619a…`, found through its `kaggle_run_id` tag), published in Artifact Registry as `distillate-student` version 1, and holds `@staging` and `@production`. Its prediction files are logged with it, so from now on CI's regression check compares every candidate against it.
+
 ### 5.3 Rollback (`src/pipeline/rollback_model.py`)
 
 Rollback moves an alias; it never deletes or retrains anything, so it takes seconds and can itself be undone.

@@ -55,6 +55,11 @@ What it checks before registering anything:
 * **The gate report passed** (`passed: true`) **for this exact model:** its `model_version` must
   equal the one in `meta.json`. A blocked model is never registered.
 
+**The training run:** the version links to the run named by `meta.json`'s `mlflow_run_id`. A run
+trained on Kaggle was copied to the server later with a new id and its old one in the
+`kaggle_run_id` tag, so that tag is searched next. Only if neither exists is a run created
+in `distillate-registry`.
+
 The order matters. The version is created first, then the package is uploaded to Artifact
 Registry, and only after both succeed does `@staging` move to the new version. If the upload
 fails, the version is tagged `ar_upload=failed`, keeps no alias, and the command exits 1. The

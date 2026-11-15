@@ -260,6 +260,28 @@ def test_unknown_training_run_gets_a_registry_run(cfg, store, tmp_path):
     assert experiment.name == reg.REGISTRY_EXPERIMENT
 
 
+def test_client_leaves_the_environment_alone(tmp_path, monkeypatch):
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    registry.client(f"sqlite:///{tmp_path / 'm.db'}")
+    import os
+
+    assert "MLFLOW_TRACKING_URI" not in os.environ
+
+
+def test_a_run_copied_from_kaggle_is_found_by_its_kaggle_id(cfg, store, tmp_path):
+    """meta.json names the Kaggle store's run id; the copy on the server has a new id and
+    keeps the old one in tags.kaggle_run_id (src/student/mlflow_log.py)."""
+    experiment = store.get_experiment_by_name("distillate-student")
+    copy = store.create_run(experiment.experiment_id, run_name="copied",
+                            tags={"kaggle_run_id": "a" * 32})
+    package = make_package(tmp_path / "runs", "student-a", "a" * 32)
+    report = make_report(tmp_path / "gate", "student-a")
+    summary = reg.register(cfg, package, report, store, runner=FakeRunner())
+    assert summary["run_id"] == copy.info.run_id
+    registry_experiment = store.get_experiment_by_name(reg.REGISTRY_EXPERIMENT)
+    assert store.search_runs([registry_experiment.experiment_id]) == []
+
+
 def test_deleted_registry_experiment_is_restored(cfg, store, tmp_path):
     store.delete_experiment(store.get_experiment_by_name(reg.REGISTRY_EXPERIMENT).experiment_id)
     package = make_package(tmp_path / "runs", "student-a", None)
@@ -360,6 +382,15 @@ def test_same_version_is_a_no_op(versions):
 def test_exactly_one_target(versions):
     with pytest.raises(rb.RollbackError, match="exactly one"):
         rb.move_alias(versions, NAME, "production", to="1", previous=True)
+
+
+def test_only_a_move_to_an_older_version_is_called_a_rollback():
+    move = {"alias": "production"}
+    assert rb.describe_move(NAME, {**move, "from": None, "to": "1"}) == (
+        "ok", f"Set {NAME} @production to v1")
+    assert rb.describe_move(NAME, {**move, "from": "1", "to": "2"})[1].startswith("Promoted")
+    assert rb.describe_move(NAME, {**move, "from": "3", "to": "2"}) == (
+        "warn", f"Rolled back {NAME} @production: v3 → v2")
 
 
 def test_version_table_lists_aliases_and_gate(versions):
