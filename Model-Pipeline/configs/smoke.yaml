@@ -135,6 +135,7 @@ pipeline:
   data_dir: null
   data_rev: null
   tables: [gate, h2, bias, obfuscation]
+  eval_limit: null          # score at most N seeded rows per table (quick runs); null = all
   gate_config: configs/gate.yaml
   score_batch_size: 64
   latency: true

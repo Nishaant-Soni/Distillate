@@ -29,6 +29,11 @@ nothing would fail. MLflow would fall back to a local `mlruns/` in the container
 runner, the regression check would find no production model, and a passing gate would
 "register" into a throwaway store. So the first job stops the run, naming what is missing.
 
+**Writing to `/gcs`:** the bucket mount refuses permission changes and the ONNX exporter's
+external-data writes. So outputs there are copied with `shutil.copyfile` (not `copy` or
+`copy2`, which also set permissions), and the package is built in a local temporary folder
+and then copied into the run folder.
+
 ## The training job
 
 The job runs the student lane's entry point, `src.pipeline.run` (the `Model-Pipeline/Dockerfile`
@@ -43,8 +48,9 @@ python -m src.pipeline.run --config configs/student.yaml --set <overrides> \
 ```
 
 * **Smoke overrides** (`SMOKE_OVERRIDES` in the workflow): gold-only MiniLM, maximum length 64,
-  2,000 training rows, one epoch, CPU, the package on, and only the gate and bias sets scored.
-  This takes minutes, and the gate is expected to block it, so a blocked smoke run is a
+  2,000 training rows, one epoch, CPU, the package on, and only the gate and bias sets scored,
+  on a seeded sample of 5,000 rows each (`pipeline.eval_limit`). The gate is expected to
+  block it, so a blocked smoke run is a
   warning (yellow in Slack), not a failure. A manual run can pass its own
   `overrides`, for example the selected recipe, to train a real candidate. A blocked real
   candidate fails the run.
@@ -116,7 +122,11 @@ and writes stay limited to the prefixes above.
 ## Cost
 
 * Each run uses one `n1-standard-4` for the length of the job, about $0.19 an hour.
-* The smoke config takes minutes, so a run costs cents.
+* **How long a smoke run takes.** The first run (Nov 15, before `eval_limit`) took about 66
+  minutes on Vertex: about 16 for start-up and the data fetch, 13 for training (which also
+  scores the full validation set), and 35 for scoring all 64k gate and 21.5k bias rows on CPU.
+  With 5,000-row samples, scoring takes a few minutes, so a run should take about 35 minutes,
+  roughly $0.11. It runs on every push to `main` that touches model code or configs.
 * Images older than 7 days are deleted (the latest 3 are always kept).
 * The `ci/<run>/` outputs are small.
 * The workflow runs only when model code changes, or by hand.

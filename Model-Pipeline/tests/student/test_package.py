@@ -110,3 +110,22 @@ def test_a_failed_package_build_keeps_the_run_and_records_the_error(tmp_path, mo
     assert on_disk["package"]["status"] == "failed" and on_disk["best_val_mean_auc"] > 0
     for name in ("metrics.json", "model/thresholds.json", "predictions/val.parquet"):
         assert (run_dir / name).exists(), name
+
+
+def test_the_package_is_built_locally_then_copied(packaged, tmp_path, monkeypatch):
+    """The ONNX export never writes into ``out``: on Vertex that is the /gcs mount, where the
+    exporter's external-data writer is refused."""
+    from src.student import package
+
+    exported, real = [], package.export_onnx
+
+    def recording(model, tokenizer, path, *args, **kwargs):
+        exported.append(Path(path))
+        return real(model, tokenizer, path, *args, **kwargs)
+
+    monkeypatch.setattr(package, "export_onnx", recording)
+    out = tmp_path / "mounted" / "package"
+    meta = build_package(packaged["run_dir"], out)
+    assert exported and out not in exported[0].parents
+    copied = {p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file()}
+    assert verify_package(out) == [] and copied == {*meta["files"], "meta.json"}

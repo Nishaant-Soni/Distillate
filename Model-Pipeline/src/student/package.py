@@ -23,6 +23,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -143,7 +144,33 @@ def parity(model, tokenizer, onnx_path: str | Path, texts: Sequence[str],
 def build_package(run_dir: str | Path, out: str | Path,
                   settings: Mapping[str, Any] | None = None,
                   texts: Sequence[str] | None = None) -> dict[str, Any]:
-    """Build the §2.5 package from ``<run_dir>/model`` into ``out``; return its meta.json."""
+    """Build the §2.5 package from ``<run_dir>/model`` into ``out``; return its meta.json.
+
+    The package is built in a local temporary folder and then copied to ``out``. The ONNX
+    exporter's external-data writer is refused (Permission denied) on a mounted bucket such as
+    Vertex's ``/gcs``, and copying file contents only (``copyfile``) works there.
+    """
+    with tempfile.TemporaryDirectory(prefix="package-") as tmp:
+        stage = Path(tmp) / "package"
+        meta = _build(run_dir, stage, settings, texts)
+        out = Path(out)
+        if out.exists():
+            shutil.rmtree(out)
+        for src in sorted(stage.rglob("*")):
+            target = out / src.relative_to(stage)
+            if src.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, target)
+    logger.info("package %s: %d files, ONNX parity %.2e", out, len(meta["files"]),
+                meta["onnx"]["parity"]["max_abs_logit_diff"])
+    return meta
+
+
+def _build(run_dir: str | Path, out: Path, settings: Mapping[str, Any] | None,
+           texts: Sequence[str] | None) -> dict[str, Any]:
+    """Build the package into ``out``, a fresh local folder (``build_package`` copies it)."""
     from src.student.model import load_trained
 
     s = {**DEFAULTS, **(settings or {})}
@@ -163,9 +190,6 @@ def build_package(run_dir: str | Path, out: str | Path,
     if names != LABELS:
         raise ValueError(f"{model_dir}: model outputs {list(names)}, expected {list(LABELS)}")
 
-    out = Path(out)
-    if out.exists():
-        shutil.rmtree(out)
     (out / "tokenizer").mkdir(parents=True)
     export = export_onnx(model, tokenizer, out / "model.onnx", int(s["opset"]))
     # The given texts (validation comments, when training builds the package) plus the
@@ -178,9 +202,9 @@ def build_package(run_dir: str | Path, out: str | Path,
         raise ValueError(f"ONNX parity failed: max |logit diff| {check['max_abs_logit_diff']:.2e}"
                          f" above {check['limit']:.0e}")
     tokenizer.save_pretrained(out / "tokenizer")
-    shutil.copy(model_dir / "thresholds.json", out / "thresholds.json")
+    shutil.copyfile(model_dir / "thresholds.json", out / "thresholds.json")
     if (model_dir / "thresholds_report.json").exists():
-        shutil.copy(model_dir / "thresholds_report.json", out / "thresholds_report.json")
+        shutil.copyfile(model_dir / "thresholds_report.json", out / "thresholds_report.json")
 
     files = {p.relative_to(out).as_posix(): sha256_file(p)
              for p in sorted(out.rglob("*")) if p.is_file()}
@@ -196,8 +220,6 @@ def build_package(run_dir: str | Path, out: str | Path,
         "files": files, "source_run": str(Path(run_dir).name),
     }
     (out / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
-    logger.info("package %s: %d files, ONNX parity %.2e", out, len(files),
-                check["max_abs_logit_diff"])
     return meta
 
 
