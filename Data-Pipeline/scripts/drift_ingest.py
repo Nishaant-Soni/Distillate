@@ -4,9 +4,11 @@ Each run of drift_ingest_dag handles the next batch of data/processed/civil/drif
 
 1. release: read batch_k, check its schema, its size, and that its ids are exactly batch k of
    data/splits/civil_drift_ids.csv;
-2. drift: drift statistics for the batch (a stub until Sai's src/monitoring/drift.py is merged);
-3. score: send every comment through the serving API (v4 section 2.4) and store the responses
-   without the text: id, text_sha256, char_len and scores only;
+2. drift: PSI of the batch's length, OOV rate and non-alphabetic share against the training
+   baseline (scripts/drift.py);
+3. score: send every comment through the serving API (v4 section 2.4), store the responses
+   without the text (id, text_sha256, char_len and scores only), and compute flag-rate drift
+   (status unknown until a Civil reference rate is configured)
 4. evaluate: attach the gold labels to the previous batch's predictions (the "delayed" labels)
    and export its AUC and F1 per label;
 5. overrides: merge the moderation queue's overrides (a stub until the GCS feedback log exists).
@@ -30,6 +32,7 @@ import pandas as pd
 import requests
 from sklearn.metrics import f1_score, roc_auc_score
 
+from scripts import drift
 from scripts.columns import LABELS
 from scripts.errors import DriftBatchError
 from scripts.utils import PIPELINE_ROOT, atomic_write, get_logger, load_config, timed
@@ -136,18 +139,6 @@ def release_batch(dcfg: dict[str, Any], k: int) -> pd.DataFrame:
     return batch
 
 
-def compute_drift(batch: pd.DataFrame) -> dict[str, Any]:
-    """Basic batch statistics. TODO: call Sai's src/monitoring/drift.py (PSI) once merged."""
-    return {
-        "status": "stub: src/monitoring/drift.py not merged yet",
-        "mean_char_len": float(batch["char_len"].mean()) if "char_len" in batch else None,
-        "obfuscation_share": (float(batch["has_obfuscation"].mean())
-                              if "has_obfuscation" in batch else None),
-        "date_min": str(batch["created_date"].min()),
-        "date_max": str(batch["created_date"].max()),
-    }
-
-
 def score_batch(batch: pd.DataFrame, service) -> pd.DataFrame:
     """Every comment through the service. The result holds no text, only its hash."""
     rows = []
@@ -161,7 +152,8 @@ def score_batch(batch: pd.DataFrame, service) -> pd.DataFrame:
             "model_version": response["model_version"],
             "flag": bool(response["flag"]),
             "low_confidence": bool(response["low_confidence"]),
-            "latency_ms": response.get("latency_ms") or (time.perf_counter() - started) * 1000,
+            "latency_ms": (response["latency_ms"] if response.get("latency_ms") is not None
+                           else (time.perf_counter() - started) * 1000),
         }
         for label in LABELS:
             row[f"score_{label}"] = float(response["scores"][label])
@@ -259,10 +251,14 @@ def step_release(cfg: dict[str, Any]) -> bool:
 
 
 def step_drift(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Input drift of the batch against the training baseline (scripts/drift.py)."""
     dcfg = cfg["drift_ingest"]
     _, k = _current(dcfg)
+    baseline = drift.load_baseline(
+        cfg, build_if_missing=bool(dcfg.get("build_baseline_if_missing", False))
+    )
     work = _load_work(dcfg, k)
-    work["drift"] = compute_drift(release_batch(dcfg, k))
+    work["drift"] = drift.input_drift(release_batch(dcfg, k), baseline, cfg)
     _save_work(dcfg, k, work)
     return work["drift"]
 
@@ -274,11 +270,19 @@ def step_score(cfg: dict[str, Any]) -> dict[str, Any]:
     path = _pred_path(dcfg, k)
     path.parent.mkdir(parents=True, exist_ok=True)
     predictions.to_parquet(path, index=False)
+    # On Civil, the flag for flag-rate drift comes from the five evaluated labels
+    # (no severe_toxicity, v4 section 2.2), as scripts/drift.py expects.
+    civil_flag = predictions[[f"flagged_{label}" for label in dcfg["eval_labels"]]].any(axis=1)
     work = _load_work(dcfg, k)
     work.update({
         "model_version": predictions["model_version"].iloc[0],
+        # The service's flag (all six labels; ~98% on the mock). flag_rate_drift below uses the
+        # five evaluated Civil labels instead, so the two rates aren't comparable.
         "flag_rate": float(predictions["flag"].mean()),
         "mean_latency_ms": float(np.mean(predictions["latency_ms"])),
+        "flag_rate_drift": drift.flag_rate_drift(
+            predictions.assign(flag=civil_flag), dcfg.get("reference_flag_rate"), cfg
+        ),
     })
     _save_work(dcfg, k, work)
     return {"batch": k, "flag_rate": work["flag_rate"]}

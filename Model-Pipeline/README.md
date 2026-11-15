@@ -215,7 +215,7 @@ Compares the four score sources with the gold labels on train + validation (153,
 - **Identity mention:** the stack's ranking holds up best on comments that mention an identity term (AUC drop 0.016 vs 0.057 for raw Qwen). At thresholds matched to the same overall false-alarm rate, every source flags clean identity-mentioning comments 2.3–4.1× as often as other clean comments (at 1%: stack 2.9×, raw Qwen 3.7×). The stack's skew is somewhat smaller than raw Qwen's, but substantial for every source, so the student's bias check should watch this slice. (A fixed 0.5 comparison would mix calibration with bias.)
 - **Truncation (distilbert-base-uncased):** 18.3% of comments exceed 128 tokens (11.2% of toxic ones) and 6.4% exceed 256 (4.1%), consistent with the sweep's choice of `max_length = 256`.
 
-### 2.5 Drift ingestion skeleton (`Data-Pipeline/dags/drift_ingest_dag.py`)
+### 2.5 Drift ingestion (`Data-Pipeline/dags/drift_ingest_dag.py`)
 
 `drift_ingest_dag` releases the Civil drift stream (20 time-ordered batches of 2,000) one batch per run, as six tasks:
 
@@ -224,19 +224,21 @@ Compares the four score sources with the gold labels on train + validation (153,
 | Task | Phase 2 (now) | Phase 3 |
 |---|---|---|
 | `release_batch` | checks batch k's schema, size and ids against `civil_drift_ids.csv`; once all 20 are done, evaluates the last batch (once) and skips the rest | same |
-| `compute_drift` | basic statistics (stub) | `Data-Pipeline/scripts/drift.py` (PSI; section 6.1) |
-| `score_batch` | `POST /predict` (v4 §2.4) against a mock with the same response format; stores ids, text hashes and scores, never text | the live endpoint (`drift_ingest.service_url`), with batched or parallel requests and per-request retries |
+| `compute_drift` | PSI of length, out-of-vocabulary rate and non-alphabetic share against the Wikipedia-train baseline (`Data-Pipeline/scripts/drift.py`, section 6.1) | adds a second reference from the first Civil batch |
+| `score_batch` | `POST /predict` (v4 §2.4) against a mock with the same response format; stores ids, text hashes and scores, never text; plus flag-rate drift (status unknown until a Civil reference rate is set) | the live endpoint (`drift_ingest.service_url`), with batched or parallel requests and per-request retries |
 | `evaluate_previous` | AUC and F1 per label for the previous batch, with its delayed gold labels | same |
 | `merge_overrides` | stub | moderation-queue overrides from the GCS feedback log |
 | `finish_batch` | writes the batch record and moves the stream on | same, with the stream state kept in GCS |
 
-The DAG is created paused and is scheduled only when `drift_ingest.enabled` is true (`schedule: demo` every 5 minutes, `real` weekly), so it never advances the stream by itself. Run one batch outside Airflow with `python -m scripts.drift_ingest` (from `Data-Pipeline/`). Outputs go to `Data-Pipeline/reports/drift/` (git-ignored). Rare labels have very few positives per batch (for example 4 threats in 2,000), so per-batch AUCs for them are noisy.
+The DAG is created paused and is scheduled only when `drift_ingest.enabled` is true (`schedule: demo` every 5 minutes, `real` weekly), so it never advances the stream by itself. Run one batch outside Airflow with `python -m scripts.drift_ingest` (from `Data-Pipeline/`). Outputs go to `Data-Pipeline/reports/drift/` (git-ignored). Rare labels have very few positives per batch (for example 4 threats in 2,000), so per-batch AUCs for them are noisy. The mock's scores carry no signal, so with six labels each flagged about half the time it flags about 98% of comments (1 − 0.5⁶): a plumbing artefact, not a real flag rate.
+
+On the real data, batch 0 gives input drift `warn` (length PSI 0.013, OOV 0.083, non-alpha 0.137): the Wikipedia-to-Civil shift described in section 6.1, not a change within the stream.
 
 ### 2.6 Tests
 
 - `Data-Pipeline/tests/test_validate_teacher_shards.py` (8) and `test_merge_teacher_labels.py` (7): the teacher lane's fixtures (valid shards pass, a broken one gives exactly one error), wrong fingerprints, unreachable store and missing package, the contract table, TF-IDF manifest mismatches, missing soft labels, and failed, skipped or missing validation reports.
 - `Model-Pipeline/tests/data/test_load_data.py`: every table, teacher columns only on train/val, missing teacher scores per column, `tables=`, the two hashes, a missing file, and `rev=` through a stubbed DVC.
-- `Data-Pipeline/tests/test_drift_ingest.py` (8): one batch per run and evaluation of the previous one, the last batch evaluated once the stream is finished, no text in predictions, the §2.4 response format, flags and `low_confidence`, wrong ids, missing columns, a missing batch file.
+- `Data-Pipeline/tests/test_drift_ingest.py` (12): one batch per run and evaluation of the previous one, the last batch evaluated once the stream is finished, input and flag-rate drift recorded, a missing drift baseline, zero latency kept, no text in predictions, the §2.4 response format, flags and `low_confidence`, wrong ids, missing columns, a missing batch file.
 
 All use small made-up data and no network.
 
@@ -485,7 +487,7 @@ Each drift batch is compared with a baseline from the model's training data (Wik
 | `nonalpha_share` | share of non-space characters that aren't letters | before scoring |
 | `flag_rate` | share of comments the model flags | after scoring (`flag_rate_drift`) |
 
-Phase 3 wiring (`compute_drift` in `drift_ingest_dag` is still a stub, section 2.5):
+How `drift_ingest_dag` calls it (section 2.5):
 
 ```python
 from scripts import drift
@@ -494,6 +496,8 @@ baseline = drift.load_baseline(cfg)                        # built by data_prep_
 drift.input_drift(batch, baseline, cfg)                    # in compute_drift
 drift.flag_rate_drift(predictions, reference_rate, cfg)    # in score_batch, after scoring
 ```
+
+`reference_rate` comes from `drift_ingest.reference_flag_rate`, which is unset until a Civil reference exists, so flag-rate drift reports `unknown` for now; the flag it measures uses the five evaluated Civil labels (no `severe_toxicity`).
 
 The baseline is built by the `drift_baseline` stage of `data_prep_dag`, after `split` and before `dvc_version`, so it is versioned in the same DVC commit as the data it describes; the drift DAG only loads it, and a missing baseline is an error. It stores bin edges, shares and means, and the vocabulary as truncated BLAKE2b hashes of single words: no comment text. The file lives at `Data-Pipeline/scripts/drift.py`, not the plan's `src/monitoring/drift.py`, so it imports as `scripts.drift` like the rest of Data-Pipeline and doesn't collide with Model-Pipeline's `src` package.
 
