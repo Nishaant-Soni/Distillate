@@ -11,8 +11,10 @@ immutable, so nothing there changes.
     python -m src.pipeline.rollback_model --to 3
     python -m src.pipeline.rollback_model --to 3 --alias staging
 
-``--previous`` picks the newest version older than the current one whose gate passed. A
-version whose gate didn't pass is refused unless ``--force``. Every move is recorded as tags
+``--previous`` picks the newest version older than the current one whose gate passed and
+whose package is in Artifact Registry (``ar_upload=ok``). Any other version (no passed gate,
+upload failed, or upload skipped while Artifact Registry is on) is refused unless
+``--force``. Every move is recorded as tags
 (``<alias>_previous`` on the registered model, ``last_alias_move`` on the target) and posted
 to Slack.
 """
@@ -40,18 +42,36 @@ def all_versions(mlflow_client, name: str) -> list:
     return sorted(versions, key=lambda v: int(v.version))
 
 
-def previous_version(mlflow_client, name: str, current: str):
-    """The newest READY, gate-passed version older than ``current``."""
+def unusable_reason(version, ar_enabled: bool = True) -> str | None:
+    """Why a version can't hold an alias, or None if it can.
+
+    It needs a passed gate, and its package in Artifact Registry (``ar_upload=ok``). A
+    ``skipped`` upload counts only when Artifact Registry is off in the config (local runs);
+    on the shared setup it means the package was never published.
+    """
+    if version.status != "READY":
+        return f"v{version.version} is {version.status}, not READY"
+    if version.tags.get("gate_passed") != "true":
+        return f"v{version.version} has no passed gate on record"
+    upload = version.tags.get("ar_upload")
+    if upload == "ok" or (upload == "skipped" and not ar_enabled):
+        return None
+    return f"v{version.version} is not in Artifact Registry (ar_upload={upload or 'unknown'})"
+
+
+def previous_version(mlflow_client, name: str, current: str, ar_enabled: bool = True):
+    """The newest usable version (passed gate, published) older than ``current``."""
     older = [v for v in all_versions(mlflow_client, name)
-             if int(v.version) < int(current) and v.status == "READY"
-             and v.tags.get("gate_passed") == "true"]
+             if int(v.version) < int(current) and unusable_reason(v, ar_enabled) is None]
     if not older:
-        raise RollbackError(f"no gate-passed version of {name} older than v{current}")
+        raise RollbackError(f"no gate-passed, published version of {name} older than "
+                            f"v{current}")
     return older[-1]
 
 
 def move_alias(mlflow_client, name: str, alias: str, to: str | None = None,
-               previous: bool = False, force: bool = False, reason: str = "") -> dict[str, Any]:
+               previous: bool = False, force: bool = False, reason: str = "",
+               ar_enabled: bool = True) -> dict[str, Any]:
     """Point ``alias`` at version ``to`` (or the previous good one); return a summary."""
     from mlflow.exceptions import MlflowException
 
@@ -61,7 +81,7 @@ def move_alias(mlflow_client, name: str, alias: str, to: str | None = None,
     if previous:
         if current is None:
             raise RollbackError(f"no version holds @{alias}, so there is no previous one")
-        target = previous_version(mlflow_client, name, current.version)
+        target = previous_version(mlflow_client, name, current.version, ar_enabled)
     else:
         try:
             target = mlflow_client.get_model_version(name, str(to))
@@ -69,9 +89,9 @@ def move_alias(mlflow_client, name: str, alias: str, to: str | None = None,
             raise RollbackError(f"{name} has no version {to}") from None
         if target.status != "READY":
             raise RollbackError(f"v{to} is {target.status}, not READY")
-        if target.tags.get("gate_passed") != "true" and not force:
-            raise RollbackError(f"v{to} has no passed gate on record; use --force to move "
-                                f"@{alias} to it anyway")
+        problem = unusable_reason(target, ar_enabled)
+        if problem and not force:
+            raise RollbackError(f"{problem}; use --force to move @{alias} to it anyway")
 
     # Some stores return version numbers as int, the REST server as str: compare as str.
     from_version = str(current.version) if current else None
@@ -96,11 +116,13 @@ def version_table(mlflow_client, name: str) -> str:
     by_version: dict[str, list[str]] = {}
     for alias, version in mlflow_client.get_registered_model(name).aliases.items():
         by_version.setdefault(str(version), []).append(f"@{alias}")
-    rows = ["version  aliases               gate    model_version"]
+    rows = ["version  aliases               gate    upload   model_version"]
     for v in all_versions(mlflow_client, name):
         aliases = ",".join(sorted(by_version.get(str(v.version), []))) or "-"
         gate = {"true": "passed"}.get(v.tags.get("gate_passed"), "-")
-        rows.append(f"v{v.version:<7} {aliases:<21} {gate:<7} {v.tags.get('model_version', '')}")
+        upload = v.tags.get("ar_upload", "-")
+        rows.append(f"v{v.version:<7} {aliases:<21} {gate:<7} {upload:<8} "
+                    f"{v.tags.get('model_version', '')}")
     return "\n".join(rows)
 
 
@@ -129,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         summary = move_alias(mlflow_client, name, alias, to=args.to, previous=args.previous,
+                             ar_enabled=cfg["artifact_registry"].get("enabled", True),
                              force=args.force, reason=args.reason)
     except RollbackError as exc:
         notify(cfg, "fail", f"Rollback of @{alias} refused", {"reason": str(exc)})

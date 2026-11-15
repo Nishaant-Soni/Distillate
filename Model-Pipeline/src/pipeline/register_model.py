@@ -13,7 +13,9 @@ Runs after ``src.eval.gate`` in CI (model-ci.yml) and in retrain_dag. In order:
 
 If the upload fails, the version stays registered without the alias, is tagged
 ``ar_upload=failed``, and the command exits 1, so a half-published model never becomes the
-candidate. One Slack message goes out either way (logged only, without SLACK_WEBHOOK_URL).
+candidate. Rerunning the same command reuses that version and retries the upload; a model
+already published is refused rather than registered twice. One Slack message goes out
+either way (logged only, without SLACK_WEBHOOK_URL).
 
     python -m src.pipeline.register_model --package outputs/student/<run>/model \\
         --gate-report outputs/student/<run>/gate/gate_report.json
@@ -39,6 +41,14 @@ REGISTRY_EXPERIMENT = "distillate-registry"   # for packages whose training run 
 
 class RegistrationError(RuntimeError):
     """The package or gate report can't be registered; the message says why."""
+
+
+class UnpublishedError(RegistrationError):
+    """The version exists in MLflow but its Artifact Registry upload failed: no alias set."""
+
+    def __init__(self, message: str, version: str):
+        super().__init__(message)
+        self.version = version
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +164,18 @@ def upload_package(package: Path, version: str, ar: dict[str, Any], runner=subpr
     return artifact_registry_path(ar, version)
 
 
+def existing_version(mlflow_client, name: str, model_version: str):
+    """The version already registered for ``model_version``, or None."""
+    from mlflow.exceptions import MlflowException
+
+    try:
+        versions = mlflow_client.search_model_versions(f"name = '{name}'")
+    except MlflowException:
+        return None
+    same = [v for v in versions if v.tags.get("model_version") == model_version]
+    return max(same, key=lambda v: int(v.version)) if same else None
+
+
 def register(cfg: dict[str, Any], package: Path, gate_report: Path, mlflow_client,
              upload: bool = True, alias: str | None = None, runner=subprocess.run
              ) -> dict[str, Any]:
@@ -170,21 +192,35 @@ def register(cfg: dict[str, Any], package: Path, gate_report: Path, mlflow_clien
         mlflow_client.log_artifact(run_id, str(gate_report.with_suffix(".md")), "gate")
 
     _ensure_registered_model(mlflow_client, name)
-    source = f"{mlflow_client.get_run(run_id).info.artifact_uri}/package"
-    mv = mlflow_client.create_model_version(name, source, run_id=run_id,
-                                            tags=version_tags(meta, report),
-                                            description=f"{meta['model_version']}, gate passed")
-    version = str(mv.version)
-    logger.info("registered %s version %s from run %s", name, version, run_id)
-
     ar = cfg["artifact_registry"]
+    publish = upload and ar.get("enabled", True)
+    source = f"{mlflow_client.get_run(run_id).info.artifact_uri}/package"
+    previous = existing_version(mlflow_client, name, meta["model_version"])
+    if previous is not None:
+        state = previous.tags.get("ar_upload")
+        # A retry after a failed (or skipped) upload reuses that version instead of adding a
+        # second one for the same model; a version already published is never registered twice.
+        if state == "ok" or not publish:
+            raise RegistrationError(f"{meta['model_version']} is already registered as "
+                                    f"v{previous.version} (ar_upload={state})")
+        version = str(previous.version)
+        mlflow_client.set_model_version_tag(name, version, "upload_retried", "true")
+        logger.info("retrying the upload for %s v%s (was ar_upload=%s)", name, version, state)
+    else:
+        mv = mlflow_client.create_model_version(
+            name, source, run_id=run_id, tags=version_tags(meta, report),
+            description=f"{meta['model_version']}, gate passed")
+        version = str(mv.version)
+        logger.info("registered %s version %s from run %s", name, version, run_id)
+
     ar_path = None
-    if upload and ar.get("enabled", True):
+    if publish:
         try:
             ar_path = upload_package(package, version, ar, runner)
-        except RegistrationError:
+        except RegistrationError as exc:
             mlflow_client.set_model_version_tag(name, version, "ar_upload", "failed")
-            raise
+            raise UnpublishedError(f"registered as v{version} but not published: {exc}; no "
+                                   f"alias set (rerun to retry the upload)", version) from exc
         mlflow_client.set_model_version_tag(name, version, "ar_upload", "ok")
         mlflow_client.set_model_version_tag(name, version, "ar_package", ar_path)
     else:
@@ -214,6 +250,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         summary = register(cfg, args.package, args.gate_report, client(args.tracking_uri),
                            upload=not args.no_upload, alias=args.alias)
+    except UnpublishedError as exc:
+        notify(cfg, "fail", f"Registered as v{exc.version} but not published; no alias set",
+               {"package": str(args.package), "reason": str(exc)})
+        return 1
     except RegistrationError as exc:
         notify(cfg, "fail", "Model not registered", {"package": str(args.package),
                                                      "reason": str(exc)})

@@ -185,11 +185,44 @@ def test_pytorch_weights_need_config_json(cfg, store, tmp_path):
 
 
 def test_failed_upload_leaves_no_alias(cfg, store, tmp_path):
-    with pytest.raises(reg.RegistrationError, match="permission denied"):
+    with pytest.raises(reg.UnpublishedError, match="registered as v1 but not published"):
         register(cfg, store, tmp_path, runner=FakeRunner(returncode=1))
     mv = store.get_model_version(NAME, "1")
     assert mv.tags["ar_upload"] == "failed"
     assert registry.version_by_alias(store, NAME, "staging") is None
+
+
+def test_retry_after_failed_upload_reuses_the_version(cfg, store, tmp_path):
+    package = make_package(tmp_path / "runs", "student-a", training_run(store))
+    report = make_report(tmp_path / "gate", "student-a")
+    with pytest.raises(reg.UnpublishedError):
+        reg.register(cfg, package, report, store, runner=FakeRunner(returncode=1))
+    summary = reg.register(cfg, package, report, store, runner=FakeRunner())
+    assert summary["version"] == "1"
+    assert len(store.search_model_versions(f"name = '{NAME}'")) == 1
+    mv = store.get_model_version(NAME, "1")
+    assert mv.tags["ar_upload"] == "ok" and mv.tags["upload_retried"] == "true"
+    assert str(store.get_model_version_by_alias(NAME, "staging").version) == "1"
+
+
+def test_published_model_is_not_registered_twice(cfg, store, tmp_path):
+    package = make_package(tmp_path / "runs", "student-a", training_run(store))
+    report = make_report(tmp_path / "gate", "student-a")
+    reg.register(cfg, package, report, store, runner=FakeRunner())
+    with pytest.raises(reg.RegistrationError, match="already registered as v1"):
+        reg.register(cfg, package, report, store, runner=FakeRunner())
+
+
+def test_main_slack_title_after_failed_upload(cfg, store, tmp_path, monkeypatch):
+    package = make_package(tmp_path / "runs", "student-a", training_run(store))
+    report = make_report(tmp_path / "gate", "student-a")
+    sent = []
+    monkeypatch.setattr(reg, "client", lambda _uri: store)
+    monkeypatch.setattr(reg, "upload_package", lambda *a, **k: (_ for _ in ()).throw(
+        reg.RegistrationError("Artifact Registry upload failed: denied")))
+    monkeypatch.setattr(reg, "notify", lambda cfg, level, title, details: sent.append(title))
+    assert reg.main(["--package", str(package), "--gate-report", str(report)]) == 1
+    assert sent == ["Registered as v1 but not published; no alias set"]
 
 
 def test_no_upload_registers_without_gcloud(cfg, store, tmp_path):
@@ -231,9 +264,9 @@ def test_main_exits_1_on_a_blocked_gate(cfg, store, tmp_path, monkeypatch):
 
 @pytest.fixture
 def versions(cfg, store, tmp_path):
-    """v1-v3 gate-passed, v4 without a gate record; @production on v3."""
+    """v1-v3 gate-passed and published, v4 without a gate record; @production on v3."""
     for name in ("student-a", "student-b", "student-c"):
-        register(cfg, store, tmp_path, name, upload=False)
+        register(cfg, store, tmp_path, name)
     run_id = training_run(store)
     store.create_model_version(NAME, store.get_run(run_id).info.artifact_uri, run_id=run_id,
                                tags={"model_version": "student-d"})
@@ -253,6 +286,25 @@ def test_previous_moves_production_back_one(versions):
 def test_previous_skips_versions_without_a_passed_gate(versions):
     versions.set_registered_model_alias(NAME, "production", "4")
     assert rb.move_alias(versions, NAME, "production", previous=True)["to"] == "3"
+
+
+def test_previous_skips_unpublished_versions(versions):
+    versions.set_model_version_tag(NAME, "2", "ar_upload", "failed")
+    assert rb.move_alias(versions, NAME, "production", previous=True)["to"] == "1"
+
+
+def test_unpublished_version_needs_force(versions):
+    for state in ("failed", "skipped"):
+        versions.set_model_version_tag(NAME, "2", "ar_upload", state)
+        with pytest.raises(rb.RollbackError, match=f"not in Artifact Registry.*{state}"):
+            rb.move_alias(versions, NAME, "production", to="2")
+    assert rb.move_alias(versions, NAME, "production", to="2", force=True)["to"] == "2"
+
+
+def test_skipped_upload_counts_when_artifact_registry_is_off(versions):
+    versions.set_model_version_tag(NAME, "2", "ar_upload", "skipped")
+    summary = rb.move_alias(versions, NAME, "production", previous=True, ar_enabled=False)
+    assert summary["to"] == "2"
 
 
 def test_to_any_earlier_version(versions):

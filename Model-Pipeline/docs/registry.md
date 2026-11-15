@@ -57,7 +57,12 @@ What it checks before registering anything:
 
 The order matters. The version is created first, then the package is uploaded to Artifact
 Registry, and only after both succeed does `@staging` move to the new version. If the upload
-fails, the version is tagged `ar_upload=failed`, keeps no alias, and the command exits 1.
+fails, the version is tagged `ar_upload=failed`, keeps no alias, and the command exits 1. The
+Slack message then says "Registered as vN but not published; no alias set".
+
+**Retrying** the same command after a failed upload reuses that version and retries the
+upload (tag `upload_retried=true`), so a model never gets two versions. A model already
+published is refused.
 
 Lineage tags on every version: `model_version`, `model_id`, `alpha`, `temperature`,
 `teacher_version`, `prompt_version`, `stack_sha256`, `training_data_sha256`,
@@ -75,8 +80,11 @@ python -m src.pipeline.rollback_model --to 3                       # any earlier
 python -m src.pipeline.rollback_model --to 3 --alias staging
 ```
 
-* `--previous` picks the newest version older than the current one whose gate passed.
-* A version without a passed gate on record is refused unless you add `--force`.
+* Only a version that **passed the gate and is in Artifact Registry** (`ar_upload=ok`) can
+  hold an alias. A `skipped` upload counts only when `artifact_registry.enabled` is false
+  (local runs). Anything else (no passed gate, upload failed, upload skipped on the shared
+  setup) is refused unless you add `--force`.
+* `--previous` picks the newest such version older than the current one.
 * Every move is recorded: `<alias>_previous` on the registered model, and `last_alias_move`
   (from, to, reason, time) on the target version.
 * Serving and the gate resolve `models:/distillate-student@production`, so moving the alias
@@ -91,7 +99,7 @@ messages are only logged. A broken webhook never fails the operation.
 
 ## Tests
 
-`tests/pipeline/test_registry.py` (28 tests) runs on a temporary SQLite MLflow store, with a
+`tests/pipeline/test_registry.py` (34 tests) runs on a temporary SQLite MLflow store, with a
 fake `gcloud` for the upload, so it needs no network and no GCP. What they check:
 
 * **Registration:** staging is set and the upload is called correctly; a second candidate
@@ -102,7 +110,11 @@ fake `gcloud` for the upload, so it needs no network and no GCP. What they check
 * **Failed upload:** it leaves no alias.
 * **Other registration cases:** `--no-upload`; an unknown training run; a soft-deleted registry
   experiment.
-* **Rollback:** `--previous` skips versions that never passed the gate; `--to`; `--force`;
+* **Retry:** a retry after a failed upload reuses the version; a published model isn't
+  registered twice; the Slack title after a failed upload.
+* **Rollback:** `--previous` skips versions that never passed the gate or were never
+  published; unpublished versions need `--force`, except a skipped upload with Artifact
+  Registry off; `--to`; `--force`;
   unknown versions; nothing older; a no-op; the version table; CLI exit codes.
 * **Slack:** works with and without a webhook; a broken webhook never raises.
 
