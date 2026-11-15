@@ -1,0 +1,329 @@
+"""Drift metrics for the Civil drift stream: PSI against a baseline from training data.
+
+The model was trained on Wikipedia train, so that is the baseline: a batch whose inputs look
+unlike it is one the model may handle worse. Four features, each compared with PSI:
+
+    input drift (input_drift, before scoring)
+        char_len         comment length in characters
+        oov_rate         share of a comment's words never seen (twice) in training
+        nonalpha_share   share of non-space characters that aren't letters
+    output drift (flag_rate_drift, after scoring)
+        flag_rate        share of comments the model flags
+
+PSI (population stability index) splits the baseline into equal-count bins (deciles) and
+compares the share of the batch in each bin with the baseline's:
+    PSI = sum over bins of (batch_share - baseline_share) * ln(batch_share / baseline_share)
+0 means no change. Status uses the usual rules of thumb, from config (drift.psi_warn,
+drift.psi_alert): ok below 0.1, warn from 0.1, alert from 0.25.
+
+No comment text is stored. The baseline keeps bin edges, bin shares and means, and the
+training vocabulary as truncated BLAKE2b hashes of single words. (Word hashes can be
+reversed with a dictionary, so the vocabulary isn't secret; it holds no comments.) It is
+written to data/processed/monitoring/ by the drift_baseline stage of data_prep_dag,
+before dvc_version, so it is versioned in the same DVC commit as the data it comes from.
+
+Used by drift_ingest_dag, which only loads the baseline:
+    baseline = drift.load_baseline(cfg)                        # fails if not built yet
+    drift.input_drift(batch, baseline, cfg)                    # in compute_drift
+    drift.flag_rate_drift(predictions, reference_rate, cfg)    # in step_score
+
+Build (or rebuild) the baseline on its own:
+    python -m scripts.drift_baseline --config config/pipeline.yaml
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from scripts import preprocess
+from scripts.utils import (
+    PIPELINE_ROOT,
+    atomic_write,
+    get_logger,
+    load_config,
+    timed,
+    write_summary,
+)
+
+logger = get_logger(__name__)
+TASK_ID = "drift_baseline"
+INPUT_FEATURES = ("char_len", "oov_rate", "nonalpha_share")
+# A run of letters, in any alphabet. Applied with Python's re (Unicode-aware), never pandas'
+# .str regex: under pandas 3, .str runs on pyarrow, whose regex classes are ASCII-only, so
+# "été" would split differently depending on the environment.
+WORD = re.compile(r"[^\W\d_]+")
+BASELINE_VERSION = 1
+
+
+def _resolve(path: str | Path) -> Path:
+    p = Path(path)
+    return p if p.is_absolute() else (PIPELINE_ROOT / p).resolve()
+
+
+def _processed(cfg: dict[str, Any], key: str) -> Path:
+    """drift.baseline_source / baseline_file, relative to paths.processed_dir."""
+    return _resolve(Path(cfg["paths"]["processed_dir"]) / cfg["drift"][key])
+
+
+def _hash_word(word: str) -> str:
+    """Truncated BLAKE2b, so the stored vocabulary holds no words."""
+    return hashlib.blake2b(word.encode("utf-8"), digest_size=8).hexdigest()
+
+
+# ---------------------------------------------------------------- features
+
+
+def words(texts: pd.Series) -> pd.Series:
+    """Each comment's lowercased words (runs of letters); digits and punctuation split words."""
+    return texts.fillna("").astype(str).map(lambda t: WORD.findall(t.lower()))
+
+
+def char_len(frame: pd.DataFrame) -> pd.Series:
+    if "char_len" in frame.columns:
+        return frame["char_len"].astype(float)
+    return frame["text"].fillna("").str.len().astype(float)
+
+
+def nonalpha_share(texts: pd.Series) -> pd.Series:
+    """Share of non-space characters that aren't letters, per comment.
+
+    The same function preprocess uses for has_obfuscation, so the two measures agree. It runs
+    in plain Python (str.isalpha), which counts accented, fullwidth and non-Latin letters as
+    letters in every environment.
+    """
+    return texts.fillna("").astype(str).map(preprocess.nonalpha_share).astype(float)
+
+
+def oov_rate(tokens: pd.Series, known: set[str], hashed: bool) -> pd.Series:
+    """Share of each comment's words not in the vocabulary; 0 for a comment with no words."""
+    positional = tokens.reset_index(drop=True)  # explode/groupby by position: any index works
+    exploded = positional.explode().dropna()
+    if exploded.empty:
+        return pd.Series(0.0, index=tokens.index)
+    unique = pd.Index(exploded.unique())
+    lookup = unique.map(_hash_word) if hashed else unique
+    in_vocab = pd.Series([w in known for w in lookup], index=unique)
+    unknown = (~exploded.map(in_vocab).astype(bool)).groupby(level=0).mean()
+    rates = unknown.reindex(range(len(positional)), fill_value=0.0).astype(float)
+    return pd.Series(rates.to_numpy(), index=tokens.index)
+
+
+# ---------------------------------------------------------------- PSI
+
+
+def _bin_shares(values: np.ndarray, edges: list[float]) -> np.ndarray:
+    """Share of values in each bin: (-inf, e1], (e1, e2], ..., (ek, inf).
+
+    Bins are closed on the right, so a value tied at an edge (say, many comments with an OOV
+    rate of exactly 0) stays apart from values just above it.
+    """
+    idx = np.searchsorted(np.asarray(edges, dtype=float), values, side="left")
+    counts = np.bincount(idx, minlength=len(edges) + 1)
+    return counts / max(len(values), 1)
+
+
+def psi(expected: np.ndarray, actual: np.ndarray, epsilon: float) -> float:
+    """Population stability index; empty bins are floored at epsilon so PSI stays finite."""
+    e = np.clip(np.asarray(expected, dtype=float), epsilon, None)
+    a = np.clip(np.asarray(actual, dtype=float), epsilon, None)
+    return float(np.sum((a - e) * np.log(a / e)))
+
+
+def status(value: float | None, warn: float, alert: float) -> str:
+    if value is None:
+        return "unknown"
+    return "alert" if value >= alert else "warn" if value >= warn else "ok"
+
+
+def _worst(statuses: list[str]) -> str:
+    order = ["ok", "unknown", "warn", "alert"]
+    return max(statuses, key=order.index) if statuses else "unknown"
+
+
+# ---------------------------------------------------------------- baseline
+
+
+def _feature_baseline(values: pd.Series, n_bins: int) -> dict[str, Any]:
+    """Equal-count bin edges (duplicates merged, so heavy ties still work) and their shares."""
+    arr = values.to_numpy(dtype=float)
+    quantiles = np.quantile(arr, np.linspace(0, 1, n_bins + 1)[1:-1])
+    edges = sorted({float(q) for q in quantiles})
+    return {
+        "edges": edges,
+        "shares": _bin_shares(arr, edges).tolist(),
+        "mean": float(arr.mean()),
+    }
+
+
+def build_baseline(cfg: dict[str, Any]) -> dict[str, Any]:
+    """The baseline from training data: per-feature bins and a hashed vocabulary."""
+    dcfg = cfg["drift"]
+    source = _processed(cfg, "baseline_source")
+    if not source.exists():
+        raise FileNotFoundError(
+            f"Baseline source {source.as_posix()} not found; run data_prep_dag (split) first"
+        )
+    train = pd.read_parquet(source, columns=["text", "char_len"])
+    tokens = words(train["text"])
+    counts = tokens.explode().dropna().value_counts()
+    known = set(counts.index[counts >= dcfg["vocab_min_count"]])
+
+    features = {
+        "char_len": char_len(train),
+        "oov_rate": oov_rate(tokens, known, hashed=False),
+        "nonalpha_share": nonalpha_share(train["text"]),
+    }
+    return {
+        "version": BASELINE_VERSION,
+        "source": dcfg["baseline_source"],
+        "rows": len(train),
+        "vocab_min_count": dcfg["vocab_min_count"],
+        "vocab_size": len(known),
+        "vocab_hashes": sorted(_hash_word(w) for w in known),
+        "features": {name: _feature_baseline(values, dcfg["psi_bins"])
+                     for name, values in features.items()},
+    }
+
+
+def save_baseline(baseline: dict[str, Any], cfg: dict[str, Any]) -> Path:
+    path = _processed(cfg, "baseline_file")
+    atomic_write(path, json.dumps(baseline))
+    return path
+
+
+def load_baseline(cfg: dict[str, Any], build_if_missing: bool = False) -> dict[str, Any]:
+    """The saved baseline.
+
+    data_prep_dag builds it (drift_baseline stage), so by default a missing baseline is an
+    error rather than built on the spot: building it here would change the DVC-versioned
+    processed/ folder outside data_prep_dag. build_if_missing=True is for tests and ad hoc use.
+    """
+    path = _processed(cfg, "baseline_file")
+    if not path.exists():
+        if not build_if_missing:
+            raise FileNotFoundError(
+                f"No drift baseline at {path.as_posix()}; run data_prep_dag (drift_baseline "
+                "stage) or `python -m scripts.drift_baseline`"
+            )
+        logger.info("No drift baseline yet; building it from %s", cfg["drift"]["baseline_source"])
+        save_baseline(build_baseline(cfg), cfg)
+    baseline = json.loads(path.read_text(encoding="utf-8"))
+    baseline["_vocab"] = set(baseline["vocab_hashes"])
+    return baseline
+
+
+# ---------------------------------------------------------------- drift
+
+
+def _thresholds(source: dict[str, Any]) -> tuple[float, float, float]:
+    return source["psi_warn"], source["psi_alert"], source["psi_epsilon"]
+
+
+def input_drift(batch: pd.DataFrame, baseline: dict[str, Any],
+                cfg: dict[str, Any]) -> dict[str, Any]:
+    """PSI of the batch's length, OOV rate and non-alpha share against the baseline.
+
+    An empty batch has nothing to compare, so every feature is "unknown" with no PSI (with
+    every bin floored at epsilon, PSI would otherwise come out around 7 to 9: a false alert).
+    """
+    warn, alert, eps = _thresholds(cfg["drift"])
+    if len(batch) == 0:
+        features = {name: {"psi": None, "status": "unknown", "batch_mean": None,
+                           "baseline_mean": round(baseline["features"][name]["mean"], 4)}
+                    for name in INPUT_FEATURES}
+        return {"rows": 0, "features": features, "max_psi": None, "status": "unknown",
+                "thresholds": {"warn": warn, "alert": alert}}
+    vocab = baseline.get("_vocab") or set(baseline["vocab_hashes"])
+    values = {
+        "char_len": char_len(batch),
+        "oov_rate": oov_rate(words(batch["text"]), vocab, hashed=True),
+        "nonalpha_share": nonalpha_share(batch["text"]),
+    }
+    features = {}
+    for name in INPUT_FEATURES:
+        ref = baseline["features"][name]
+        arr = values[name].to_numpy(dtype=float)
+        value = psi(ref["shares"], _bin_shares(arr, ref["edges"]), eps)
+        features[name] = {
+            "psi": round(value, 4),
+            "status": status(value, warn, alert),
+            "batch_mean": round(float(arr.mean()), 4) if len(arr) else None,
+            "baseline_mean": round(ref["mean"], 4),
+        }
+    return {
+        "rows": len(batch),
+        "features": features,
+        "max_psi": max(f["psi"] for f in features.values()),
+        "status": _worst([f["status"] for f in features.values()]),
+        "thresholds": {"warn": warn, "alert": alert},
+    }
+
+
+def flag_rate_drift(predictions: pd.DataFrame, reference_rate: float | None,
+                    cfg: dict[str, Any]) -> dict[str, Any]:
+    """PSI of the share of flagged comments against a reference rate (two bins).
+
+    The reference should be the model's flag rate on Civil reference data (for example the
+    first drift batches, or canary_civil), not on Wikipedia: thresholds tuned on Wikipedia
+    don't transfer to Civil, so a Wikipedia rate would differ from every Civil batch for
+    that reason alone. On Civil, both the reference and the batch should take the flag from
+    the five flagged_<label> columns, leaving severe_toxicity out (work plan v4 section 2.2).
+    Without a reference, PSI is None and status "unknown".
+    """
+    warn, alert, eps = _thresholds(cfg["drift"])
+    rate = float(predictions["flag"].mean()) if len(predictions) else None
+    value = None
+    if rate is not None and reference_rate is not None:
+        value = psi([1 - reference_rate, reference_rate], [1 - rate, rate], eps)
+    return {
+        "rows": len(predictions),
+        "flag_rate": round(rate, 4) if rate is not None else None,
+        "reference_rate": reference_rate,
+        "psi": round(value, 4) if value is not None else None,
+        "status": status(value, warn, alert),
+        "thresholds": {"warn": warn, "alert": alert},
+    }
+
+
+# ---------------------------------------------------------------- stage
+
+
+def run(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Build and save the baseline. Returns the run summary."""
+    summary: dict[str, Any] = {"task": TASK_ID, "mode": "real", "dropped": {}}
+    with timed(summary):
+        baseline = build_baseline(cfg)
+        path = save_baseline(baseline, cfg)
+        summary.update({
+            "rows_in": baseline["rows"],
+            "rows_out": 1,
+            "vocab_size": baseline["vocab_size"],
+            "baseline_file": cfg["drift"]["baseline_file"],
+            "feature_means": {k: round(v["mean"], 4) for k, v in baseline["features"].items()},
+        })
+    logger.info("Drift baseline: %d rows, %d words, written to %s",
+                baseline["rows"], baseline["vocab_size"], path.as_posix())
+    write_summary(TASK_ID, summary, cfg)
+    return summary
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--config", default=None)
+    args = parser.parse_args(argv)
+    print(json.dumps(run(load_config(args.config)), indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -53,6 +53,12 @@ distillate/
 
 **Prediction files** (any model, any eval set): `id`, `p_<label>` for all six labels, `model_version`. This is the only thing the evaluation and bias code reads, so it works the same for the TF-IDF baseline, every student, the teacher, and Llama Guard.
 
+**Drift baseline** (`data/processed/monitoring/drift_baseline.json`, written by the `drift_baseline` stage of `data_prep_dag` after `split`, versioned with `data/processed.dvc`). Built from Wikipedia train; no comment text. Fields: `version`, `source`, `rows`, `vocab_min_count`, `vocab_size`, `vocab_hashes` (truncated BLAKE2b hashes of words seen at least twice), and `features`: for each of `char_len`, `oov_rate`, `nonalpha_share`, the decile bin `edges`, the baseline `shares` per bin, and the `mean`. Read it only through `scripts/drift.py`:
+
+- `load_baseline(cfg)` returns the baseline; a missing file is an error (the drift DAG never builds it).
+- `input_drift(batch, baseline, cfg)` takes a drift batch (`text`, optionally `char_len`) and returns a JSON-ready dict: `rows`, `features` (per feature: `psi`, `status`, `batch_mean`, `baseline_mean`), `max_psi`, `status`, `thresholds`. Status is `ok` / `warn` / `alert` (from `drift.psi_warn` and `drift.psi_alert`), or `unknown` for an empty batch.
+- `flag_rate_drift(predictions, reference_rate, cfg)` takes scored predictions (a boolean `flag`) and a reference flag rate; returns `rows`, `flag_rate`, `reference_rate`, `psi`, `status`, `thresholds`, with `unknown` when there is no reference. On Civil, the flag and its reference come from the five `flagged_<label>` columns (no `severe_toxicity`).
+
 ## 3. Code conventions
 - Every stage is a function `run(cfg: dict) -> dict` (the dict is a JSON summary: rows in, rows out, dropped with reasons, duration) plus a CLI: `python -m scripts.<name> --config config/pipeline.yaml`.
 - All tunables live in `config/pipeline.yaml`. Seed is `42` everywhere.
