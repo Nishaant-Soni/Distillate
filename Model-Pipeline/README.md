@@ -316,6 +316,63 @@ The image pins every version (`requirements-pipeline.txt`, CUDA 12.6 torch). CI 
 
 `tests/student/` and `tests/pipeline/` (100 tests): the loss, thresholds, the package and its parity check, the sweep's shared-study guard, MLflow logging, the evaluation tables, the selection rule, and every pipeline step end to end on a tiny model. All run offline with made-up data.
 
+## 4. Evaluation, gate and bias (Ruchita)
+
+Every model is scored the same way: a prediction file (`id`, `p_<label>`, `model_version`, CONTRACTS §2.2) and the gold labels go into one evaluation harness, the **gate** decides whether a candidate may be registered, and the **bias analysis** checks identity slices on the Civil bias set. The teacher, the TF-IDF baseline and every student arm go through the same code, so their numbers are comparable.
+
+| Document | What it covers |
+|---|---|
+| [`reports/student/phase2/results.md`](reports/student/phase2/results.md) | H1 and H2 tables for every arm, paired differences, robustness and latency, from the harness |
+| [`configs/gate.yaml`](configs/gate.yaml) | The gate's checks and tolerances, with where each value comes from |
+| [`reports/bias/bias_report_phase2.md`](reports/bias/bias_report_phase2.md) | The Phase 2 bias report: per-group metrics, paired comparisons, the gate verdict and the mitigation decision |
+| [`../docs/model_card.md`](../docs/model_card.md) | Sections 6 (results), 8 (gate) and 9 (bias) summarise all three |
+
+### 4.1 Evaluation harness (`src/eval/metrics.py`)
+
+Per label: ROC-AUC, PR-AUC, F1, precision, recall and FPR at the tuned threshold, ECE and Brier. Across labels: mean AUC, mean PR-AUC and macro-F1, plus the flag decision (any label at or above its threshold) against gold "any label". Intervals come from 1,000 bootstrap resamples, and `paired_bootstrap` compares two models on the same resampled rows.
+
+The definitions match the teacher's (`src/teacher/metrics.py`), and `tests/eval/test_metrics.py -k reference` reproduces the teacher's gate-subset numbers to within 2e-5. On the gate subset, rows are weighted by their inclusion weight and resampled within stratum; AUC and PR-AUC rank on `logit_<label>` when a file has it; rows that aren't `ok` are dropped and reported as the failure rate. Civil Comments metrics use five labels (no severe_toxicity).
+
+### 4.2 Gate (`src/eval/gate.py`, `configs/gate.yaml`)
+
+A candidate is registered only if the gate passes (exit code 0); it writes `gate_report.json` and `gate_report.md`. Three checks:
+
+1. **Validation floors:** mean AUC at least 0.98, and a PR-AUC floor per label (0.86 toxicity, 0.87 obscene, 0.76 insult, 0.38 severe_toxicity, 0.45 threat, 0.45 identity_attack): the gold-only student's validation PR-AUC minus 0.05, or 0.10 for the rare labels.
+2. **No regression** against the production model on the gate set: mean AUC may drop at most 0.005, and PR-AUC at most 0.02 (toxicity, obscene, insult) or 0.05 (the rare labels), set above the measured bootstrap noise. Skipped while there is no production model.
+3. **Bias:** on the Civil bias set, no identity slice (n ≥ 100) more than 10 points of FPR above overall, or rising more than 2 points over production. The bias report flags gaps from 5 points.
+
+The selected student passes ([`reports/student/phase2/runs/distilbert-mixed-5ep/gate_report.md`](reports/student/phase2/runs/distilbert-mixed-5ep/gate_report.md)): every floor is met and 0 of 18 judged slices are over a limit.
+
+### 4.3 Bias analysis (`src/eval/bias.py`)
+
+For each arm, per identity attribute and group on the Civil bias set (gender, sexual orientation, religion, race or ethnicity, disability): subgroup, BPSN and BNSP AUC, and FPR, FNR and F1 at the tuned threshold. The Wikipedia-tuned thresholds give a low overall Civil FPR (about 2%), so the analysis also reports the FPR ratio, compares arms by BPSN AUC (threshold-free) and at a matched 5% overall FPR, and gives paired bootstrap intervals for the differences.
+
+**Findings** (selected student vs gold-only, paired BPSN AUC):
+
+- **Soft labels raise false positives on Black and White identity slices:** white −0.053, black −0.039, race:any −0.041 [−0.051, −0.032]. Every soft-label arm shows it, including TF-IDF, so it isn't specific to the LLM.
+- **Sexual orientation improves:** +0.026 [+0.007, +0.042]. Religion and disability are unchanged.
+- **Mitigation:** no variant in Phase 2 (Phase 1's weights are all 1.0, and choosing a new factor would tune on the bias set). Phase 3 monitors race-slice FPR and runs a proper mitigation experiment.
+
+### 4.4 Running it
+
+```bash
+# from Model-Pipeline/: score one prediction file (gate subset: weighted, with intervals)
+python -m src.eval.metrics --pred <predictions>.parquet --gold <gold>.parquet \
+  --design artifacts/gate_subset_ids.parquet --bootstrap 1000 --out metrics.json
+
+# the gate on a candidate's prediction folder (val, gate, bias_eval + thresholds.json)
+python -m src.eval.gate --config configs/gate.yaml --candidate <preds dir> \
+  --gold <gold dir> [--production <prod preds dir>] --out <out dir>
+
+# the bias analysis across arms (the exact command for the report is in its header)
+python -m src.eval.bias --gold <gold dir> --arm gold=<dir> --arm mixed=<dir> \
+  --matched-fpr 0.05 --compare mixed gold --plots --out reports/bias/phase2
+```
+
+### 4.5 Tests
+
+`tests/eval/`: the metric definitions against the teacher's and against hand-computed examples, weighting and within-stratum resampling, logit ranking, failed rows, every gate check (including a degraded candidate blocked and a biased slice blocked), and the bias metrics (BPSN and BNSP checked by hand, a planted biased slice flagged, matched FPR, the paired bootstrap and the missing-data warnings). All run offline with made-up data; the reference check runs only when the private gate data is available.
+
 ## 6. Monitoring preparation (Sai)
 
 Builds on #45 (drift metrics), #50 (canary) and #52 (dashboards and alert rules); this section describes their code, so it merges after them.
