@@ -120,7 +120,7 @@ moderate shift, 0.25 or more a large one (`drift.psi_warn`, `drift.psi_alert` in
 
 **Two references, because of the domain shift.** On the real data (#45), every one of the 20
 Civil batches sits at `warn` against the Wikipedia training baseline: non-alphabetic share PSI
-0.11 to 0.18 (Civil has fewer non-letter characters, 5.4% vs 7.4%, since Wikipedia talk pages
+0.10 to 0.18 (Civil has fewer non-letter characters, 5.4% vs 7.3%, since Wikipedia talk pages
 carry markup, timestamps and signatures) and OOV-rate PSI 0.05 to 0.13 (1.9% vs 1.3% unfamiliar
 words), with no trend across the batches. The teacher lane's
 `Model-Pipeline/artifacts/stack/drift_check.json` shows the same. So:

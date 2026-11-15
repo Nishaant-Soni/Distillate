@@ -130,7 +130,7 @@
     {"type": "timeseries", "title": "Input drift PSI, against Wikipedia train (planned)", "id": 18,
      "datasource": {"type": "prometheus", "uid": "prometheus"},
      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 52},
-     "description": "Planned: exported by drift_ingest_dag in Phase 3. Expect warn on every Civil batch (domain shift: non-alpha share 0.11 to 0.18, OOV up to 0.13); only alert-level PSI is acted on.",
+     "description": "Planned: exported by drift_ingest_dag in Phase 3. Expect warn on every Civil batch (domain shift: non-alpha share 0.10 to 0.18, OOV up to 0.13); only alert-level PSI is acted on.",
      "fieldConfig": {"defaults": {"min": 0,
        "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.1}, {"color": "red", "value": 0.25}]},
        "custom": {"thresholdsStyle": {"mode": "line"}}}, "overrides": []},
