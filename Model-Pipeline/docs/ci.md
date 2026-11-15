@@ -76,17 +76,17 @@ subset, set `design.gate` there and write predictions for those ids only.
 
 ## One-time setup
 
-All of this is done except the items marked ⏳.
+All of this is done (checked on Nov 15).
 
 | What | Where | Status |
 |---|---|---|
 | Artifact Registry `distillate-images` (Docker; keeps the latest 3 images, deletes others after 7 days) and `distillate-models` (generic) | GCP | done |
 | Workload Identity: pool `github`, provider `distillate-repo` (only `Nishaant-Soni/Distillate`), identity `github-ci` | GCP | done |
 | `github-ci`: Artifact Registry writer on both repositories; Vertex AI user | GCP | done |
-| `vertex-trainer` identity for the training job | GCP | created |
-| `vertex-trainer` and `github-ci` bucket and log access (commands below) | GCP | ⏳ |
-| Variables `GCP_WIF_PROVIDER`, `GCP_CI_SERVICE_ACCOUNT`, `MLFLOW_TRACKING_URI` | GitHub → Settings → Actions → Variables | ⏳ |
-| Secrets `MLFLOW_TRACKING_PASSWORD`, `SLACK_WEBHOOK_URL` | GitHub → Settings → Actions → Secrets | ⏳ |
+| `vertex-trainer` identity for the training job | GCP | done |
+| `vertex-trainer` and `github-ci` bucket and log access (commands below) | GCP | done |
+| Variables `GCP_WIF_PROVIDER`, `GCP_CI_SERVICE_ACCOUNT`, `MLFLOW_TRACKING_URI` | GitHub → Settings → Actions → Variables | done |
+| Secrets `MLFLOW_TRACKING_PASSWORD` (done), `SLACK_WEBHOOK_URL` (optional: without it, messages are only logged) | GitHub → Settings → Actions → Secrets | done |
 | `Model-Pipeline/Dockerfile` and `src.pipeline.run` | student lane | done (on main) |
 
 ```bash
