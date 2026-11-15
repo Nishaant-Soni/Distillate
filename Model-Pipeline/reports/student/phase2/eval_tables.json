@@ -1,0 +1,51 @@
+{
+  "rows": {
+    "wikipedia/gate.parquet": 63978,
+    "civil/h2_eval.parquet": 10000,
+    "civil/bias_eval.parquet": 21577,
+    "obfuscation.parquet": 3000
+  },
+  "obfuscation": {
+    "rows_out": 3000,
+    "techniques": {
+      "homoglyph": 1009,
+      "spacing": 996,
+      "substitution": 995
+    },
+    "dropped": {}
+  },
+  "positives": {
+    "wikipedia/gate.parquet": {
+      "toxicity": 6090,
+      "severe_toxicity": 367,
+      "obscene": 3691,
+      "threat": 211,
+      "insult": 3427,
+      "identity_attack": 712
+    },
+    "civil/h2_eval.parquet": {
+      "toxicity": 799,
+      "severe_toxicity": 0,
+      "obscene": 57,
+      "threat": 28,
+      "insult": 583,
+      "identity_attack": 71
+    },
+    "civil/bias_eval.parquet": {
+      "toxicity": 2399,
+      "severe_toxicity": 0,
+      "obscene": 140,
+      "threat": 48,
+      "insult": 1460,
+      "identity_attack": 596
+    },
+    "obfuscation.parquet": {
+      "toxicity": 3000,
+      "severe_toxicity": 192,
+      "obscene": 1806,
+      "threat": 106,
+      "insult": 1649,
+      "identity_attack": 363
+    }
+  }
+}

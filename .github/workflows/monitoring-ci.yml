@@ -1,0 +1,60 @@
+# Monitoring CI: tests, lint and Prometheus's own rule checks for Deployment/monitoring.
+# Owner: Sai. Location: .github/workflows/monitoring-ci.yml
+#
+# canary.py is included in the paths because the consistency test reads the canary's metric
+# names from it: a change to those names must re-check the rules and dashboard.
+name: monitoring-ci
+
+on:
+  pull_request:
+    paths:
+      - "Deployment/monitoring/**"
+      - "Data-Pipeline/scripts/canary.py"
+      - ".github/workflows/monitoring-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Deployment/monitoring/**"
+      - "Data-Pipeline/scripts/canary.py"
+      - ".github/workflows/monitoring-ci.yml"
+
+concurrency:
+  group: monitoring-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: Deployment/monitoring
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The mock is standard library only; the rest is for the tests, and for importing
+      # Data-Pipeline/scripts/canary.py in the consistency test.
+      - name: Install dependencies
+        run: pip install pytest pyyaml ruff pandas pyarrow numpy scikit-learn
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Tests
+        run: python -m pytest tests -v
+
+      - name: Check the alert rules (promtool)
+        run: |
+          docker run --rm -v "$PWD/prometheus:/p" --entrypoint promtool prom/prometheus:v2.55.1 \
+            check rules /p/alert_rules.yml /p/alert_rules_planned.yml
+
+      - name: Test the alert rules (promtool)
+        run: |
+          docker run --rm -v "$PWD/prometheus:/p" --entrypoint promtool prom/prometheus:v2.55.1 \
+            test rules /p/alert_rules_test.yml

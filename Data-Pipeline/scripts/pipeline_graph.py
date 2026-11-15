@@ -52,12 +52,25 @@ TASKS: tuple[Task, ...] = (
          "Civil subsets: H2 eval, canary, bias set, 20 sorted drift batches."),
     Task("obfuscate", "Sai", MAIN, 15,
          "Seeded character substitution over toxic gate rows; labels unchanged."),
+    Task("drift_baseline", "Sai", MAIN, 15,
+         "Drift baseline from Wikipedia train (PSI bins, hashed vocabulary), versioned "
+         "with the data it describes; the drift DAG only loads it."),
     Task("schema_stats", "Sai", TFENV, 60,
          "TFDV statistics and schema validation over every raw and processed file."),
     Task("anomalies", "Sai", MAIN, 30,
          "Every anomaly check with its fail/warn severity."),
     Task("bias", "Ruchita", MAIN, 60,
          "Slice metrics, reweighting, sample_weight into train.parquet."),
+    # Phase 2. Both skip with a warning when the shard store can't be reached
+    # (teacher.required: false), so a run without GCP credentials stays green.
+    Task("validate_teacher_shards", "Praniti", MAIN, 30,
+         "The teacher shard spec's checks on every configured shard run, plus the stack and "
+         "calibration fingerprints; fails on any error.",
+         tags=("network",)),
+    Task("merge_teacher_labels", "Praniti", MAIN, 30,
+         "Join the validated soft labels, raw Qwen, TF-IDF OOF and calibrated-Qwen scores "
+         "into data/processed/teacher_labels.parquet, versioned with the rest.",
+         tags=("network",)),
     Task("dvc_version", "Vaishnavi", MAIN, 60,
          "dvc add data/raw data/processed, then push when DVC_PUSH is true.",
          callable="scripts.dvc_version:run"),
@@ -78,11 +91,19 @@ EDGES_OPTIMIZED: tuple[tuple[str, str], ...] = (
     ("preprocess", "subsets"),
     ("dedupe", "split"),
     ("split", "obfuscate"),
+    ("split", "drift_baseline"),
     ("obfuscate", "schema_stats"),
+    ("drift_baseline", "schema_stats"),
     ("subsets", "schema_stats"),
     ("schema_stats", "anomalies"),
     ("anomalies", "bias"),
     ("bias", "dvc_version"),
+    # Teacher labels: validation needs the raw train ids (acquire) and the drift
+    # batch ids (subsets); the merge writes into data/processed, so it lands before
+    # dvc_version and is versioned in the same commit as the data it joins onto.
+    ("subsets", "validate_teacher_shards"),
+    ("validate_teacher_shards", "merge_teacher_labels"),
+    ("merge_teacher_labels", "dvc_version"),
     ("dvc_version", "notify_success"),
 )
 

@@ -18,6 +18,10 @@ A ``thresholds.json`` next to the predictions sets per-label thresholds.
 
 Writes gate_report.json and gate_report.md and exits 0 (pass) or 1 (blocked).
 
+``--rise-bootstrap N`` (with ``--production``) also writes fpr_rise_bootstrap.json: a paired
+bootstrap of each slice's FPR rise over production, to check that ``max_fpr_rise_pts`` sits
+above the noise at ``min_slice_size`` rows. It doesn't change the verdict.
+
     python -m src.eval.gate --config configs/gate.yaml --candidate runs/cand/predictions \\
         --gold runs/cand/gold --production runs/prod/predictions --out runs/cand/gate
 """
@@ -246,6 +250,9 @@ def run_gate(cfg: dict[str, Any], candidate: str | Path, gold: str | Path,
     bias, slice_rows = bias_checks(cand_bias, prod_bias, bias_cfg)
     report["bias"] = {"label": label, "overall_fpr": cand_bias[0],
                       "production_overall_fpr": prod_bias[0] if prod_bias else None,
+                      "limits": {k: bias_cfg.get(k) for k in (
+                          "min_slice_size", "max_fpr_gap_pts", "max_fpr_rise_pts",
+                          "report_flag_pts")},
                       "slices": slice_rows}
 
     checks = [*validation_checks(val, cfg["validation"]),
@@ -254,6 +261,71 @@ def run_gate(cfg: dict[str, Any], candidate: str | Path, gold: str | Path,
     report["passed"] = all(c["passed"] is not False for c in checks)
     report["failed_checks"] = [c["name"] for c in checks if c["passed"] is False]
     return report
+
+
+def _bias_rule_note(limits: dict[str, Any]) -> str:
+    """Explain why the gate's block level differs from the bias report's flag level."""
+    parts = [f"Slices with at least {limits['min_slice_size']} rows are judged."]
+    if limits.get("max_fpr_gap_pts") is not None:
+        flag = limits.get("report_flag_pts")
+        flag_text = (f"The bias report flags a slice {flag:g}+ points above overall; the gate "
+                     if flag is not None else "The gate ")
+        parts.append(f"{flag_text}blocks only above {limits['max_fpr_gap_pts']:g} points, so "
+                     "it stops large gaps while smaller ones are reported and tracked.")
+    if limits.get("max_fpr_rise_pts") is not None:
+        parts.append(f"It also blocks a slice whose FPR rises more than "
+                     f"{limits['max_fpr_rise_pts']:g} points over production.")
+    return " ".join(parts)
+
+
+def fpr_rise_bootstrap(cand_pred: pd.DataFrame, prod_pred: pd.DataFrame, gold: pd.DataFrame,
+                       label: str, cand_threshold: float, prod_threshold: float,
+                       identity_threshold: float, min_slice_size: int,
+                       n_boot: int = 1000, seed: int = 42) -> dict[str, Any]:
+    """Paired bootstrap of each identity slice's FPR rise (candidate minus production).
+
+    Both models are scored on the same non-toxic rows of each slice, and each replicate
+    resamples those rows once for both, so shared false positives cancel. Returns, per
+    slice, the rise in points with its 95% interval and half-width, for comparing against
+    ``max_fpr_rise_pts``. Rows that aren't ``ok`` in either file are left out.
+    """
+    ids = set(gold["id"].astype(str))
+    for pred in (cand_pred, prod_pred):
+        if "status" in pred.columns:
+            ids &= set(pred.loc[pred["status"] == "ok", "id"].astype(str))
+        else:
+            ids &= set(pred["id"].astype(str))
+    kept = gold.assign(id=gold["id"].astype(str))
+    kept = kept[kept["id"].isin(ids)].reset_index(drop=True)
+    cand = align(cand_pred, kept, (label,))
+    prod = align(prod_pred, kept, (label,))
+    negative = cand.y[label] == 0
+    cand_fp = (cand.p[label] >= cand_threshold) & negative
+    prod_fp = (prod.p[label] >= prod_threshold) & negative
+    rng = np.random.default_rng(seed)
+    slices = {}
+    for name, mask in identity_slices(kept, identity_threshold).items():
+        rows = np.flatnonzero(mask & negative)
+        entry: dict[str, Any] = {"n": int(mask.sum()), "n_negatives": int(len(rows)),
+                                 "judged": bool(mask.sum() >= min_slice_size)}
+        if len(rows) == 0:
+            slices[name] = {**entry, "rise_pts": math.nan, "ci95_pts": [math.nan, math.nan],
+                            "half_width_pts": math.nan}
+            continue
+        diff = cand_fp[rows].astype(float) - prod_fp[rows].astype(float)
+        draws = diff[rng.integers(0, len(diff), size=(n_boot, len(diff)))].mean(axis=1) * 100
+        lo, hi = np.percentile(draws, [2.5, 97.5])
+        slices[name] = {**entry, "rise_pts": float(diff.mean() * 100),
+                        "ci95_pts": [float(lo), float(hi)],
+                        "half_width_pts": float((hi - lo) / 2)}
+    judged = [s for s in slices.values() if s["judged"] and not math.isnan(s["half_width_pts"])]
+    return {
+        "label": label,
+        "replicates": n_boot,
+        "rows": len(kept),
+        "max_half_width_pts_judged": max((s["half_width_pts"] for s in judged), default=None),
+        "slices": slices,
+    }
 
 
 def _fmt(value: Any, digits: int = 4) -> str:
@@ -283,7 +355,8 @@ def render_markdown(report: dict[str, Any]) -> str:
                   f"F1 {_fmt(m['flag']['f1'])}, FPR {_fmt(m['flag']['fpr'])}."]
     bias = report["bias"]
     lines += ["", f"## Bias slices (`{bias['label']}`, Civil bias set)", "",
-              f"Overall FPR {_fmt(bias['overall_fpr'])}.", "",
+              f"Overall FPR {_fmt(bias['overall_fpr'])}. {_bias_rule_note(bias['limits'])}",
+              "",
               "| Slice | n | FPR | Gap (pts) | Production FPR | Rise (pts) | Result |",
               "|---|---|---|---|---|---|---|"]
     for r in bias["slices"]:
@@ -305,7 +378,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--thresholds", default=None, help="candidate thresholds.json")
     parser.add_argument("--production-thresholds", default=None)
     parser.add_argument("--out", required=True, help="folder for gate_report.json/.md")
+    parser.add_argument("--rise-bootstrap", type=int, default=0, metavar="N",
+                        help="with --production: write fpr_rise_bootstrap.json (N replicates)")
     args = parser.parse_args(argv)
+    if args.rise_bootstrap and not args.production:
+        parser.error("--rise-bootstrap needs --production")
 
     report = run_gate(load_config(args.config), args.candidate, args.gold, args.production,
                       args.thresholds, args.production_thresholds)
@@ -314,6 +391,19 @@ def main(argv: list[str] | None = None) -> int:
     (out / "gate_report.json").write_text(
         json.dumps(to_jsonable(report), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (out / "gate_report.md").write_text(render_markdown(report), encoding="utf-8")
+    if args.rise_bootstrap:
+        cfg = load_config(args.config)
+        stem, label = cfg["splits"]["bias"], cfg["bias"]["label"]
+        noise = fpr_rise_bootstrap(
+            read_frame(_split_file(args.candidate, stem)),
+            read_frame(_split_file(args.production, stem)),
+            read_frame(_split_file(args.gold, stem)), label,
+            _thresholds(args.candidate, args.thresholds, (label,))[label],
+            _thresholds(args.production, args.production_thresholds, (label,))[label],
+            cfg["bias"]["identity_threshold"], cfg["bias"]["min_slice_size"],
+            n_boot=args.rise_bootstrap)
+        (out / "fpr_rise_bootstrap.json").write_text(
+            json.dumps(to_jsonable(noise), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Gate {'PASSED' if report['passed'] else 'BLOCKED'}: "
           f"{', '.join(report['failed_checks']) or 'all checks passed'}")
     return 0 if report["passed"] else 1

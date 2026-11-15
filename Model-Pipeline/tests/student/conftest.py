@@ -13,6 +13,7 @@ def smoke_cfg(root, *overrides):
     return load_config(PIPELINE_ROOT / "configs" / "smoke.yaml", [
         f"paths.raw_train={root}/wiki_train_raw.parquet",
         f"soft_labels.local_root={root}/store",
+        f"soft_labels.arms.tfidf.check_file={root}/tfidf_oof.manifest.json",
         f"paths.out_dir={root}/runs",
         f"paths.cache_dir={root}/cache",
         f"paths.mlflow_db={root}/mlruns/mlflow.db",

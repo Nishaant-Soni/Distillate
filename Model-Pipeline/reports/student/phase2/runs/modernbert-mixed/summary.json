@@ -1,0 +1,142 @@
+{
+  "task": "train",
+  "run_name": "modernbert-mixed-20261112T185501Z",
+  "model_version": "student-modernbert-mixed-20261112T185501Z",
+  "model_id": "answerdotai/ModernBERT-base",
+  "device": "cuda",
+  "alpha": 0.3432987447660936,
+  "temperature": 3.71295432376268,
+  "rows_in": 153751,
+  "data": {
+    "source": "ids",
+    "source_file": "/tmp/wiki/wiki_train_raw.parquet",
+    "source_sha256": "acde36e26ff64e063e40513b17c6a8dc1e6ecb9724e798f834eea9c940f5fe85",
+    "source_rows": 159571,
+    "split_ids_sha256": {
+      "train": "f4d640bf11c992d8217b7c5ad4c2aa7d9b08a5ad300b5bddd86879926b0c78a4",
+      "val": "7d3cf50e21e903fcdd71c0a2bb9b5943b3d3b52c006a3835bc833dbbeb64cfab"
+    },
+    "missing_split_ids": {
+      "train": 0,
+      "val": 0
+    },
+    "train_rows": 132388,
+    "val_rows": 21363,
+    "train_prevalence": {
+      "toxicity": 0.09639,
+      "severe_toxicity": 0.00992,
+      "obscene": 0.05315,
+      "threat": 0.00294,
+      "insult": 0.04963,
+      "identity_attack": 0.00883
+    },
+    "val_prevalence": {
+      "toxicity": 0.09638,
+      "severe_toxicity": 0.00992,
+      "obscene": 0.05318,
+      "threat": 0.00295,
+      "insult": 0.04967,
+      "identity_attack": 0.0088
+    }
+  },
+  "soft_labels": {
+    "arm": "stack",
+    "prefix": "soft_labels/stack-v1/p2-zs-v2b/",
+    "shards": 32,
+    "rows": 159571,
+    "failed_rows": 0,
+    "full_validation": true,
+    "coverage_checked": true,
+    "check_field": "stack_sha256",
+    "check_sha256": "9b2418043a97592d298e7d69209a93fc872ef2438d58073df2ce1c684c426e28",
+    "stack_sha256": "9b2418043a97592d298e7d69209a93fc872ef2438d58073df2ce1c684c426e28",
+    "model_version": "stack-v1+Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554+tfidf-lr-v1",
+    "prompt_version": "p2-zs-v2b",
+    "teacher_version": "stack-v1"
+  },
+  "truncated_share_train": 0.06218,
+  "steps": 16552,
+  "best_epoch": 3,
+  "best_val_mean_auc": 0.9934905593550439,
+  "best_val_mean_pr_auc": 0.76153773051686,
+  "thresholds": {
+    "toxicity": 0.3350244164466858,
+    "severe_toxicity": 0.18491464853286743,
+    "obscene": 0.2091464400291443,
+    "threat": 0.09268777817487717,
+    "insult": 0.27386561036109924,
+    "identity_attack": 0.27386561036109924
+  },
+  "val_mean_f1_at_thresholds": 0.7265414167967595,
+  "val_mean_f1_at_0.5": 0.6425199289295468,
+  "package": {
+    "status": "ok",
+    "dir": "/kaggle/working/student/modernbert-mixed-20261112T185501Z/package",
+    "onnx_parity": 3.814697265625e-06
+  },
+  "history": [
+    {
+      "epoch": 0,
+      "step": 4138,
+      "train_loss": 3.588615054321381,
+      "train_gold": 0.050320826403416535,
+      "train_soft": 0.3944792377885382,
+      "val_mean_auc": 0.9918139679690299,
+      "val_mean_pr_auc": 0.7185103021391829,
+      "val_auc_toxicity": 0.9879932883379992,
+      "val_auc_severe_toxicity": 0.9919962301617391,
+      "val_auc_obscene": 0.9937510531871708,
+      "val_auc_threat": 0.9968086295551084,
+      "val_auc_insult": 0.9894428484270177,
+      "val_auc_identity_attack": 0.9908917581451431
+    },
+    {
+      "epoch": 1,
+      "step": 8276,
+      "train_loss": 3.540026982260419,
+      "train_gold": 0.036230381458753305,
+      "train_soft": 0.3896466548918756,
+      "val_mean_auc": 0.9927194598535518,
+      "val_mean_pr_auc": 0.7490236371443725,
+      "val_auc_toxicity": 0.9892823436754974,
+      "val_auc_severe_toxicity": 0.9924049043579722,
+      "val_auc_obscene": 0.9951162361771361,
+      "val_auc_threat": 0.9971093226022805,
+      "val_auc_insult": 0.99020645927921,
+      "val_auc_identity_attack": 0.9921974930292145
+    },
+    {
+      "epoch": 2,
+      "step": 12414,
+      "train_loss": 3.5323983726436934,
+      "train_gold": 0.03253915276614825,
+      "train_soft": 0.38894399240029615,
+      "val_mean_auc": 0.9931676422014072,
+      "val_mean_pr_auc": 0.7600065101455424,
+      "val_auc_toxicity": 0.9898207499566759,
+      "val_auc_severe_toxicity": 0.9929432615256159,
+      "val_auc_obscene": 0.9949651778023657,
+      "val_auc_threat": 0.9982405544377375,
+      "val_auc_insult": 0.9899999870011831,
+      "val_auc_identity_attack": 0.9930361224848652
+    },
+    {
+      "epoch": 3,
+      "step": 16552,
+      "train_loss": 3.527354100408503,
+      "train_gold": 0.02935530738566911,
+      "train_soft": 0.3885075484225576,
+      "val_mean_auc": 0.9934905593550439,
+      "val_mean_pr_auc": 0.76153773051686,
+      "val_auc_toxicity": 0.99047225929566,
+      "val_auc_severe_toxicity": 0.9932451117436796,
+      "val_auc_obscene": 0.9952280829138573,
+      "val_auc_threat": 0.9982237871674492,
+      "val_auc_insult": 0.9906059871993224,
+      "val_auc_identity_attack": 0.9931681278102942
+    }
+  ],
+  "run_dir": "/kaggle/working/student/modernbert-mixed-20261112T185501Z",
+  "mlflow_run_id": "212ee0e26f8d4197a56b239544f852cb",
+  "duration_s": 11035.8
+}

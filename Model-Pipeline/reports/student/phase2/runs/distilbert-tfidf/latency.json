@@ -1,0 +1,19 @@
+{
+  "model_version": "student-distilbert-tfidf-20261112T190956Z",
+  "format": "onnx fp32",
+  "batch_size": 1,
+  "threads": 2,
+  "requests": 300,
+  "warmup": 20,
+  "max_length": 256,
+  "mean_tokens": 72.27,
+  "max_tokens": 256,
+  "p50_ms": 30.844052500469843,
+  "p90_ms": 105.03892739761807,
+  "p95_ms": 146.62505239884922,
+  "p99_ms": 150.79899802949512,
+  "mean_ms": 44.66618481331049,
+  "cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz",
+  "cpu_count": 4,
+  "onnxruntime": "1.31.1"
+}

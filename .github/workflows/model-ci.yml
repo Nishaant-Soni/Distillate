@@ -1,0 +1,332 @@
+# model-ci: CI-triggered training on GCP with the automated gate (work plan v4, section 5.1).
+#
+#   lint and tests -> build the training image -> Vertex AI custom job -> gate
+#   -> register (@staging + Artifact Registry) if the gate passed -> Slack, always
+#
+# Runs on pushes to main that touch model code or configs, and by hand (Actions tab, or
+# `gh workflow run model-ci.yml`). The job runs the student lane's entry point,
+# `python -m src.pipeline.run`, with the CI smoke overrides below (docs/ci.md), after
+# src.pipeline.fetch_data copies the processed tables from DVC. Its run folder goes to
+# gs://distillate-mlops-data/ci/<run>/<run_name>-<time>/ through Vertex's /gcs/ bucket mount.
+#
+# Repository variables: GCP_WIF_PROVIDER, GCP_CI_SERVICE_ACCOUNT, MLFLOW_TRACKING_URI.
+# Repository secrets: MLFLOW_TRACKING_PASSWORD, SLACK_WEBHOOK_URL (optional: without it the
+# messages are only logged).
+name: model-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Model-Pipeline/src/**"
+      - "Model-Pipeline/configs/**"
+      - "Model-Pipeline/Dockerfile"
+      - "Model-Pipeline/requirements*.txt"
+      - ".github/workflows/model-ci.yml"
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "Base config for src.pipeline.run, relative to Model-Pipeline/"
+        default: configs/student.yaml
+      overrides:
+        description: "--set overrides (space-separated); default: the CI smoke run"
+        default: ""
+      machine_type:
+        description: "Vertex machine type (CPU only: no GPU quota)"
+        default: n1-standard-4
+
+# One CI training run at a time, and a running job is never cancelled: it is paid for.
+concurrency:
+  group: model-ci
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write          # Workload Identity Federation
+
+env:
+  PROJECT: distillate-mlops
+  REGION: us-east1
+  BUCKET: distillate-mlops-data
+  IMAGE: us-east1-docker.pkg.dev/distillate-mlops/distillate-images/trainer
+  TRAINER_SA: vertex-trainer@distillate-mlops.iam.gserviceaccount.com
+  CONFIG: ${{ inputs.config || 'configs/student.yaml' }}
+  # The CI smoke run: gold-only MiniLM, 2,000 training rows, one epoch, on CPU, scored on a
+  # seeded 5,000-row sample of the gate and bias sets (scoring all 85k rows took 35 minutes).
+  # About 35 minutes and a few cents; the gate is expected to block it, which still exercises
+  # every step. Replace with `overrides` to train the real recipe by hand.
+  SMOKE_OVERRIDES: >-
+    run_name=ci-smoke model.name=minilm model.max_length=64 loss.alpha=1.0
+    data.source=official data.limit=2000 train.epochs=1 train.device=cpu train.fp16=false
+    train.num_workers=0 package.enabled=true pipeline.tables=[gate,bias]
+    pipeline.eval_limit=5000 pipeline.latency=false pipeline.plots=false
+  OVERRIDES: ${{ inputs.overrides }}
+  MACHINE_TYPE: ${{ inputs.machine_type || 'n1-standard-4' }}
+  RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+  MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+  MLFLOW_TRACKING_USERNAME: team
+
+defaults:
+  run:
+    working-directory: Model-Pipeline
+
+jobs:
+  # Without these the run would not fail: MLflow would fall back to a local mlruns/ store in the
+  # container and on the runner, and "registered vN" would mean nothing reached the team server.
+  settings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .      # nothing is checked out in this job
+    steps:
+      - name: Repository variables and secrets are set
+        env:
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_CI_SERVICE_ACCOUNT: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          missing=()
+          for name in GCP_WIF_PROVIDER GCP_CI_SERVICE_ACCOUNT MLFLOW_TRACKING_URI; do
+            [ -n "${!name}" ] || missing+=("variable $name")
+          done
+          [ -n "$MLFLOW_TRACKING_PASSWORD" ] || missing+=("secret MLFLOW_TRACKING_PASSWORD")
+          if [ ${#missing[@]} -gt 0 ]; then
+            for m in "${missing[@]}"; do
+              echo "::error::Missing repository $m (Settings → Secrets and variables → Actions; docs/ci.md)"
+            done
+            exit 1
+          fi
+          case "$MLFLOW_TRACKING_URI" in
+            http://*|https://*) ;;
+            *) echo "::error::MLFLOW_TRACKING_URI must be the team server's http(s) URL"; exit 1 ;;
+          esac
+          echo "All settings present; MLflow server: $MLFLOW_TRACKING_URI"
+
+  lint-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: Model-Pipeline/requirements*.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt
+      - run: ruff check src tests
+      - run: pytest -q
+
+  train:
+    needs: [settings, lint-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    outputs:
+      job_name: ${{ steps.submit.outputs.job_name }}
+      job_state: ${{ steps.wait.outputs.state }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Training image is defined
+        run: |
+          if [ ! -f Dockerfile ] || [ ! -f src/pipeline/run.py ]; then
+            echo "::error::Model-Pipeline/Dockerfile or src/pipeline/run.py is missing (student lane, work plan 5.1)."
+            exit 1
+          fi
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push the training image
+        working-directory: .          # the Dockerfile builds from the repository root
+        run: |
+          gcloud auth configure-docker us-east1-docker.pkg.dev --quiet
+          docker build -f Model-Pipeline/Dockerfile -t "$IMAGE:$GITHUB_SHA" .
+          docker push "$IMAGE:$GITHUB_SHA"
+
+      - name: Submit the Vertex AI custom job
+        id: submit
+        env:
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          # The password reaches the job as an environment variable in its spec, so anyone who
+          # can view Vertex jobs in the project can read it (project owners only, today), and it
+          # stays with every job. Phase 3: read it at run time from Secret Manager (docs/ci.md).
+          sets="${OVERRIDES:-$SMOKE_OVERRIDES} pipeline.data_dir=/tmp/processed"
+          sets="$sets paths.official_dir=/tmp/processed/wikipedia paths.out_dir=/gcs/$BUCKET/ci/$RUN_ID"
+          script="python -m src.pipeline.fetch_data --out /tmp/processed --tables train val gate bias"
+          script="$script && python -m src.pipeline.run --config $CONFIG --set $sets"
+          cat > /tmp/job.yaml <<EOF
+          workerPoolSpecs:
+            - machineSpec:
+                machineType: $MACHINE_TYPE
+              replicaCount: 1
+              containerSpec:
+                imageUri: $IMAGE:$GITHUB_SHA
+                command: ["bash", "-c", "$script"]
+                env:
+                  - {name: MLFLOW_TRACKING_URI, value: "$MLFLOW_TRACKING_URI"}
+                  - {name: MLFLOW_TRACKING_USERNAME, value: "$MLFLOW_TRACKING_USERNAME"}
+                  - {name: MLFLOW_TRACKING_PASSWORD, value: "$MLFLOW_TRACKING_PASSWORD"}
+                  - {name: CODE_COMMIT, value: "$GITHUB_SHA"}
+          EOF
+          name=$(gcloud ai custom-jobs create --project "$PROJECT" --region "$REGION" \
+            --display-name "model-ci-$RUN_ID" --config /tmp/job.yaml \
+            --service-account "$TRAINER_SA" --format 'value(name)')
+          rm /tmp/job.yaml
+          echo "job_name=$name" >> "$GITHUB_OUTPUT"
+          echo "Submitted $name"
+          echo "Console: https://console.cloud.google.com/vertex-ai/locations/$REGION/training/${name##*/}/cpu?project=$PROJECT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for the job
+        id: wait
+        env:
+          JOB: ${{ steps.submit.outputs.job_name }}
+        run: |
+          while true; do
+            state=$(gcloud ai custom-jobs describe "$JOB" --region "$REGION" --format 'value(state)')
+            case "$state" in
+              JOB_STATE_SUCCEEDED|JOB_STATE_FAILED|JOB_STATE_CANCELLED|JOB_STATE_EXPIRED) break ;;
+            esac
+            echo "$(date -u +%H:%M:%S) $state"
+            sleep 60
+          done
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          if [ "$state" != JOB_STATE_SUCCEEDED ]; then
+            gcloud ai custom-jobs describe "$JOB" --region "$REGION" --format 'value(error.message)'
+            echo "::error::Vertex job ended in $state"
+            exit 1
+          fi
+
+  gate-register:
+    needs: train
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      gate: ${{ steps.gate.outputs.result }}
+      failed_checks: ${{ steps.gate.outputs.failed_checks }}
+      version: ${{ steps.register.outputs.version }}
+    env:
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+      OUT: ${{ github.workspace }}/job
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the gate's dependencies (no torch needed)
+        run: pip install pandas pyarrow numpy scikit-learn pyyaml mlflow
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Download the job's outputs
+        run: |
+          # src.pipeline.run writes one <run_name>-<time>/ folder under paths.out_dir. The /gcs
+          # mount also stores a marker object for ci/$RUN_ID/ itself, which ls lists first, so
+          # keep only its subfolders. `|| true` so no match reaches the error below.
+          run_dir=$(gcloud storage ls "gs://$BUCKET/ci/$RUN_ID/" | grep -E "/ci/$RUN_ID/[^/]+/$" | head -1 || true)
+          if [ -z "$run_dir" ]; then echo "::error::no run folder under ci/$RUN_ID/"; exit 1; fi
+          echo "RUN_DIR=${run_dir%/}" >> "$GITHUB_ENV"
+          mkdir -p "$OUT"
+          gcloud storage cp -r "${run_dir%/}/*" "$OUT/"
+          python -m src.pipeline.ci check-outputs --dir "$OUT"
+
+      - name: Fetch @production's predictions
+        id: prod
+        run: python -m src.pipeline.ci fetch-production --out "$OUT/production"
+
+      - name: Gate
+        id: gate
+        run: |
+          production=()
+          if [ "${{ steps.prod.outputs.has_production }}" = true ]; then
+            production=(--production "$OUT/production")
+          fi
+          set +e
+          python -m src.eval.gate --config configs/gate.yaml \
+            --candidate "$OUT/predictions" --thresholds "$OUT/package/thresholds.json" \
+            --gold "$OUT/gold" "${production[@]}" --out "$OUT/gate"
+          code=$?
+          set -e
+          cat "$OUT/gate/gate_report.md" >> "$GITHUB_STEP_SUMMARY"
+          gcloud storage cp -r "$OUT/gate" "$RUN_DIR/ci-gate/"
+          failed=$(python -c "import json;print(', '.join(json.load(open('$OUT/gate/gate_report.json'))['failed_checks']))")
+          echo "failed_checks=$failed" >> "$GITHUB_OUTPUT"
+          if [ $code -eq 0 ]; then echo "result=passed" >> "$GITHUB_OUTPUT";
+          else echo "result=blocked" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Register (@staging + Artifact Registry)
+        id: register
+        if: steps.gate.outputs.result == 'passed'
+        run: |
+          python -m src.pipeline.register_model --package "$OUT/package" \
+            --gate-report "$OUT/gate/gate_report.json" --predictions "$OUT/predictions" \
+            --out "$OUT/registration.json"
+          version=$(python -c "import json;print(json.load(open('$OUT/registration.json'))['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The smoke candidate (no `overrides`) is expected to be blocked, so that only warns:
+      # every model-code push to main would otherwise show a red X. A blocked real run fails.
+      - name: A blocked real candidate fails the run
+        if: steps.gate.outputs.result == 'blocked'
+        run: |
+          if [ -z "$OVERRIDES" ]; then
+            echo "::warning::Smoke candidate blocked by the gate, as expected: ${{ steps.gate.outputs.failed_checks }}"
+            exit 0
+          fi
+          echo "::error::Gate blocked the candidate: ${{ steps.gate.outputs.failed_checks }}"
+          exit 1
+
+  notify:
+    needs: [settings, lint-test, train, gate-register]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - name: One Slack message for the run
+        env:
+          SETTINGS: ${{ needs.settings.result }}
+          LINT: ${{ needs.lint-test.result }}
+          TRAIN: ${{ needs.train.result }}
+          JOB_STATE: ${{ needs.train.outputs.job_state }}
+          GATE: ${{ needs.gate-register.outputs.gate }}
+          FAILED: ${{ needs.gate-register.outputs.failed_checks }}
+          VERSION: ${{ needs.gate-register.outputs.version }}
+          GATE_JOB: ${{ needs.gate-register.result }}
+        run: |
+          if [ "$SETTINGS" != success ]; then
+            level=fail; title="model-ci: repository variables or secrets missing"; detail="see the settings job"
+          elif [ "$LINT" != success ]; then
+            level=fail; title="model-ci: lint or tests failed"; detail="see the lint-test job"
+          elif [ "$TRAIN" != success ]; then
+            level=fail; title="model-ci: training job failed"; detail="Vertex state: ${JOB_STATE:-not submitted}"
+          elif [ "$GATE" = passed ] && [ -n "$VERSION" ]; then
+            level=ok; title="model-ci: gate passed, registered v$VERSION as @staging"; detail="all checks passed"
+          elif [ "$GATE" = blocked ] && [ -z "$OVERRIDES" ]; then
+            level=warn; title="model-ci: smoke candidate blocked by the gate (expected)"; detail="failed: $FAILED"
+          elif [ "$GATE" = blocked ]; then
+            level=fail; title="model-ci: gate blocked the candidate"; detail="failed: $FAILED"
+          else
+            level=fail; title="model-ci: gate or registration error"; detail="gate-register job: $GATE_JOB"
+          fi
+          python -m src.pipeline.ci notify --level "$level" --title "$title" \
+            --field "detail=$detail" --field "commit=${GITHUB_SHA::7}" --field "run=$RUN_URL"
