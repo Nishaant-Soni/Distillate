@@ -180,11 +180,17 @@ def existing_version(mlflow_client, name: str, model_version: str):
 
 
 def register(cfg: dict[str, Any], package: Path, gate_report: Path, mlflow_client,
-             upload: bool = True, alias: str | None = None, runner=subprocess.run
-             ) -> dict[str, Any]:
-    """Register ``package``; return a summary. Raises RegistrationError on any refusal."""
+             upload: bool = True, alias: str | None = None, runner=subprocess.run,
+             predictions: Path | None = None) -> dict[str, Any]:
+    """Register ``package``; return a summary. Raises RegistrationError on any refusal.
+
+    ``predictions`` (the folder the gate scored) is logged with the version, so a later gate
+    can compare a new candidate against this one once it holds ``production``.
+    """
     meta = check_package(package, cfg)
     report = check_gate(gate_report, meta)
+    if predictions is not None and not predictions.is_dir():
+        raise RegistrationError(f"predictions folder {predictions} not found")
     name = cfg["mlflow"]["registered_model"]
     alias = alias or cfg["mlflow"]["candidate_alias"]
 
@@ -210,6 +216,8 @@ def register(cfg: dict[str, Any], package: Path, gate_report: Path, mlflow_clien
         mlflow_client.log_artifact(run_id, str(gate_report), "gate")
         if gate_report.with_suffix(".md").exists():
             mlflow_client.log_artifact(run_id, str(gate_report.with_suffix(".md")), "gate")
+        if predictions is not None:
+            mlflow_client.log_artifacts(run_id, str(predictions), "predictions")
         source = f"{mlflow_client.get_run(run_id).info.artifact_uri}/package"
         mv = mlflow_client.create_model_version(
             name, source, run_id=run_id, tags=version_tags(meta, report),
@@ -254,13 +262,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tracking-uri", default=None)
     parser.add_argument("--alias", default=None, help="default: mlflow.candidate_alias")
     parser.add_argument("--no-upload", action="store_true", help="skip Artifact Registry")
+    parser.add_argument("--predictions", type=Path, default=None,
+                        help="the prediction files the gate scored, logged with the version")
     parser.add_argument("--out", type=Path, default=None, help="write the summary JSON here")
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config)
     try:
         summary = register(cfg, args.package, args.gate_report, client(args.tracking_uri),
-                           upload=not args.no_upload, alias=args.alias)
+                           upload=not args.no_upload, alias=args.alias,
+                           predictions=args.predictions)
     except UnpublishedError as exc:
         notify(cfg, "fail", f"Registered as v{exc.version} but not published; no alias set",
                {"package": str(args.package), "reason": str(exc)})
