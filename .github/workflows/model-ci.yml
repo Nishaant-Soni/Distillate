@@ -4,9 +4,10 @@
 #   -> register (@staging + Artifact Registry) if the gate passed -> Slack, always
 #
 # Runs on pushes to main that touch model code or configs, and by hand (Actions tab, or
-# `gh workflow run model-ci.yml -f config=configs/ci.yaml`). The training job is the
-# entry point in docs/ci.md (`python -m src.pipeline.run`); its outputs go to
-# gs://distillate-mlops-data/ci/<run>/ through the bucket mount Vertex provides at /gcs/.
+# `gh workflow run model-ci.yml`). The job runs the student lane's entry point,
+# `python -m src.pipeline.run`, with the CI smoke overrides below (docs/ci.md), after
+# src.pipeline.fetch_data copies the processed tables from DVC. Its run folder goes to
+# gs://distillate-mlops-data/ci/<run>/<run_name>-<time>/ through Vertex's /gcs/ bucket mount.
 #
 # Repository variables: GCP_WIF_PROVIDER, GCP_CI_SERVICE_ACCOUNT, MLFLOW_TRACKING_URI.
 # Repository secrets: MLFLOW_TRACKING_PASSWORD, SLACK_WEBHOOK_URL (optional: without it the
@@ -25,8 +26,11 @@ on:
   workflow_dispatch:
     inputs:
       config:
-        description: "Training config for the job, relative to Model-Pipeline/"
-        default: configs/ci.yaml
+        description: "Base config for src.pipeline.run, relative to Model-Pipeline/"
+        default: configs/student.yaml
+      overrides:
+        description: "--set overrides (space-separated); default: the CI smoke run"
+        default: ""
       machine_type:
         description: "Vertex machine type (CPU only: no GPU quota)"
         default: n1-standard-4
@@ -46,7 +50,16 @@ env:
   BUCKET: distillate-mlops-data
   IMAGE: us-east1-docker.pkg.dev/distillate-mlops/distillate-images/trainer
   TRAINER_SA: vertex-trainer@distillate-mlops.iam.gserviceaccount.com
-  CONFIG: ${{ inputs.config || 'configs/ci.yaml' }}
+  CONFIG: ${{ inputs.config || 'configs/student.yaml' }}
+  # The CI smoke run: gold-only MiniLM, 2,000 training rows, one epoch, on CPU, scored on the
+  # three sets the gate reads. Minutes and cents; the gate is expected to block it, which
+  # still exercises every step. Replace with `overrides` to train the real recipe by hand.
+  SMOKE_OVERRIDES: >-
+    run_name=ci-smoke model.name=minilm model.max_length=64 loss.alpha=1.0
+    data.source=official data.limit=2000 train.epochs=1 train.device=cpu train.fp16=false
+    train.num_workers=0 package.enabled=true pipeline.tables=[gate,bias]
+    pipeline.latency=false pipeline.plots=false
+  OVERRIDES: ${{ inputs.overrides }}
   MACHINE_TYPE: ${{ inputs.machine_type || 'n1-standard-4' }}
   RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
   MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
@@ -87,8 +100,8 @@ jobs:
 
       - name: Training image is defined
         run: |
-          if [ ! -f Dockerfile ]; then
-            echo "::error::Model-Pipeline/Dockerfile is missing (student lane, work plan 5.1). CI can't build the training image until it lands."
+          if [ ! -f Dockerfile ] || [ ! -f src/pipeline/run.py ]; then
+            echo "::error::Model-Pipeline/Dockerfile or src/pipeline/run.py is missing (student lane, work plan 5.1)."
             exit 1
           fi
 
@@ -99,9 +112,10 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Build and push the training image
+        working-directory: .          # the Dockerfile builds from the repository root
         run: |
           gcloud auth configure-docker us-east1-docker.pkg.dev --quiet
-          docker build -t "$IMAGE:$GITHUB_SHA" .
+          docker build -f Model-Pipeline/Dockerfile -t "$IMAGE:$GITHUB_SHA" .
           docker push "$IMAGE:$GITHUB_SHA"
 
       - name: Submit the Vertex AI custom job
@@ -111,6 +125,10 @@ jobs:
         run: |
           # The password reaches the job as an environment variable in its spec, so anyone who
           # can view Vertex jobs in the project can read it (project owners only, today).
+          sets="${OVERRIDES:-$SMOKE_OVERRIDES} pipeline.data_dir=/tmp/processed"
+          sets="$sets paths.official_dir=/tmp/processed/wikipedia paths.out_dir=/gcs/$BUCKET/ci/$RUN_ID"
+          script="python -m src.pipeline.fetch_data --out /tmp/processed --tables train val gate bias"
+          script="$script && python -m src.pipeline.run --config $CONFIG --set $sets"
           cat > /tmp/job.yaml <<EOF
           workerPoolSpecs:
             - machineSpec:
@@ -118,8 +136,7 @@ jobs:
               replicaCount: 1
               containerSpec:
                 imageUri: $IMAGE:$GITHUB_SHA
-                command: ["python", "-m", "src.pipeline.run"]
-                args: ["--config", "$CONFIG", "--out", "/gcs/$BUCKET/ci/$RUN_ID"]
+                command: ["bash", "-c", "$script"]
                 env:
                   - {name: MLFLOW_TRACKING_URI, value: "$MLFLOW_TRACKING_URI"}
                   - {name: MLFLOW_TRACKING_USERNAME, value: "$MLFLOW_TRACKING_USERNAME"}
@@ -181,8 +198,12 @@ jobs:
 
       - name: Download the job's outputs
         run: |
+          # src.pipeline.run writes one <run_name>-<time>/ folder under paths.out_dir.
+          run_dir=$(gcloud storage ls "gs://$BUCKET/ci/$RUN_ID/" | head -1)
+          if [ -z "$run_dir" ]; then echo "::error::no run folder under ci/$RUN_ID/"; exit 1; fi
+          echo "RUN_DIR=${run_dir%/}" >> "$GITHUB_ENV"
           mkdir -p "$OUT"
-          gcloud storage cp -r "gs://$BUCKET/ci/$RUN_ID/*" "$OUT/"
+          gcloud storage cp -r "${run_dir%/}/*" "$OUT/"
           python -m src.pipeline.ci check-outputs --dir "$OUT"
 
       - name: Fetch @production's predictions
@@ -203,7 +224,7 @@ jobs:
           code=$?
           set -e
           cat "$OUT/gate/gate_report.md" >> "$GITHUB_STEP_SUMMARY"
-          gcloud storage cp -r "$OUT/gate" "gs://$BUCKET/ci/$RUN_ID/"
+          gcloud storage cp -r "$OUT/gate" "$RUN_DIR/ci-gate/"
           failed=$(python -c "import json;print(', '.join(json.load(open('$OUT/gate/gate_report.json'))['failed_checks']))")
           echo "failed_checks=$failed" >> "$GITHUB_OUTPUT"
           if [ $code -eq 0 ]; then echo "result=passed" >> "$GITHUB_OUTPUT";
