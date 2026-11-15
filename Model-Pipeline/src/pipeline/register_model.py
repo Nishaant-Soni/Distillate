@@ -165,13 +165,16 @@ def upload_package(package: Path, version: str, ar: dict[str, Any], runner=subpr
 
 
 def existing_version(mlflow_client, name: str, model_version: str):
-    """The version already registered for ``model_version``, or None."""
+    """The version already registered for ``model_version``, or None.
+
+    A failed search raises rather than returning None, which would register a second version.
+    """
     from mlflow.exceptions import MlflowException
 
     try:
         versions = mlflow_client.search_model_versions(f"name = '{name}'")
-    except MlflowException:
-        return None
+    except MlflowException as exc:
+        raise RegistrationError(f"could not look up existing versions of {name}: {exc}") from exc
     same = [v for v in versions if v.tags.get("model_version") == model_version]
     return max(same, key=lambda v: int(v.version)) if same else None
 
@@ -186,23 +189,16 @@ def register(cfg: dict[str, Any], package: Path, gate_report: Path, mlflow_clien
     """
     meta = check_package(package, cfg)
     report = check_gate(gate_report, meta)
+    if predictions is not None and not predictions.is_dir():
+        raise RegistrationError(f"predictions folder {predictions} not found")
     name = cfg["mlflow"]["registered_model"]
     alias = alias or cfg["mlflow"]["candidate_alias"]
 
-    run_id = _training_run(mlflow_client, meta)
-    mlflow_client.log_artifacts(run_id, str(package), "package")
-    mlflow_client.log_artifact(run_id, str(gate_report), "gate")
-    if gate_report.with_suffix(".md").exists():
-        mlflow_client.log_artifact(run_id, str(gate_report.with_suffix(".md")), "gate")
-    if predictions is not None:
-        if not predictions.is_dir():
-            raise RegistrationError(f"predictions folder {predictions} not found")
-        mlflow_client.log_artifacts(run_id, str(predictions), "predictions")
-
     _ensure_registered_model(mlflow_client, name)
     ar = cfg["artifact_registry"]
-    publish = upload and ar.get("enabled", True)
-    source = f"{mlflow_client.get_run(run_id).info.artifact_uri}/package"
+    ar_enabled = ar.get("enabled", True)
+    publish = upload and ar_enabled
+    # Checked before anything is logged, so a refused re-registration uploads nothing.
     previous = existing_version(mlflow_client, name, meta["model_version"])
     if previous is not None:
         state = previous.tags.get("ar_upload")
@@ -211,10 +207,18 @@ def register(cfg: dict[str, Any], package: Path, gate_report: Path, mlflow_clien
         if state == "ok" or not publish:
             raise RegistrationError(f"{meta['model_version']} is already registered as "
                                     f"v{previous.version} (ar_upload={state})")
-        version = str(previous.version)
+        version, run_id, source = str(previous.version), previous.run_id, previous.source
         mlflow_client.set_model_version_tag(name, version, "upload_retried", "true")
         logger.info("retrying the upload for %s v%s (was ar_upload=%s)", name, version, state)
     else:
+        run_id = _training_run(mlflow_client, meta)
+        mlflow_client.log_artifacts(run_id, str(package), "package")
+        mlflow_client.log_artifact(run_id, str(gate_report), "gate")
+        if gate_report.with_suffix(".md").exists():
+            mlflow_client.log_artifact(run_id, str(gate_report.with_suffix(".md")), "gate")
+        if predictions is not None:
+            mlflow_client.log_artifacts(run_id, str(predictions), "predictions")
+        source = f"{mlflow_client.get_run(run_id).info.artifact_uri}/package"
         mv = mlflow_client.create_model_version(
             name, source, run_id=run_id, tags=version_tags(meta, report),
             description=f"{meta['model_version']}, gate passed")
@@ -234,7 +238,14 @@ def register(cfg: dict[str, Any], package: Path, gate_report: Path, mlflow_clien
     else:
         mlflow_client.set_model_version_tag(name, version, "ar_upload", "skipped")
 
-    mlflow_client.set_registered_model_alias(name, alias, version)
+    # Same rule as rollback_model: with Artifact Registry on, an alias only points at a
+    # published package, so a --no-upload version is registered but gets no alias.
+    if publish or not ar_enabled:
+        mlflow_client.set_registered_model_alias(name, alias, version)
+    else:
+        logger.warning("v%s was registered with --no-upload while Artifact Registry is on; "
+                       "@%s not set", version, alias)
+        alias = None
     return {"registered_model": name, "version": version, "alias": alias,
             "model_version": meta["model_version"], "run_id": run_id, "source": source,
             "artifact_registry": ar_path}
@@ -272,10 +283,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    notify(cfg, "ok", f"Registered {summary['registered_model']} v{summary['version']} "
-           f"as {summary['alias']}", {"model_version": summary["model_version"],
-                                       "artifact_registry": summary["artifact_registry"]
-                                       or "skipped"})
+    held = f"as {summary['alias']}" if summary["alias"] else "(no alias, not published)"
+    notify(cfg, "ok", f"Registered {summary['registered_model']} v{summary['version']} {held}",
+           {"model_version": summary["model_version"],
+            "artifact_registry": summary["artifact_registry"] or "skipped"})
     print(json.dumps(summary, indent=2))
     return 0
 

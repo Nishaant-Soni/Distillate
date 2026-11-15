@@ -214,6 +214,41 @@ def test_no_upload_registers_without_gcloud(cfg, store, tmp_path):
     assert runner.calls == []
     assert summary["artifact_registry"] is None
     assert store.get_model_version(NAME, "1").tags["ar_upload"] == "skipped"
+    # Artifact Registry is on, so the unpublished version gets no alias (as in rollback).
+    assert summary["alias"] is None
+    assert registry.version_by_alias(store, NAME, "staging") is None
+
+
+def test_no_upload_sets_the_alias_when_artifact_registry_is_off(cfg, store, tmp_path):
+    cfg["artifact_registry"]["enabled"] = False
+    summary = register(cfg, store, tmp_path, upload=False)
+    assert summary["alias"] == "staging"
+    assert str(store.get_model_version_by_alias(NAME, "staging").version) == "1"
+
+
+def test_failed_version_search_is_refused(cfg, store, tmp_path, monkeypatch):
+    from mlflow.exceptions import MlflowException
+
+    def broken(*_a, **_k):
+        raise MlflowException("server unavailable")
+
+    monkeypatch.setattr(store, "search_model_versions", broken)
+    with pytest.raises(reg.RegistrationError, match="could not look up existing versions"):
+        register(cfg, store, tmp_path)
+    monkeypatch.undo()
+    assert store.search_model_versions(f"name = '{NAME}'") == []
+
+
+def test_refused_reregistration_logs_nothing(cfg, store, tmp_path, monkeypatch):
+    package = make_package(tmp_path / "runs", "student-a", training_run(store))
+    report = make_report(tmp_path / "gate", "student-a")
+    reg.register(cfg, package, report, store, runner=FakeRunner())
+    logged = []
+    monkeypatch.setattr(store, "log_artifacts", lambda *a, **k: logged.append(a))
+    monkeypatch.setattr(store, "log_artifact", lambda *a, **k: logged.append(a))
+    with pytest.raises(reg.RegistrationError, match="already registered"):
+        reg.register(cfg, package, report, store, runner=FakeRunner())
+    assert logged == []
 
 
 def test_unknown_training_run_gets_a_registry_run(cfg, store, tmp_path):
