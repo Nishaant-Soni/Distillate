@@ -374,6 +374,100 @@ python -m src.eval.bias --gold <gold dir> --arm gold=<dir> --arm mixed=<dir> \
 
 `tests/eval/`: the metric definitions against the teacher's and against hand-computed examples, weighting and within-stratum resampling, logit ranking, failed rows, every gate check (including a degraded candidate blocked and a biased slice blocked), and the bias metrics (BPSN and BNSP checked by hand, a planted biased slice flagged, matched FPR, the paired bootstrap and the missing-data warnings). All run offline with made-up data; the reference check runs only when the private gate data is available.
 
+## 5. CI/CD, registry and rollback (Vaishnavi)
+
+The infrastructure around the model: a shared **MLflow server** every lane logs to, a **model registry** that only accepts a model the gate passed, **rollback** by moving an alias, and **model-ci**, a GitHub Actions workflow that trains a candidate on Vertex AI, gates it and registers it whenever model code changes. All of it runs on the $50 of course credits.
+
+| Document | What it covers |
+|---|---|
+| [`infra/mlflow/README.md`](infra/mlflow/README.md) | The tracking server: machine, schedule, storage, login, and the commands that rebuild it |
+| [`docs/registry.md`](docs/registry.md) | Registration and rollback: the rules, the lineage tags, the commands |
+| [`docs/ci.md`](docs/ci.md) | The model-ci workflow: each job, the training job's inputs and outputs, the one-time GCP and GitHub setup, cost |
+
+```text
+push to main (Model-Pipeline/src, configs, Dockerfile)   or   Actions → model-ci → Run workflow
+  settings → lint-test → build image → Vertex AI job (src.pipeline.run) → gate
+     passed:  register_model → MLflow version, @staging, Artifact Registry package → Slack
+     blocked: nothing registered → Slack
+  production problem:  rollback_model --previous  (moves @production back one version)
+```
+
+### 5.1 MLflow tracking server (`infra/mlflow/`)
+
+`http://35.227.25.230:5000`, a Compute Engine VM (`mlflow-server`, e2-small, `us-east1-b`) running MLflow 3.18.
+
+- **Storage:** runs and the registry in SQLite on the VM (backed up nightly to `gs://distillate-mlops-data/mlflow/backup/`); artifacts in `gs://distillate-mlops-data/mlflow/artifacts/`, served through the server. Clients, including Kaggle notebooks, need only the URI and a login, never a GCP key.
+- **Access:** MLflow basic auth with an `admin` user and a shared `team` user. The server's service account can read and write `mlflow/` in the bucket and nothing else. The team password lives in Kaggle Secrets, local environments and a GitHub Actions secret, never in the repository.
+- **Hours:** an instance schedule (`mlflow-hours`) runs it from 9 AM to 2 AM Eastern to save credits. It can be started by hand outside those hours.
+- **Sizing:** an e2-micro (free tier) swapped until requests timed out; the e2-small runs one worker with MLflow's background job runners off (`MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false`), which keeps it within 2 GB.
+
+Experiments: `distillate-teacher`, `distillate-student`, `distillate-student-ablation` and `distillate-sensitivity` for the lanes' runs, and `distillate-registry` for packages registered without a training run on the server.
+
+### 5.2 Model registry (`src/pipeline/register_model.py`, `configs/registry.yaml`)
+
+One registered model, **`distillate-student`**, with the aliases **`staging`** (the latest candidate that passed) and **`production`** (what serving loads, `models:/distillate-student@production`). Aliases are used rather than MLflow's deprecated stages.
+
+`register_model` refuses a model unless:
+
+1. the package is complete (`meta.json`, `thresholds.json`, a model file and the tokenizer), and
+2. the gate report passed **for that exact model**: its `model_version` must equal the package's.
+
+It then creates the version with lineage tags (`model_version`, `code_commit`, `training_data_sha256`, `teacher_version`, α, T, the gate's mean AUC and more), uploads the package to Artifact Registry (`distillate-models`, generic package `distillate-student`) and sets `@staging` **last**, only after both succeed. If the upload fails, the version is tagged `ar_upload=failed`, gets no alias, and rerunning the command retries the upload on the same version; a model already published is never registered twice. Every outcome posts to Slack.
+
+### 5.3 Rollback (`src/pipeline/rollback_model.py`)
+
+Rollback moves an alias; it never deletes or retrains anything, so it takes seconds and can itself be undone.
+
+```bash
+python -m src.pipeline.rollback_model --list                       # versions, aliases, gate, upload
+python -m src.pipeline.rollback_model --previous --reason "canary FPR up"
+python -m src.pipeline.rollback_model --to 3 --alias staging
+```
+
+An alias can only move to a version that passed the gate and is published in Artifact Registry (`ar_upload=ok`); anything else needs `--force`. `--previous` skips versions that don't qualify. Every move is recorded on the registered model (`<alias>_previous`) and on the version (`last_alias_move`: from, to, when and why).
+
+### 5.4 CI/CD: model-ci (`.github/workflows/model-ci.yml`, `src/pipeline/ci.py`)
+
+| Job | What it does |
+|---|---|
+| `settings` | stops the run, naming what's missing, if a repository variable or secret isn't set (without them MLflow would silently log to a throwaway local store) |
+| `lint-test` | ruff and the Model-Pipeline tests |
+| `train` | builds `Model-Pipeline/Dockerfile`, pushes it to Artifact Registry (`distillate-images/trainer:<commit>`), and runs `python -m src.pipeline.run` as a CPU Vertex AI custom job. The image holds no data: `src.pipeline.fetch_data` streams the processed tables from the DVC remote at the image's commit |
+| `gate-register` | downloads the run folder, checks it is complete, fetches `@production`'s predictions for the regression check, runs `src.eval.gate`, and calls `register_model` if it passed |
+| `notify` | one Slack message per run: which step failed, or the gate's verdict and the new version |
+
+**Identities:** GitHub signs in to GCP through Workload Identity Federation, so no service-account key exists. The provider accepts only this repository. `github-ci` can push images, start Vertex jobs and read and write `ci/` in the bucket. The training job runs as `vertex-trainer`, which can read the bucket and write only `ci/` (not the default compute account, which is a project editor).
+
+**The smoke run:** on a push, CI trains a deliberately small candidate (MiniLM, 2,000 training rows, one epoch, CPU, gate and bias sets sampled to 5,000 rows) to test the whole path cheaply. The gate is expected to block it, so a blocked smoke run is a warning, not a failure. A manual run can pass `overrides` (for example the selected recipe) to train a real candidate; a blocked real candidate fails the run.
+
+**First runs (Nov 15):** RESULT_PLACEHOLDER
+
+### 5.5 Cost
+
+Total credits: $50 (Google Cloud education credits), watched by a billing budget (`Distillate credits`) that emails at 25, 50, 75, 90 and 100% of spend, and at 90% of the forecast. Spend is counted before credits are applied, so the alerts track what the credits are being used for.
+
+| Item | Cost |
+|---|---|
+| MLflow VM (e2-small, 17 hours a day) | about $10 through Dec 7 |
+| A model-ci smoke run (n1-standard-4, about 35 minutes) | about $0.11 |
+| Images | Artifact Registry keeps the latest 3 and deletes others after 7 days |
+| Bucket | DVC data, soft labels, CI outputs and MLflow artifacts: a few GB |
+
+### 5.6 Running it
+
+```bash
+# from Model-Pipeline/, against the team server (export the MLflow variables first, infra/mlflow/README.md)
+python -m src.pipeline.register_model --package <run>/package \
+  --gate-report <run>/eval/gate_report.json --predictions <run>/predictions
+python -m src.pipeline.rollback_model --list
+
+# CI by hand: Actions → model-ci → Run workflow (optional: config, overrides, machine type)
+```
+
+### 5.7 Tests
+
+`tests/pipeline/test_registry.py` (37 tests), `test_ci.py` (11) and `test_fetch_data.py` (3), on temporary SQLite MLflow stores with a fake `gcloud`, so no server, network or GCP access is needed and nothing is left in `./mlruns`. They cover every refusal (blocked gate, a report for another model, incomplete packages), the upload-before-alias order, a failed upload and its retry, rollback's rules (`--previous` skipping unpublished versions, `--force`, recorded moves), the CI output check and production fetch, and the DVC fetch. `tests/pipeline/test_run.py` also runs the whole pipeline with permission changes refused, as on Vertex's `/gcs` mount. The workflow's YAML and shell steps are checked by parsing.
+
 ## 6. Monitoring preparation (Sai)
 
 Builds on #45 (drift metrics), #50 (canary) and #52 (dashboards and alert rules); this section describes their code, so it merges after them.
