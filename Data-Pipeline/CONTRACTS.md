@@ -53,6 +53,12 @@ distillate/
 
 **Prediction files** (any model, any eval set): `id`, `p_<label>` for all six labels, `model_version`. This is the only thing the evaluation and bias code reads, so it works the same for the TF-IDF baseline, every student, the teacher, and Llama Guard.
 
+**Drift baseline** (`data/processed/monitoring/drift_baseline.json`, written by the `drift_baseline` stage of `data_prep_dag` after `split`, versioned with `data/processed.dvc`). Built from Wikipedia train; no comment text. Fields: `version`, `source`, `rows`, `vocab_min_count`, `vocab_size`, `vocab_hashes` (truncated BLAKE2b hashes of words seen at least twice), and `features`: for each of `char_len`, `oov_rate`, `nonalpha_share`, the decile bin `edges`, the baseline `shares` per bin, and the `mean`. Read it only through `scripts/drift.py`:
+
+- `load_baseline(cfg)` returns the baseline; a missing file is an error (the drift DAG never builds it).
+- `input_drift(batch, baseline, cfg)` takes a drift batch (`text`, optionally `char_len`) and returns a JSON-ready dict: `rows`, `features` (per feature: `psi`, `status`, `batch_mean`, `baseline_mean`), `max_psi`, `status`, `thresholds`. Status is `ok` / `warn` / `alert` (from `drift.psi_warn` and `drift.psi_alert`), or `unknown` for an empty batch.
+- `flag_rate_drift(predictions, reference_rate, cfg)` takes scored predictions (a boolean `flag`) and a reference flag rate; returns `rows`, `flag_rate`, `reference_rate`, `psi`, `status`, `thresholds`, with `unknown` when there is no reference. On Civil, the flag and its reference come from the five `flagged_<label>` columns (no `severe_toxicity`).
+
 ## 3. Code conventions
 - Every stage is a function `run(cfg: dict) -> dict` (the dict is a JSON summary: rows in, rows out, dropped with reasons, duration) plus a CLI: `python -m scripts.<name> --config config/pipeline.yaml`.
 - All tunables live in `config/pipeline.yaml`. Seed is `42` everywhere.
@@ -60,9 +66,11 @@ distillate/
 - Alerts only through `alerts.send_alert(level, title, details)` where level is `"warn"` or `"fail"`. Until the real one lands, `alerts.py` ships as a no-op that logs.
 
 ## 4. Serving API (Phase 3, fixed now so demo, monitoring, and drift work can start early)
-- `POST /predict` body `{"text": "..."}` → `{"scores": {label: float}, "flagged": {label: bool}, "low_confidence": bool, "model_version": "...", "latency_ms": float}`
+- `POST /predict` body `{"text": "..."}` → `{"scores": {label: float}, "flagged": {label: bool}, "flag": bool, "low_confidence": bool, "model_version": "...", "latency_ms": float}`
+  - `flagged[label]` is true when the score is at or above that label's threshold in `thresholds.json`.
+  - `flag` is true when any label is flagged. It is the decision the demo app and moderation queue use (work plan v4 §2.4).
 - `GET /health` → `{"status": "ok", "model_version": "..."}`
-- `GET /metrics` → Prometheus format with: `distillate_request_latency_seconds` (histogram), `distillate_requests_total`, `distillate_errors_total`, `distillate_flagged_total{label}`, `distillate_score{label}` (histogram), `distillate_low_confidence_total`.
+- `GET /metrics` → Prometheus format with: `distillate_request_latency_seconds` (histogram), `distillate_requests_total`, `distillate_errors_total`, `distillate_flagged_total{label}`, `distillate_flag_total`, `distillate_score{label}` (histogram), `distillate_low_confidence_total`.
 - Text is never logged; logs hold `text_sha256`, `char_len`, and scores only.
 
 ## 5. Model artifacts
