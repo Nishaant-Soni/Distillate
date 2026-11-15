@@ -197,7 +197,7 @@ epochs (1 to 4) and maximum length (128 or 256), on DistilBERT with the mixed lo
 validation mean AUC. 28 trials in one merged study (`distilbert-mixed-v1`, two Kaggle workers on
 T4s, one 11-hour session each). Best: trial 26, validation mean AUC 0.99364. All other arms reuse these
 values. Every trial peaked at its last epoch, so one run at 5 epochs was added outside the
-study; it is the one selected, though its gain over 4 epochs (+0.0002) is at the noise level.
+study; it is the one selected, though its gain over 4 epochs (+0.0002) is within the one-seed noise.
 
 **Thresholds.** Per label, F1-maximising on validation, within [0.01, 0.99]
 (`thresholds.json`): toxicity 0.351, severe_toxicity 0.225, obscene 0.207, threat 0.232,
@@ -219,8 +219,8 @@ effect of the recipe choice; the PR-AUC gain (+0.064) and the cross-domain gain 
 H2) are far larger and stand.
 
 **Selection** (`select_best.py`, `configs/student.yaml` `select:`). Among the candidates that
-pass the bias check, the highest validation mean AUC, ties within 0.0002 (the measured
-run-to-run noise) broken by validation PR-AUC. Two decisions were made after the run and are
+pass the bias check, the highest validation mean AUC, ties within 0.0002 (at least the
+one-seed noise: three runs of the tuned recipe span 0.00016) broken by validation PR-AUC. Two decisions were made after the run and are
 recorded with it:
 
 - Candidates are the tuned recipe only (DistilBERT at 4 and 5 epochs, MiniLM-L12,
@@ -245,9 +245,9 @@ time. Phase 3: int8 with the parity check (validation AUC within 0.002), then Mi
 **Compute.** Kaggle, NVIDIA T4, fp16. The selected run: 71 minutes of training. The Phase 2
 run of all eight arms: 5.9 hours on two T4s (`kaggle/13_student_ablation_all.ipynb`, code
 `80a4502`). MLflow experiment `distillate-student-ablation` on the team server, run
-`ab34619a27e84b07aae044e3a414c0be`, logged from the committed records
-(`src/student/mlflow_log.py`); its `kaggle_run_id` tag keeps the Kaggle session's id,
-`358772663fc34a5e81275c3ed073e598`.
+`ab34619a27e84b07aae044e3a414c0be`, with the other seven arms and the selection, logged from
+the committed records (`src/student/mlflow_log.py`); its `kaggle_run_id` tag keeps the Kaggle
+session's id, `358772663fc34a5e81275c3ed073e598`.
 
 ## 5. Evaluation data
 
@@ -612,6 +612,7 @@ scores and metrics.
 | 2026-11-11 | Sections 3 (teacher and soft labels) and 7 (sensitivity analysis, 7.1 filled) (Nishaant) |
 | 2026-11-13 | Section 3: the ablation's attribution results (paired intervals), the leak check's result, interval and verdict, the validation caveat's wording on what the stack was fitted on; section 7: the selected student (Nishaant) |
 | 2026-11-13 | Section 4 (training), section 1 version and architecture, student base model (Shivam) |
+| 2026-11-13 | Sections 1 and 4: the selected run's id on the team MLflow server; section 4's tie rule as at least the one-seed noise (Nishaant) |
 | 2026-11-13 | Section 7.2 to 7.5: the sensitivity run's results and findings, with its data revision and MLflow run; section 10's obfuscation limit quantified from section 7.4 (Nishaant) |
 | 2026-11-14 | Section 7 after review (#46): the masked-example rule (no adjacent words, ends hidden), slurs masked, the importance share as a range over seeds, threat counts (Nishaant) |
 | 2026-11-14 | Sections 6 (results), 8 (final gate values), 9 (bias: per-group table, findings, mitigation), 10 (H2 and race limits) and 11 (licences); status banner and contact (Ruchita) |

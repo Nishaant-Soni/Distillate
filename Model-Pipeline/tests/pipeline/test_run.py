@@ -161,9 +161,26 @@ def test_results_across_arms(two_runs, tmp_path):
     assert result["leak_check"] is not None and mixed["obfuscation"]["rows"] == 30
     text = (tmp_path / "results.md").read_text()
     assert "## H1: in-domain" in text and "## H2: cross-domain" in text
+    saved = json.loads((tmp_path / "results.json").read_text())
+    assert saved["plots"] and all(not Path(p).is_absolute() for p in saved["plots"])
+    assert all((tmp_path / p).exists() for p in saved["plots"])
     for name in ("h1_h2.png", "per_label_auc_gate.png", "per_label_pr_auc_h2_eval.png",
                  "confusion_distilbert-mixed_gate.png"):
         assert (tmp_path / "plots" / name).stat().st_size > 1000, name
+
+
+def test_teacher_comparisons_pair_arms_with_the_same_loss():
+    from src.eval.results import PAIRS
+
+    # The stack-only arm (alpha 0) against an attribution arm (alpha tuned) would mix the
+    # teacher with the loss; the LLM's share is mixed against the TF-IDF arm.
+    soft = {"distilbert-mixed", "distilbert-tfidf", "distilbert-calqwen"}
+    assert ("distilbert-mixed", "distilbert-tfidf") in PAIRS
+    for a, b in PAIRS:
+        if "distilbert-stack" in (a, b):
+            assert {a, b} == {"distilbert-mixed", "distilbert-stack"}, (a, b)
+        elif {a, b} & {"distilbert-tfidf", "distilbert-calqwen"}:
+            assert {a, b} <= soft, (a, b)
 
 
 def test_truncation_sweep_writes_one_file_per_length(two_runs):

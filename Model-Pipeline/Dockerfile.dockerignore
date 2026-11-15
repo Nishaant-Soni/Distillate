@@ -35,6 +35,8 @@
 **/.pytest_cache
 **/.ruff_cache
 **/*.pyc
+# Git-ignored files inside admitted folders (they exist only in some checkouts):
+Model-Pipeline/artifacts/oof/tfidf_oof.parquet
 **/.DS_Store
 **/*.key.json
 **/*service-account*.json

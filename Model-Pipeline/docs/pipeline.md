@@ -24,7 +24,8 @@ it are kept, and the exit code is 1.
 Among the runs that pass the **bias check** (the gate's slice-FPR limits on the Civil bias set)
 and the **CPU latency budget** (`select.latency_stat` p95 at most `select.latency_budget_ms`,
 50 ms, batch size 1), the highest **validation** mean AUC. Runs within `select.auc_tie`
-(0.0002, the measured run-to-run noise at one seed, `docs/tuning.md`) count as tied, and the
+(0.0002; three runs of the tuned recipe span 0.00016, so this is at least the one-seed
+noise, not a measure of it, `docs/tuning.md`) count as tied, and the
 higher validation mean PR-AUC wins. The gate set and H2 are never used to choose.
 `select.candidates` limits who competes (the other runs stay in the table as controls), and
 `select.latency_enforced: false` reports the budget without excluding anyone; `select.note`
@@ -34,8 +35,9 @@ Writes `selection.json` and `selection.md` (every candidate, eligible or not, wi
 ## Results across arms (`python -m src.eval.results`)
 
 The model card's H1 (gate) and H2 (Civil, five labels) tables with 1,000-resample bootstrap
-intervals; paired bootstrap differences for mixed vs gold, stack vs TF-IDF (the part creditable
-to the LLM), calibrated Qwen vs TF-IDF, stack vs calibrated Qwen, and mixed vs stack; the
+intervals; paired bootstrap differences for mixed vs gold, mixed vs TF-IDF (the part creditable
+to the LLM: both mixed loss at the tuned α), calibrated Qwen vs TF-IDF, mixed vs calibrated
+Qwen, and mixed vs stack (the gold term's share, the only pair with the α 0 stack arm); the
 validation-to-gate drop of mixed vs gold (the soft-label leak check); obfuscation recall against
 the same comments' originals; latency; the truncation sweep. Plots: per-label AUC (dots) and
 PR-AUC (bars) across arms per split, the H1 / H2 figure, the selected arm's confusion matrices.
