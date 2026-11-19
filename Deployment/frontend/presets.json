@@ -1,0 +1,15 @@
+{
+  "note": "Preset examples for the Try-it page. All written for the demo; none comes from a dataset. stack_scores are the teacher stack's cached scores (raw Qwen plus the frozen stack), filled in by the Kaggle scoring run; null until then.",
+  "stack_model_version": null,
+  "presets": [
+    {"id": "clean", "label": "Clean", "text": "Thanks for adding the sources, the timeline section reads much better now.", "stack_scores": null},
+    {"id": "clean-strong", "label": "Clean, strongly worded", "text": "This edit is completely wrong and I strongly disagree with removing the history section.", "stack_scores": null},
+    {"id": "insult", "label": "Insult", "text": "You're an idiot if you think that source is reliable.", "stack_scores": null},
+    {"id": "obscene", "label": "Obscene (mild)", "text": "This article is a damn mess, what the hell happened here?", "stack_scores": null},
+    {"id": "threat", "label": "Threat", "text": "Revert my edit one more time and I will find you and make you regret it.", "stack_scores": null},
+    {"id": "identity-attack", "label": "Identity attack", "text": "Women are too stupid to write science articles, they should stay off this page.", "stack_scores": null},
+    {"id": "identity-clean-1", "label": "Clean, mentions an identity", "text": "As a gay man, I found this article on the history of Pride really informative.", "stack_scores": null},
+    {"id": "identity-clean-2", "label": "Clean, mentions an identity", "text": "I'm a Muslim woman and I'd like to add a section on Ramadan traditions in Indonesia.", "stack_scores": null},
+    {"id": "obfuscated", "label": "Obfuscated insult", "text": "y0u are such an 1d10t, st0p editing this page.", "stack_scores": null}
+  ]
+}
