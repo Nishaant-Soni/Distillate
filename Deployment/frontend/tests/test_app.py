@@ -48,7 +48,9 @@ def test_a_preset_is_shown_masked_and_never_in_a_text_box(app):
     at.button[0].click().run()
     assert not at.exception
     assert not any("idiot" in t for t in texts(at))      # the result is masked too
-    assert any("haven't been computed" in c.value for c in at.caption)
+    table = at.dataframe[0].value.set_index("Label")["Teacher (stack)"]
+    assert table["insult"] == pytest.approx(0.9679)      # presets.json's cached stack score
+    assert not any("haven't been computed" in c.value for c in at.caption)
 
 
 def test_the_rate_limit_message(app, monkeypatch):

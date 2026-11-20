@@ -1,15 +1,15 @@
 {
-  "note": "Preset examples for the Try-it page. All written for the demo; none comes from a dataset. stack_scores are the teacher stack's cached scores (raw Qwen plus the frozen stack), filled in by the Kaggle scoring run; null until then.",
-  "stack_model_version": null,
+  "note": "Preset examples for the Try-it page. All written for the demo; none comes from a dataset. stack_scores are the teacher stack's cached scores: raw Qwen from Kaggle notebook 20 and the full-train TF-IDF baseline, combined by the frozen stack (stack.apply_stack).",
+  "stack_model_version": "stack-v1 over p2-zs-v2b (Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554) and tfidf-lr-v1",
   "presets": [
-    {"id": "clean", "label": "Clean", "text": "Thanks for adding the sources, the timeline section reads much better now.", "stack_scores": null},
-    {"id": "clean-strong", "label": "Clean, strongly worded", "text": "This edit is completely wrong and I strongly disagree with removing the history section.", "stack_scores": null},
-    {"id": "insult", "label": "Insult", "text": "You're an idiot if you think that source is reliable.", "stack_scores": null},
-    {"id": "obscene", "label": "Obscene (mild)", "text": "This article is a damn mess, what the hell happened here?", "stack_scores": null},
-    {"id": "threat", "label": "Threat", "text": "Revert my edit one more time and I will find you and make you regret it.", "stack_scores": null},
-    {"id": "identity-attack", "label": "Identity attack", "text": "Women are too stupid to write science articles, they should stay off this page.", "stack_scores": null},
-    {"id": "identity-clean-1", "label": "Clean, mentions an identity", "text": "As a gay man, I found this article on the history of Pride really informative.", "stack_scores": null},
-    {"id": "identity-clean-2", "label": "Clean, mentions an identity", "text": "I'm a Muslim woman and I'd like to add a section on Ramadan traditions in Indonesia.", "stack_scores": null},
-    {"id": "obfuscated", "label": "Obfuscated insult", "text": "y0u are such an 1d10t, st0p editing this page.", "stack_scores": null}
+    {"id": "clean", "label": "Clean", "text": "Thanks for adding the sources, the timeline section reads much better now.", "stack_scores": {"toxicity": 0.0004, "severe_toxicity": 0.0001, "obscene": 0.0002, "threat": 0.0, "insult": 0.0002, "identity_attack": 0.0}},
+    {"id": "clean-strong", "label": "Clean, strongly worded", "text": "This edit is completely wrong and I strongly disagree with removing the history section.", "stack_scores": {"toxicity": 0.0016, "severe_toxicity": 0.0001, "obscene": 0.0004, "threat": 0.0, "insult": 0.0003, "identity_attack": 0.0}},
+    {"id": "insult", "label": "Insult", "text": "You're an idiot if you think that source is reliable.", "stack_scores": {"toxicity": 0.9782, "severe_toxicity": 0.002, "obscene": 0.1061, "threat": 0.0001, "insult": 0.9679, "identity_attack": 0.0004}},
+    {"id": "obscene", "label": "Obscene (mild)", "text": "This article is a damn mess, what the hell happened here?", "stack_scores": {"toxicity": 0.9007, "severe_toxicity": 0.0004, "obscene": 0.5862, "threat": 0.0001, "insult": 0.0112, "identity_attack": 0.0004}},
+    {"id": "threat", "label": "Threat", "text": "Revert my edit one more time and I will find you and make you regret it.", "stack_scores": {"toxicity": 0.2847, "severe_toxicity": 0.0328, "obscene": 0.0284, "threat": 0.5703, "insult": 0.0446, "identity_attack": 0.0009}},
+    {"id": "identity-attack", "label": "Identity attack", "text": "Women are too stupid to write science articles, they should stay off this page.", "stack_scores": {"toxicity": 0.9728, "severe_toxicity": 0.0312, "obscene": 0.0695, "threat": 0.0001, "insult": 0.8308, "identity_attack": 0.2554}},
+    {"id": "identity-clean-1", "label": "Clean, mentions an identity", "text": "As a gay man, I found this article on the history of Pride really informative.", "stack_scores": {"toxicity": 0.0126, "severe_toxicity": 0.0002, "obscene": 0.0026, "threat": 0.0, "insult": 0.0018, "identity_attack": 0.0011}},
+    {"id": "identity-clean-2", "label": "Clean, mentions an identity", "text": "I'm a Muslim woman and I'd like to add a section on Ramadan traditions in Indonesia.", "stack_scores": {"toxicity": 0.0032, "severe_toxicity": 0.0002, "obscene": 0.0049, "threat": 0.0001, "insult": 0.0011, "identity_attack": 0.0023}},
+    {"id": "obfuscated", "label": "Obfuscated insult", "text": "y0u are such an 1d10t, st0p editing this page.", "stack_scores": {"toxicity": 0.2854, "severe_toxicity": 0.0054, "obscene": 0.0117, "threat": 0.0001, "insult": 0.0739, "identity_attack": 0.0005}}
   ]
 }
