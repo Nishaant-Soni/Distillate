@@ -1,0 +1,171 @@
+{
+  "what": "the teacher (raw Qwen, P2 zero-shot, vLLM) as a service on one T4: throughput, latency, instances and cost per million comments",
+  "teacher": {
+    "model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+    "prompt_version": "p2-zs-v2b",
+    "vllm_version": "0.31.0",
+    "gpu": "Tesla T4"
+  },
+  "code_commit": "5daa102b0aa7f99dfb272f59acccd52a4398c268",
+  "keeps_up_rule": "p95 <= 2.0 s, no errors, achieved >= 95% of offered",
+  "per_instance": {
+    "sustainable_rate": 6,
+    "latency_at_sustainable_s": {
+      "p50": 0.632,
+      "p95": 1.876,
+      "p99": 2.339
+    },
+    "max_throughput": 7.469,
+    "max_throughput_note": "closed loop, 64 concurrent requests; p95 9.032 s",
+    "comments_per_hour": 21600,
+    "cost_per_million_comments": 25.0,
+    "cost_per_million_at_max_throughput": 20.08,
+    "cost_per_month_always_on": 394.2
+  },
+  "price": {
+    "per_hour": {
+      "gpu": 0.35,
+      "machine": 0.189999,
+      "total": 0.539999
+    },
+    "region": "us-east1",
+    "currency": "USD",
+    "gpu": "nvidia-tesla-t4",
+    "machine": "n1-standard-4",
+    "checked": "2026-11-19",
+    "source": "Cloud Billing Catalog API, Compute Engine SKUs (https://cloud.google.com/compute/gpus-pricing, https://cloud.google.com/compute/vm-instance-pricing)",
+    "skus": {
+      "gpu": "88B8-C3ED-03F0",
+      "vcpu": "2E27-4F75-95CD",
+      "ram": "6C71-E844-38BC"
+    }
+  },
+  "at_target_rate": null,
+  "runs": [
+    {
+      "offered_rate": 0.5,
+      "sent_rate": 0.55,
+      "achieved_rate": 0.553,
+      "latency_p50_s": 0.17,
+      "latency_p95_s": 0.423,
+      "latency_p99_s": 0.692,
+      "errors": 0,
+      "gpu_util_mean": 5.9,
+      "keeps_up": true,
+      "cost_per_million_one_instance_at_this_rate": 271.25
+    },
+    {
+      "offered_rate": 1,
+      "sent_rate": 0.967,
+      "achieved_rate": 0.977,
+      "latency_p50_s": 0.227,
+      "latency_p95_s": 0.424,
+      "latency_p99_s": 0.54,
+      "errors": 0,
+      "gpu_util_mean": 20.3,
+      "keeps_up": true,
+      "cost_per_million_one_instance_at_this_rate": 153.53
+    },
+    {
+      "offered_rate": 2,
+      "sent_rate": 2.107,
+      "achieved_rate": 2.106,
+      "latency_p50_s": 0.23,
+      "latency_p95_s": 0.486,
+      "latency_p99_s": 0.636,
+      "errors": 0,
+      "gpu_util_mean": 33.0,
+      "keeps_up": true,
+      "cost_per_million_one_instance_at_this_rate": 71.22
+    },
+    {
+      "offered_rate": 3,
+      "sent_rate": 2.813,
+      "achieved_rate": 2.815,
+      "latency_p50_s": 0.254,
+      "latency_p95_s": 0.572,
+      "latency_p99_s": 0.735,
+      "errors": 0,
+      "gpu_util_mean": 49.7,
+      "keeps_up": false,
+      "cost_per_million_one_instance_at_this_rate": 53.29,
+      "note": "the seeded arrivals sent 2.81/s against 3/s nominal; the server kept pace with them"
+    },
+    {
+      "offered_rate": 4,
+      "sent_rate": 4.12,
+      "achieved_rate": 4.117,
+      "latency_p50_s": 0.315,
+      "latency_p95_s": 0.826,
+      "latency_p99_s": 1.174,
+      "errors": 0,
+      "gpu_util_mean": 69.1,
+      "keeps_up": true,
+      "cost_per_million_one_instance_at_this_rate": 36.43
+    },
+    {
+      "offered_rate": 5,
+      "sent_rate": 4.987,
+      "achieved_rate": 4.991,
+      "latency_p50_s": 0.422,
+      "latency_p95_s": 1.205,
+      "latency_p99_s": 1.774,
+      "errors": 0,
+      "gpu_util_mean": 73.1,
+      "keeps_up": true,
+      "cost_per_million_one_instance_at_this_rate": 30.05
+    },
+    {
+      "offered_rate": 6,
+      "sent_rate": 6.13,
+      "achieved_rate": 6.113,
+      "latency_p50_s": 0.632,
+      "latency_p95_s": 1.876,
+      "latency_p99_s": 2.339,
+      "errors": 0,
+      "gpu_util_mean": 91.2,
+      "keeps_up": true,
+      "cost_per_million_one_instance_at_this_rate": 24.54
+    },
+    {
+      "offered_rate": 8,
+      "sent_rate": 8.07,
+      "achieved_rate": 7.469,
+      "latency_p50_s": 11.338,
+      "latency_p95_s": 25.026,
+      "latency_p99_s": 25.874,
+      "errors": 0,
+      "gpu_util_mean": 100.0,
+      "keeps_up": false,
+      "cost_per_million_one_instance_at_this_rate": 20.08
+    }
+  ],
+  "parity_with_offline": {
+    "cells": 54,
+    "max_abs_p": 0.006986052453157865,
+    "max_abs_logit": 0.18785801673696678
+  },
+  "load": {
+    "source": "Civil drift batches (civil_drift_ids.csv), seeded sample",
+    "comments": 2000,
+    "truncated": 0,
+    "chars": {
+      "mean": 299.9,
+      "p50": 197,
+      "p95": 957
+    },
+    "prompt_tokens_per_comment": {
+      "mean": 1868.2,
+      "p50": 1738,
+      "p95": 2662
+    }
+  },
+  "caveats": [
+    "Measured on a T4 (Kaggle), not an L4: Kaggle's free tier has no L4.",
+    "The load generator ran in the same session against localhost (Kaggle exposes no ports), so network time is left out, and the generator shared the host's CPUs with the server.",
+    "The Kaggle host isn't an n1-standard-4; the price is for the machine a T4 would attach to on GCP.",
+    "Each rate ran for 5 minutes after a 2-minute warm-up; there was no longer stability run.",
+    "The load is Civil drift comments (the traffic the service sees), 2,000 seeded.",
+    "List prices, on demand: sustained-use and committed-use discounts are left out."
+  ]
+}
