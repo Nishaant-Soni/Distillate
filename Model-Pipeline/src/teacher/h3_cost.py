@@ -46,7 +46,7 @@ def hourly_price(price: Mapping[str, Any]) -> dict[str, float]:
     m = price["machine"]
     gpu = price["gpu"]["per_hour"] * price["gpu"]["count"]
     machine = m["vcpus"] * m["per_vcpu_hour"] + m["memory_gib"] * m["per_gib_hour"]
-    return {"gpu": round(gpu, 6), "machine": round(machine, 6), "total": round(gpu + machine, 6)}
+    return {"gpu": round(gpu, 4), "machine": round(machine, 4), "total": round(gpu + machine, 4)}
 
 
 def per_million(per_hour: float, rate: float) -> float:
@@ -81,15 +81,20 @@ def build(sweep: Mapping[str, Any], price: Mapping[str, Any], target_rate: float
                "achieved_rate": r["achieved_rate"],
                "latency_p50_s": r["latency_p50_s"], "latency_p95_s": r["latency_p95_s"],
                "latency_p99_s": r["latency_p99_s"], "errors": r["errors"],
-               "gpu_util_mean": r.get("gpu_util_mean"), "keeps_up": r["keeps_up"],
-               "cost_per_million_one_instance_at_this_rate": round(
-                   per_million(per_hour, r["achieved_rate"]), 2)}
+               "gpu_util_mean": r.get("gpu_util_mean"), "keeps_up": r["keeps_up"]}
         # Poisson arrivals: a seed can send noticeably less than the nominal rate. If the
         # server still kept pace with what was sent, the miss is the generator's.
-        if (not r["keeps_up"] and r["errors"] == 0 and r["latency_p95_s"] <= p95_target
-                and r["achieved_rate"] >= 0.95 * sent_rate):
+        generator_miss = (not r["keeps_up"] and r["errors"] == 0
+                          and r["latency_p95_s"] <= p95_target
+                          and r["achieved_rate"] >= 0.95 * sent_rate)
+        if generator_miss:
             row["note"] = (f"the seeded arrivals sent {sent_rate:.2f}/s against "
                            f"{r['offered_rate']}/s nominal; the server kept pace with them")
+        # At the nominal rate, as for the sustainable rate; none where one instance can't
+        # serve that rate.
+        row["cost_per_million_one_instance_at_this_rate"] = (
+            round(per_million(per_hour, r["offered_rate"]), 2)
+            if r["keeps_up"] or generator_miss else None)
         runs.append(row)
     at_sustainable = next(r for r in sweep["runs"] if r["offered_rate"] == sustainable)
     saturation = sweep["saturation"]

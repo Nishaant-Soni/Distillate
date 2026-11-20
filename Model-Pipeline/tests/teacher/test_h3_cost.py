@@ -27,8 +27,8 @@ def sweep(sustainable: int | None = 6):
 
 def test_n1_standard_4_plus_t4_per_hour():
     hourly = hourly_price(PRICE)
-    assert hourly["machine"] == pytest.approx(4 * 0.031611 + 15 * 0.004237)
-    assert hourly["total"] == pytest.approx(0.35 + 0.189999)
+    assert hourly["machine"] == pytest.approx(4 * 0.031611 + 15 * 0.004237, abs=1e-4)
+    assert hourly["total"] == 0.54
 
 
 def test_cost_per_million_comments():
@@ -69,7 +69,17 @@ def test_a_miss_from_low_arrivals_is_noted():
                          "errors": 0, "keeps_up": False})
     runs = build(s, PRICE, None)["runs"]
     assert "2.81/s against 3/s" in runs[0]["note"]
+    assert runs[0]["cost_per_million_one_instance_at_this_rate"] == pytest.approx(50.0)
     assert "note" not in runs[-1]      # 8/s: a real miss (p95 25 s)
+
+
+def test_run_costs_are_at_the_nominal_rate_and_none_where_it_does_not_keep_up():
+    s = sweep()
+    s["runs"][1]["achieved_rate"] = 6.13    # Poisson arrivals ran a little above 6/s
+    runs = build(s, PRICE, None)["runs"]
+    costs = [r["cost_per_million_one_instance_at_this_rate"] for r in runs]
+    assert costs[:2] == [pytest.approx(30.0), pytest.approx(25.0)]
+    assert costs[2] is None                 # 8/s: one instance can't serve it
 
 
 def test_no_sustainable_rate_is_an_error():
