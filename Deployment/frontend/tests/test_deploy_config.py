@@ -94,6 +94,12 @@ def test_values_are_escaped():
         'https://g/"x"'
 
 
+def test_the_build_names_its_staging_folder():
+    # The default staging bucket makes gcloud list the project's buckets (storage.buckets.list).
+    script = (HERE / "deploy_frontend.sh").read_text(encoding="utf-8")
+    assert '--gcs-source-staging-dir="gs://${PROJECT}_cloudbuild/source"' in script
+
+
 def test_deploy_script_sets_every_field():
     script = (HERE / "deploy_frontend.sh").read_text(encoding="utf-8")
     exported = set(re.findall(r"^export ([A-Z_]+)", script, flags=re.M))

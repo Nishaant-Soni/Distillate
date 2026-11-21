@@ -96,6 +96,11 @@ Things to know:
   logs to Cloud Logging only, since the default logs bucket can be read only by project
   Viewers. `setup_frontend.sh --deployer` creates the staging bucket if needed, and grants
   access to it and Logs Viewer.
+* `deploy_frontend.sh` names the staging folder (`--gcs-source-staging-dir`): with the default
+  one, gcloud first lists the project's buckets to check it owns the bucket, which needs
+  project-wide `storage.buckets.list`.
+* Creating a build needs Service Account User on the account Cloud Build runs builds as (the
+  Compute Engine default account here); `setup_frontend.sh --deployer` grants it.
 * Retraining records: `retrain_dag` writes them to `gs://distillate-mlops-data/deployments/retrain/`,
   inside the same read-only mount, so `RETRAIN_RECORDS=/mnt/deployments/retrain` needs no
   other mount or permission. The card shows "not yet" until the first record exists.

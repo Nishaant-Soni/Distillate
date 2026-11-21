@@ -68,7 +68,11 @@ echo "deploy_frontend.sh: serving API: ${API_URL:-the built-in mock}"
 # 2. Build.
 TAG="$(git -C "$REPO_ROOT" rev-parse --short=7 HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)"
 export IMAGE="$IMAGE_REPO:$TAG"
+# The staging folder is named explicitly: with Cloud Build's default one, gcloud first lists the
+# project's buckets to check that it owns that bucket, which needs project-wide
+# storage.buckets.list. Naming it skips that check (the bucket is created by setup_frontend.sh).
 gcloud builds submit "$SCRIPT_DIR" --project="$PROJECT" \
+  --gcs-source-staging-dir="gs://${PROJECT}_cloudbuild/source" \
   --config="$SCRIPT_DIR/cloudbuild.yaml" --substitutions="_IMAGE=$IMAGE" --quiet \
   || fail "the image build failed"
 

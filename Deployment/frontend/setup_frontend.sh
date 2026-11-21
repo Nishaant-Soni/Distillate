@@ -12,7 +12,8 @@
 # 4. lets it read the bucket's deployments/ prefix only (an IAM condition), for the
 #    read-only deployments.jsonl mount in service.yaml; the rest of the bucket holds data
 # 5. with --deployer: lets that person deploy (Cloud Build and its staging bucket, Cloud Run,
-#    pushing the image, reading the build logs, acting as the service account)
+#    pushing the image, reading the build logs, acting as the app's service account and as
+#    the account Cloud Build runs builds as)
 set -euo pipefail
 
 PROJECT="${PROJECT:-distillate-mlops}"
@@ -100,6 +101,12 @@ if [ -n "$DEPLOYER" ]; then
          --uniform-bucket-level-access
   gcloud storage buckets add-iam-policy-binding "$staging" --member="$DEPLOYER" \
     --role=roles/storage.admin >/dev/null
+  # Creating a build needs permission to act as the account Cloud Build runs it as: the Compute
+  # Engine default account unless BUILD_SA names another.
+  number="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
+  build_sa="${BUILD_SA:-${number}-compute@developer.gserviceaccount.com}"
+  gcloud iam service-accounts add-iam-policy-binding "$build_sa" --project="$PROJECT" \
+    --member="$DEPLOYER" --role=roles/iam.serviceAccountUser >/dev/null
 fi
 
 echo "Done. Deploy with Deployment/frontend/deploy_frontend.sh"

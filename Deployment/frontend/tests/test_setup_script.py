@@ -10,6 +10,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "setup_frontend.sh"
 FAKE_GCLOUD = r"""#!/usr/bin/env bash
 echo "gcloud $*" >> "$FAKE_LOG"
 case "$*" in
+  "projects describe"*) echo 123456 ;;
   "storage buckets describe"*)
     [ "$FAKE_UBLA" = error ] && exit 1
     echo "$FAKE_UBLA" ;;
@@ -57,6 +58,9 @@ def test_full_setup_when_the_bucket_uses_uniform_access(tmp_path):
     assert not any("storage buckets create" in c for c in order)
     assert any("projects add-iam-policy-binding" in c and "roles/logging.viewer" in c
                for c in order)
+    # ... and acting as the account Cloud Build runs builds as (the Compute default here).
+    assert any("iam service-accounts add-iam-policy-binding 123456-compute@developer"
+               ".gserviceaccount.com" in c and "user:someone@example.com" in c for c in order)
 
 
 @pytest.mark.parametrize("ubla, message", [("False", "doesn't use uniform bucket-level access"),
