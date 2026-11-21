@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,8 +31,11 @@ def make_package(folder: Path, model_version: str = "student-test-1") -> Path:
     return folder
 
 
-def fake_scorer(texts):
-    return [{lab: 0.1 + 0.01 * i for i, lab in enumerate(dt.LABELS)} for _ in texts]
+def fake_scorer(package, texts):
+    """Stands in for serving's scorer.reference_outputs (same output format)."""
+    scores = {lab: 0.1 + 0.01 * i for i, lab in enumerate(dt.LABELS)}
+    return {"model_version": "student-test-1", "max_length": 256,
+            "items": [{"text": t, "scores": dict(scores)} for t in texts]}
 
 
 class FakeVersion(SimpleNamespace):
@@ -79,17 +83,23 @@ def test_ensure_reference_computes_and_writes(tmp_path):
     reference, created = dt.ensure_reference(package, scorer=fake_scorer)
     assert created
     assert reference["model_version"] == "student-test-1"
-    assert len(reference["texts"]) == len(reference["scores"]) == 50
+    texts, scores = dt.reference_pairs(reference)
+    assert texts == dt.reference_texts() and len(scores) == 50
     saved = json.loads((package / dt.REFERENCE_FILE).read_text())
     assert saved == reference
 
 
-def test_ensure_reference_keeps_the_packages_own(tmp_path):
+@pytest.mark.parametrize("own", [
+    {"model_version": "student-test-1", "max_length": 256,
+     "items": [{"text": "revert", "scores": {lab: 0.2 for lab in dt.LABELS}}]},
+    {"texts": ["revert"], "scores": [{lab: 0.2 for lab in dt.LABELS}]},
+])
+def test_ensure_reference_keeps_the_packages_own(tmp_path, own):
     package = make_package(tmp_path / "pkg")
-    own = {"texts": ["revert"], "scores": [{lab: 0.2 for lab in dt.LABELS}]}
     (package / dt.REFERENCE_FILE).write_text(json.dumps(own))
-    reference, created = dt.ensure_reference(package, scorer=lambda texts: pytest.fail("used"))
+    reference, created = dt.ensure_reference(package, scorer=lambda *a: pytest.fail("used"))
     assert not created and reference == own
+    assert dt.reference_pairs(reference) == (["revert"], [{lab: 0.2 for lab in dt.LABELS}])
 
 
 def test_reference_must_cover_every_label(tmp_path):
@@ -100,10 +110,11 @@ def test_reference_must_cover_every_label(tmp_path):
         dt.ensure_reference(package)
 
 
-def test_sigmoid_is_stable_for_large_logits():
-    assert dt.sigmoid(0) == pytest.approx(0.5)
-    assert dt.sigmoid(1000) == pytest.approx(1.0)
-    assert dt.sigmoid(-1000) == pytest.approx(0.0)
+def test_missing_serving_scorer_is_a_clear_error(tmp_path, monkeypatch):
+    package = make_package(tmp_path / "pkg")
+    monkeypatch.setitem(sys.modules, "scorer", None)      # import scorer -> ImportError
+    with pytest.raises(dt.DeployError, match="install Deployment/serving/requirements.txt"):
+        dt.ensure_reference(package)
 
 
 # ---------------------------------------------------------------------------
@@ -229,19 +240,70 @@ def test_record_appends_jsonl_and_summary(tmp_path, monkeypatch):
     assert "✅ deploy: deployed" in text and "❌ deploy: smoke-failed" in text
 
 
-def test_append_to_gcs_rewrites_the_object(tmp_path):
-    calls = []
+class FakeGCS:
+    """Answers gcloud storage describe / cat / cp like a bucket with generations."""
 
-    def runner(command, **_):
-        calls.append(command)
+    def __init__(self, content=None, generation=7, describe_error="", conflicts=0):
+        self.content, self.generation = content, generation
+        self.describe_error, self.conflicts = describe_error, conflicts
+        self.calls = []
+
+    def __call__(self, command, **_):
+        self.calls.append(command)
+        ok = SimpleNamespace(returncode=0, stdout="", stderr="")
+        if command[:4] == ["gcloud", "storage", "objects", "describe"]:
+            if self.describe_error:
+                return SimpleNamespace(returncode=1, stdout="", stderr=self.describe_error)
+            if self.content is None:
+                return SimpleNamespace(returncode=1, stdout="", stderr="ERROR: 404 Not Found")
+            return SimpleNamespace(returncode=0, stdout=f"{self.generation}\n", stderr="")
         if command[:3] == ["gcloud", "storage", "cat"]:
-            return SimpleNamespace(returncode=0, stdout='{"old": 1}\n', stderr="")
-        assert Path(command[3]).read_text() == '{"old": 1}\n{"new": 2}\n'
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+            assert command[3].endswith(f"#{self.generation}")
+            return SimpleNamespace(returncode=0, stdout=self.content, stderr="")
+        if command[:3] == ["gcloud", "storage", "cp"]:
+            expected = 0 if self.content is None else self.generation
+            assert command[5] == f"--if-generation-match={expected}"
+            if self.conflicts:
+                self.conflicts -= 1
+                self.content, self.generation = (self.content or "") + '{"other": 1}\n', \
+                    self.generation + 1
+                return SimpleNamespace(returncode=1, stdout="",
+                                       stderr="ERROR: 412 Precondition Failed")
+            self.content, self.generation = Path(command[3]).read_text(), self.generation + 1
+            return ok
+        raise AssertionError(command)
 
-    dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=runner)
-    assert calls[1][:3] == ["gcloud", "storage", "cp"]
-    assert calls[1][4] == "gs://bucket/deployments.jsonl"
+
+def test_append_to_gcs_keeps_the_history():
+    gcs = FakeGCS(content='{"old": 1}\n')
+    dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=gcs)
+    assert gcs.content == '{"old": 1}\n{"new": 2}\n'
+
+
+def test_append_to_gcs_creates_a_missing_log():
+    gcs = FakeGCS(content=None)
+    dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=gcs)
+    assert gcs.content == '{"new": 2}\n'
+
+
+def test_a_read_error_never_overwrites_the_log():
+    gcs = FakeGCS(content='{"old": 1}\n', describe_error="ERROR: 403 Permission denied")
+    with pytest.raises(dt.DeployError, match="could not read"):
+        dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=gcs)
+    assert not any(c[:3] == ["gcloud", "storage", "cp"] for c in gcs.calls)
+    assert gcs.content == '{"old": 1}\n'
+
+
+def test_a_concurrent_write_is_retried_not_lost():
+    gcs = FakeGCS(content='{"old": 1}\n', conflicts=1)
+    dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=gcs)
+    assert gcs.content == '{"old": 1}\n{"other": 1}\n{"new": 2}\n'
+
+
+def test_endless_conflicts_give_up_with_an_error():
+    gcs = FakeGCS(content='{"old": 1}\n', conflicts=5)
+    with pytest.raises(dt.DeployError, match="kept changing"):
+        dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=gcs, attempts=3)
 
 
 def test_slack_is_skipped_without_a_webhook(monkeypatch):

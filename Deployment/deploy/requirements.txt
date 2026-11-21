@@ -1,6 +1,5 @@
 # Deployment/deploy: what deploy.sh, rollback.sh and their tests need (Ruchita).
+# Packages without reference_outputs.json are scored with serving's scorer.py, which needs
+# Deployment/serving/requirements.txt as well (deploy.yml installs both).
 mlflow-skinny       # resolve versions and move @production (with Model-Pipeline's rollback_model)
 pyyaml              # Model-Pipeline's registry config, read by rollback_model
-numpy
-onnxruntime         # reference outputs from the package's model.onnx, when the package has none
-tokenizers          # the package's tokenizer/tokenizer.json, as serving tokenizes

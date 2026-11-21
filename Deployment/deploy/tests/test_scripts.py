@@ -42,7 +42,8 @@ def env(tmp_path):
     from test_smoke_test import expected_scores
     texts = ["revert", "thanks for the edit"]
     (package / "reference_outputs.json").write_text(json.dumps(
-        {"texts": texts, "scores": [expected_scores(t) for t in texts]}))
+        {"model_version": "student-v3", "max_length": 256,
+         "items": [{"text": t, "scores": expected_scores(t)} for t in texts]}))
     serving = tmp_path / "serving"
     serving.mkdir()
     (serving / "serve.Dockerfile").write_text("FROM scratch\n")
@@ -70,6 +71,8 @@ exit 0
     write_exe(bin_dir / "python3", f"""#!/usr/bin/env bash
 echo "python3 $*" >> "{calls}"
 case "$*" in
+  *"deploy_tools.py resolve"*"--spec 8"*)
+    echo "error: v8 can't be deployed: the gate didn't pass" >&2; exit 1 ;;
   *"deploy_tools.py resolve"*)
     echo '{{"version": "3", "model_version": "student-v3", "production_version": "2"}}' ;;
   *"deploy_tools.py previous"*)
@@ -109,7 +112,7 @@ def test_help(script):
 
 
 @pytest.mark.parametrize("args", [[], ["--version", "3", "--package-dir", "x"], ["--bogus"],
-                                  ["--version"]])
+                                  ["--version"], ["--package-dir", "x", "--label", "V3"]])
 def test_deploy_usage_errors(args):
     assert run(DEPLOY, *args).returncode == 2
 
@@ -128,6 +131,7 @@ def test_deploy_passes_and_promotes(env):
     result = run(DEPLOY, "--version", "staging", env=env["env"])
     assert result.returncode == 0, result.stderr
     calls = env["calls"].read_text()
+    assert "builds submit" in calls and "--config=" in calls      # serve.Dockerfile via config
     order = ["artifacts generic download", "builds submit", "run deploy", "--no-traffic",
              "update-traffic", "rollback_model --to 3 --alias production"]
     positions = [calls.index(step) for step in order]
@@ -140,7 +144,7 @@ def test_deploy_passes_and_promotes(env):
 def test_failed_smoke_test_moves_nothing(env):
     reference = env["package"] / "reference_outputs.json"
     data = json.loads(reference.read_text())
-    data["scores"][0] = {k: v + 0.2 for k, v in data["scores"][0].items()}
+    data["items"][0]["scores"] = {k: v + 0.2 for k, v in data["items"][0]["scores"].items()}
     reference.write_text(json.dumps(data))          # scores the service won't reproduce
     result = run(DEPLOY, "--version", "3", env=env["env"])
     assert result.returncode == 1
@@ -189,3 +193,19 @@ def test_rollback_to_a_version_without_a_revision_moves_nothing(env):
     result = run(ROLLBACK, "--to", "7", env=env["env"])
     assert result.returncode == 3
     assert "update-traffic" not in env["calls"].read_text()
+
+
+def test_rollback_to_an_unapproved_version_moves_nothing(env):
+    env["tmp"].joinpath("service.json").write_text(json.dumps({"status": {"traffic": [
+        {"revisionName": "distillate-api-00009-zzz", "tag": "v8-9999999", "url": "x"}]}}))
+    result = run(ROLLBACK, "--to", "8", env=env["env"])
+    assert result.returncode == 3
+    calls = env["calls"].read_text()
+    assert "update-traffic" not in calls and "rollback_model" not in calls
+    assert log_entries(env["log"])[-1]["step"] == "check-target"
+
+
+def test_an_unexpected_failure_exits_3_not_1(env):
+    result = run(DEPLOY, "--package-dir", str(env["tmp"] / "no-such-package"), env=env["env"])
+    assert result.returncode == 3                 # 1 is reserved for a failed smoke test
+    assert log_entries(env["log"])[-1]["status"] == "error"

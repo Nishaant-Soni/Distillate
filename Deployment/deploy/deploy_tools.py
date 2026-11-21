@@ -13,8 +13,8 @@ record goes through this module, so it can be unit-tested without GCP:
 
 Reference outputs: the smoke test compares the live service with the package's own scores on
 neutral inputs (no comment text, since packages are published). If the package already holds
-``reference_outputs.json`` it is used as is; otherwise ``reference`` computes it from the
-package's ``model.onnx`` and tokenizer and writes it next to them.
+``reference_outputs.json`` it is used as is; otherwise ``reference`` computes it with serving's
+own scorer (Deployment/serving/scorer.py) and writes it next to the package's files.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import os
 import re
 import subprocess
@@ -61,67 +60,55 @@ def reference_texts() -> list[str]:
     return [" ".join([sentence] * repeat) for repeat in REPEATS for sentence in FILLER]
 
 
-def sigmoid(x: float) -> float:
-    return 1.0 / (1.0 + math.exp(-x)) if x >= 0 else math.exp(x) / (1.0 + math.exp(x))
+def reference_pairs(reference: dict[str, Any]) -> tuple[list[str], list[dict[str, float]]]:
+    """(texts, scores) from reference_outputs.json.
+
+    The format is serving's (``scorer.reference_outputs``, and package.py for new packages):
+    ``{"model_version", "max_length", "items": [{"text", "scores": {label: p}}]}``. The older
+    ``{"texts": [...], "scores": [...]}`` shape is read too.
+    """
+    if "items" in reference:
+        items = reference["items"] or []
+        return [i.get("text") for i in items], [i.get("scores") or {} for i in items]
+    return list(reference.get("texts") or []), list(reference.get("scores") or [])
 
 
-class OnnxScorer:
-    """Scores texts with the package's model.onnx and tokenizer, as serving does."""
-
-    def __init__(self, package: Path):
-        import numpy as np
-        import onnxruntime as ort
-        from tokenizers import Tokenizer
-
-        meta = json.loads((package / "meta.json").read_text())
-        self._np = np
-        self._tokenizer = Tokenizer.from_file(str(package / "tokenizer" / "tokenizer.json"))
-        self._tokenizer.enable_truncation(max_length=int(meta["max_length"]))
-        self._tokenizer.no_padding()
-        self._session = ort.InferenceSession(str(package / "model.onnx"),
-                                             providers=["CPUExecutionProvider"])
-        self._labels = tuple(meta.get("labels", LABELS))
-
-    def __call__(self, texts: Sequence[str]) -> list[dict[str, float]]:
-        np = self._np
-        out = []
-        for text in texts:
-            enc = self._tokenizer.encode(text)
-            ids = np.array([enc.ids], dtype=np.int64)
-            mask = np.array([enc.attention_mask], dtype=np.int64)
-            logits = self._session.run(["logits"], {"input_ids": ids,
-                                                    "attention_mask": mask})[0][0]
-            out.append({label: sigmoid(float(z)) for label, z in zip(self._labels, logits,
-                                                                    strict=True)})
-        return out
+def serving_reference(package: Path, texts: Sequence[str]) -> dict[str, Any]:
+    """Expected scores from serving's own scorer (Deployment/serving/scorer.py), so the smoke
+    test compares the service with the exact code it runs."""
+    sys.path.insert(0, str(REPO_ROOT / "Deployment" / "serving"))
+    try:
+        from scorer import reference_outputs
+    except ImportError as exc:
+        raise DeployError("the package has no reference_outputs.json and serving's scorer can't "
+                          "be imported; install Deployment/serving/requirements.txt "
+                          f"({exc})") from exc
+    return reference_outputs(package, texts=list(texts))
 
 
 def ensure_reference(package: Path,
-                     scorer: Callable[[Sequence[str]], list[dict[str, float]]] | None = None,
+                     scorer: Callable[[Path, Sequence[str]], dict[str, Any]] | None = None,
                      ) -> tuple[dict[str, Any], bool]:
     """The package's reference outputs, computing and writing them if absent.
 
-    Returns (reference, created).
+    Returns (reference, created). A package's own file is used as is; otherwise serving's
+    scorer computes the 50 reference inputs from the package.
     """
     path = package / REFERENCE_FILE
     if path.exists():
         reference = json.loads(path.read_text())
         check_reference(reference)
         return reference, False
-    meta = json.loads((package / "meta.json").read_text())
-    texts = reference_texts()
-    scores = (scorer or OnnxScorer(package))(texts)
-    reference = {"model_version": meta.get("model_version"), "texts": texts, "scores": scores,
-                 "source": "computed by deploy.sh from model.onnx"}
+    reference = (scorer or serving_reference)(package, reference_texts())
     check_reference(reference)
     path.write_text(json.dumps(reference, indent=2) + "\n")
     return reference, True
 
 
 def check_reference(reference: dict[str, Any]) -> None:
-    texts, scores = reference.get("texts"), reference.get("scores")
-    if not texts or not scores or len(texts) != len(scores):
-        raise DeployError(f"{REFERENCE_FILE} needs matching, non-empty 'texts' and 'scores'")
+    texts, scores = reference_pairs(reference)
+    if not texts or len(texts) != len(scores) or not all(isinstance(t, str) for t in texts):
+        raise DeployError(f"{REFERENCE_FILE} needs non-empty items, each with a text and scores")
     for i, row in enumerate(scores):
         missing = [label for label in LABELS if label not in row]
         if missing:
@@ -288,25 +275,60 @@ def _git_commit() -> str | None:
         return None
 
 
-def append_log(log: str, entry: dict[str, Any], runner=subprocess.run) -> None:
-    """Append one JSON line to a local file or a gs:// object."""
+NOT_FOUND = ("not found", "notfound", "404", "no urls matched", "does not exist")
+PRECONDITION = ("precondition", "412")
+
+
+def _gcs_read(log: str, runner) -> tuple[str, int]:
+    """(content, generation) of a gs:// object; ("", 0) only when it doesn't exist yet.
+
+    Any other failure (network, permissions) raises, so a transient error can never be taken
+    for an empty log and overwrite the history.
+    """
+    described = runner(["gcloud", "storage", "objects", "describe", log,
+                        "--format=value(generation)"], capture_output=True, text=True)
+    if described.returncode != 0:
+        if any(marker in described.stderr.lower() for marker in NOT_FOUND):
+            return "", 0
+        raise DeployError(f"could not read {log}: {described.stderr.strip()[-300:]}")
+    generation = int(described.stdout.strip())
+    content = runner(["gcloud", "storage", "cat", f"{log}#{generation}"], capture_output=True,
+                     text=True)
+    if content.returncode != 0:
+        raise DeployError(f"could not read {log}: {content.stderr.strip()[-300:]}")
+    return content.stdout, generation
+
+
+def append_log(log: str, entry: dict[str, Any], runner=subprocess.run, attempts: int = 3) -> None:
+    """Append one JSON line to a local file or a gs:// object.
+
+    For gs://, the write only succeeds if the object is still the generation that was read
+    (``--if-generation-match``; 0 means "doesn't exist yet"), so two writers at the same time
+    can't drop each other's line: the loser re-reads and tries again.
+    """
     line = json.dumps(entry, sort_keys=True) + "\n"
     if not log.startswith("gs://"):
         Path(log).parent.mkdir(parents=True, exist_ok=True)
         with open(log, "a", encoding="utf-8") as f:
             f.write(line)
         return
-    existing = runner(["gcloud", "storage", "cat", log], capture_output=True, text=True)
-    body = existing.stdout if existing.returncode == 0 else ""
-    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as tmp:
-        tmp.write(body + line)
-    try:
-        result = runner(["gcloud", "storage", "cp", tmp.name, log], capture_output=True,
-                        text=True)
-        if result.returncode != 0:
+    for _ in range(attempts):
+        body, generation = _gcs_read(log, runner)
+        if body and not body.endswith("\n"):
+            body += "\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as tmp:
+            tmp.write(body + line)
+        try:
+            result = runner(["gcloud", "storage", "cp", tmp.name, log,
+                             f"--if-generation-match={generation}"], capture_output=True,
+                            text=True)
+        finally:
+            os.unlink(tmp.name)
+        if result.returncode == 0:
+            return
+        if not any(marker in result.stderr.lower() for marker in PRECONDITION):
             raise DeployError(f"could not write {log}: {result.stderr.strip()[-300:]}")
-    finally:
-        os.unlink(tmp.name)
+    raise DeployError(f"{log} kept changing under another writer ({attempts} tries)")
 
 
 def summary_markdown(entry: dict[str, Any]) -> str:
@@ -403,8 +425,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if problems else 0
         elif args.command == "reference":
             reference, created = ensure_reference(Path(args.package))
-            print(f"{REFERENCE_FILE}: {len(reference['texts'])} inputs "
-                  f"({'computed from model.onnx' if created else 'from the package'})")
+            print(f"{REFERENCE_FILE}: {len(reference_pairs(reference)[0])} inputs "
+                  f"({'computed with serving scorer.py' if created else 'from the package'})")
         elif args.command in ("tag-url", "find-tag"):
             service = json.loads(Path(args.service_json).read_text())
             print(tag_url(service, args.tag) if args.command == "tag-url"
