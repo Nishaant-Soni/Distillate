@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -92,10 +93,32 @@ def test_run_writes_the_report(tmp_path):
     (tmp_path / "h3").mkdir()
     (tmp_path / "h3" / "h3_sweep.json").write_text(json.dumps(sweep()))
     cfg["paths"]["h3_dir"] = str(tmp_path / "h3")
-    cfg["h3"] = {**cfg["h3"], "report": str(tmp_path / "out" / "h3.json"), "price": PRICE}
+    (tmp_path / "h3" / "ids.csv").write_text("order,id,batch\n0,111,3\n1,222,7\n")
+    cfg["h3"] = {**cfg["h3"], "report": str(tmp_path / "out" / "h3.json"), "price": PRICE,
+                 "load_ids_file": "ids.csv"}
     report = run(cfg, target_rate=3)
     assert json.loads((tmp_path / "out" / "h3.json").read_text()) == report
     assert report["at_target_rate"]["instances"] == 1
+    assert report["load"]["ids"] == 2 and report["load"]["comments"] == 2000
+    assert len(report["load"]["ids_sha256"]) == 64
+
+
+def test_load_ids_must_be_in_order(tmp_path):
+    from src.teacher.h3_cost import load_ids
+
+    bad = tmp_path / "ids.csv"
+    bad.write_text("order,id,batch\n1,111,3\n0,222,7\n")
+    with pytest.raises(ValueError, match="order"):
+        load_ids(bad)
+
+
+def test_committed_load_ids_match_the_sweep():
+    cfg = load_config()
+    from src.teacher.h3_cost import load_ids
+
+    ids = load_ids(Path(cfg["paths"]["h3_dir"]) / cfg["h3"]["load_ids_file"])
+    sweep = json.loads((Path(cfg["paths"]["h3_dir"]) / cfg["h3"]["sweep_file"]).read_text())
+    assert ids["ids"] == sweep["texts"]["comments"] == 2000
 
 
 def test_committed_config_prices():

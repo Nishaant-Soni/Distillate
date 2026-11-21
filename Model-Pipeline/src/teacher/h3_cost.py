@@ -19,13 +19,15 @@ test's rate fills in the rest.
 from __future__ import annotations
 
 import argparse
+import csv
+import hashlib
 import json
 import math
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from src.teacher.config import get_logger, load_config
+from src.teacher.config import PIPELINE_ROOT, get_logger, load_config
 
 logger = get_logger(__name__)
 
@@ -132,11 +134,30 @@ def build(sweep: Mapping[str, Any], price: Mapping[str, Any], target_rate: float
     }
 
 
+def load_ids(path: Path) -> dict[str, Any]:
+    """Which comments the load sent, for the report: the ids file, its hash and how it was
+    drawn (the file holds ``order``, ``id`` and ``batch``; no text)."""
+    with path.open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    if [int(r["order"]) for r in rows] != list(range(len(rows))):
+        raise ValueError(f"{path}: 'order' must run 0, 1, 2, ...")
+    shown = path.resolve()
+    shown = shown.relative_to(PIPELINE_ROOT) if shown.is_relative_to(PIPELINE_ROOT) else path
+    return {"ids_file": shown.as_posix(), "ids": len(rows),
+            "ids_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "selection": "select_drift_rows over the 20 drift batches (sorted by batch, then id), "
+                         "then sample(n=2000, random_state=42); requests cycle through them in "
+                         "this order"}
+
+
 def run(cfg: Mapping[str, Any], target_rate: float | None = None) -> dict[str, Any]:
     h3 = cfg["h3"]
     sweep = json.loads((Path(cfg["paths"]["h3_dir"]) / h3["sweep_file"]).read_text())
     rate = target_rate if target_rate is not None else h3.get("target_rate")
     report = build(sweep, h3["price"], rate, h3["p95_target_s"])
+    if h3.get("load_ids_file"):
+        report["load"] = {**report["load"],
+                          **load_ids(Path(cfg["paths"]["h3_dir"]) / h3["load_ids_file"])}
     out = Path(h3["report"])
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2) + "\n")
