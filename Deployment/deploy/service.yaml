@@ -1,0 +1,33 @@
+# Cloud Run service distillate-api (work plan v5 6.1): the starting configuration, to be tuned by
+# Shivam's load test (concurrency and max instances).
+#
+# setup_gcp.sh creates the service from this file once, with a placeholder image; deploy.sh then
+# replaces the image with each model version (gcloud run deploy --image keeps these settings).
+# To apply a change here to the running service without touching its image:
+#   gcloud run services update distillate-api --region us-east1 --concurrency 4 --max-instances 5 ...
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: distillate-api
+  labels:
+    app: distillate
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"     # 1 on Expo day
+        autoscaling.knative.dev/maxScale: "5"
+        run.googleapis.com/cpu-throttling: "true"
+    spec:
+      serviceAccountName: distillate-api@distillate-mlops.iam.gserviceaccount.com
+      containerConcurrency: 4                     # inference is CPU-bound
+      timeoutSeconds: 30
+      containers:
+        # Placeholder until the first deploy.sh run (Cloud Run's sample, listens on $PORT).
+        - image: us-docker.pkg.dev/cloudrun/container/hello
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: "2"
+              memory: 2Gi

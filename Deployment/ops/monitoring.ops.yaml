@@ -1,0 +1,16 @@
+# Ops VM override for Deployment/monitoring/docker-compose.yml (Deployment/ops/startup.sh):
+#   docker compose -f docker-compose.yml -f ../ops/monitoring.ops.yaml up -d
+# * Grafana is the only service reachable from outside (firewall rule allow-grafana-3000), so it
+#   gets a real admin password (Secret Manager: grafana-admin-password) and no anonymous access.
+# * Prometheus listens on the VM itself only.
+services:
+  prometheus:
+    ports: !override
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+  grafana:
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?grafana-admin-password is empty in Secret Manager}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    restart: unless-stopped
