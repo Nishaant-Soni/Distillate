@@ -21,6 +21,7 @@ What a retraining run trains on, what it holds out, and how the candidate is com
 * **Gold:** the batch file's own label columns (Civil Comments, positive at a rater fraction ≥ 0.5): the "delayed labels".
 * **Soft labels:** the stack's, already produced for all 20 batches in `soft_labels/stack-v1/p2-zs-v2b/drift/shard_<k>` (one shard per batch). On the drift stream the stack's mean AUC is 0.924, against 0.887 for TF-IDF and 0.882 for raw Qwen; it beats both in all 20 batches (`artifacts/stack/drift_check.json`).
 * The same loss as for Wikipedia rows (α · gold BCE + (1 − α) · T² · soft BCE), with the production recipe's α and T.
+* **`severe_toxicity` on drift rows:** no drift comment is positive for it (Civil marks a label positive only when at least half the raters chose it), so the drift rows add only negatives for that label through the gold loss. That is Civil's real rate, so they are kept as they are, not masked. Two things still guard the label: the gate checks it on Wikipedia (validation PR-AUC floor, no-regression on the gate set), and `promote_check` doesn't score it (five Civil labels). Revisit (mask its gold loss on drift rows) if a retrained candidate is blocked on `severe_toxicity`.
 
 ## 3. What the retraining job trains on
 
@@ -39,19 +40,24 @@ What a retraining run trains on, what it holds out, and how the candidate is com
 
 ## 4. Configuration
 
-A `retrain` section in `configs/student.yaml` (defaults change nothing in CI), filled by `retrain_dag` through `--set`:
+A `retrain` section in `configs/student.yaml` (and `smoke.yaml`), implemented by `src/student/retrain.py`. The defaults change nothing in CI; `retrain_dag` sets it through `--set`:
 
 ```yaml
 retrain:
-  drift_batches: []        # training batches, e.g. [0, 1, 2, 3, 4]
-  holdout_batch: null      # scored into predictions/drift_holdout.parquet
+  drift_batches: []        # training batches 0, 1, ..., m-1 (no gaps), e.g. [0, 1, 2, 3, 4]
+  holdout_batch: null      # scored whole into predictions/drift_holdout.parquet; must be the
+                           # batch right after the training ones (n-2 = len(drift_batches))
   drift_weight: 1.0
+  drift_dir: null          # the batch files; null = <pipeline.data_dir>/civil/drift
   obfuscation_augment: {rows: 0, seed: 42}   # 3000 in a retraining run
 ```
 
-The job also needs these tables: `train val gate bias h2 obfuscation` (Praniti's data-fetch fix), the drift batch files 0 … n−2, and the drift soft-label shards.
+For example, after batch 6 is released (n = 7): `retrain.drift_batches=[0,1,2,3,4] retrain.holdout_batch=5 retrain.obfuscation_augment.rows=3000`.
 
-The package's `meta.json` records `drift_batches` and `holdout_batch`, so `promote_check.py --trained-on` can check that the held-out batch wasn't trained on.
+* Drift rows' soft labels come from `<soft_labels.prefix>drift/shard_<k>`, checked like the training shards: the manifests' `stack_sha256` against the committed stack, versions, each shard's ids against its batch, failure rate.
+* The job needs these tables: `train val gate bias h2 obfuscation` (Praniti's data-fetch fix), plus the drift batch files 0 … n−2 under `civil/drift/` in the same layout. A missing batch file stops the run before training. The drift soft-label shards come from the store, as the training shards do.
+* The run's and the package's `meta.json` record a `retrain` block (`drift_batches`, `holdout_batch`, `drift_weight`, the row counts, and the augmentation's tricks), so `promote_check.py --trained-on` can be given the batches trained on.
+* `predictions/drift_holdout.parquet` and `gold/drift_holdout.parquet` are written next to the other splits; `eval/metrics.json` scores the held-out batch on the five Civil labels.
 
 ## 5. Promotion: beat production on the held-out batch
 
