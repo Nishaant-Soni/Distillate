@@ -1,0 +1,106 @@
+{
+  "what": "teacher (raw Qwen, P2 zero-shot) served by vLLM's OpenAI-compatible server on one GPU; one request = one comment's six prompts; load generator on localhost",
+  "keeps_up_rule": "p95 <= 2.0 s, no errors, achieved >= 95% of offered",
+  "sustainable_rate": 6,
+  "saturation": {
+    "seconds": 300,
+    "sent": 2416,
+    "ok": 2416,
+    "errors": 0,
+    "achieved_rate": 7.864,
+    "kind": "closed_loop",
+    "concurrency": 64,
+    "gpu_util_mean": 99.9,
+    "gpu_util_max": 100.0,
+    "gpu_mem_max_mib": 13187.0,
+    "latency_p50_s": 8.322,
+    "latency_p95_s": 8.454,
+    "latency_p99_s": 9.626,
+    "latency_mean_s": 8.055,
+    "keeps_up": false
+  },
+  "stability": {
+    "seconds": 1800,
+    "sent": 11021,
+    "ok": 11021,
+    "errors": 0,
+    "achieved_rate": 6.122,
+    "kind": "open_loop",
+    "gpu_util_mean": 87.4,
+    "gpu_util_max": 100.0,
+    "gpu_mem_max_mib": 13187.0,
+    "offered_rate": 6,
+    "latency_p50_s": 0.568,
+    "latency_p95_s": 1.683,
+    "latency_p99_s": 2.839,
+    "latency_mean_s": 0.705,
+    "keeps_up": true
+  },
+  "runs": [
+    {
+      "seconds": 300,
+      "sent": 1788,
+      "ok": 1788,
+      "errors": 0,
+      "achieved_rate": 5.952,
+      "kind": "open_loop",
+      "gpu_util_mean": 83.5,
+      "gpu_util_max": 100.0,
+      "gpu_mem_max_mib": 13187.0,
+      "offered_rate": 6,
+      "latency_p50_s": 0.485,
+      "latency_p95_s": 1.549,
+      "latency_p99_s": 2.048,
+      "latency_mean_s": 0.627,
+      "keeps_up": true
+    }
+  ],
+  "texts": {
+    "source": "Civil drift batches (civil_drift_ids.csv), seeded sample",
+    "comments": 2000,
+    "truncated": 0,
+    "chars": {
+      "mean": 299.9,
+      "p50": 197,
+      "p95": 957
+    },
+    "prompt_tokens_per_comment": {
+      "mean": 1868.2,
+      "p50": 1738,
+      "p95": 2662
+    }
+  },
+  "parity_with_offline": {
+    "cells": 54,
+    "max_abs_p": 0.006986052453157865,
+    "max_abs_logit": 0.18785801673696678
+  },
+  "environment": {
+    "gpu": "Tesla T4",
+    "gpus_in_session": 2,
+    "vllm_version": "0.31.0",
+    "model_version": "Qwen/Qwen3-4B-Instruct-2507@cdbee75f17c01a7cc42f958dc650907174af0554",
+    "prompt_version": "p2-zs-v2b",
+    "code_commit": "5daa102b0aa7f99dfb272f59acccd52a4398c268",
+    "dtype": "half",
+    "max_model_len": 3072,
+    "gpu_memory_utilization": 0.9,
+    "prefix_caching": true,
+    "logprobs": 20,
+    "server_ready_s": 150.0
+  },
+  "settings": {
+    "warmup_s": 120,
+    "rate_s": 300,
+    "rates": [
+      6
+    ],
+    "saturation_concurrency": 64,
+    "saturation_s": 300,
+    "stability_rate": 6,
+    "stability_s": 1800,
+    "request_timeout_s": 60,
+    "seed": 42
+  },
+  "session_hours": 0.91
+}
