@@ -1,0 +1,19 @@
+# Promotion rule for retraining candidates (src/pipeline/promote_check.py, work plan v5 6.1).
+# On top of the gate (configs/gate.yaml), a retrained candidate must beat @production on the
+# newest labeled drift batch its training did not use: mean AUC over the five Civil labels
+# (no severe_toxicity: almost no Civil rows reach 0.5 on it).
+
+labels: [toxicity, obscene, threat, insult, identity_attack]
+
+# The candidate passes when its mean AUC minus production's is above this.
+min_gain: 0.0
+
+# A label with fewer positives than this in the batch is left out of the mean (and reported).
+# null: every label with both classes counts, as the work plan states. A 2,000-row drift batch
+# has 2 to 10 threat and 5 to 14 obscene positives (artifacts/stack/drift_check.json), so
+# those AUCs are noisy. Kept null (agreed Nov 21): docs/retraining.md, section 5.
+min_positives: null
+
+# Paired bootstrap of the difference, for the record; it does not change the verdict.
+bootstrap: 1000
+seed: 42
