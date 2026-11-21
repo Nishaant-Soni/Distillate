@@ -69,6 +69,14 @@ x-airflow-common:
     # tmpfs-free path it always owns avoids that entirely.
     KAGGLE_CONFIG_DIR: /tmp/kaggle
     SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    # retrain_dag (scripts/retrain.py): the team MLflow server, which the Vertex AI job and
+    # register_model log to, and the GitHub token for repository_dispatch to deploy.yml. On the
+    # ops VM the startup script fills these into .env from Secret Manager (mlflow-password,
+    # github-dispatch-token); retrain_dag fails with a clear message if one is missing.
+    MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-}
+    MLFLOW_TRACKING_USERNAME: ${MLFLOW_TRACKING_USERNAME:-team}
+    MLFLOW_TRACKING_PASSWORD: ${MLFLOW_TRACKING_PASSWORD:-}
+    GITHUB_DISPATCH_TOKEN: ${GITHUB_DISPATCH_TOKEN:-}
     ALERT_EMAIL: ${ALERT_EMAIL:-}
     DVC_PUSH: ${DVC_PUSH:-false}
     GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}

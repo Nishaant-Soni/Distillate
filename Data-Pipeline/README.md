@@ -203,7 +203,7 @@ and the schema tests skip outside the TFDV environment.
 ```text
 Data-Pipeline/
 ├── dags/data_prep_dag.py     the DAG: 14 tasks built from the graph below
-├── dags/retrain_dag.py       Phase 2 skeleton: pull data → Vertex job → gate → register → notify
+├── dags/retrain_dag.py       retrain on the drift stream: pull → Vertex job → gate → promote_check → register → dispatch → notify
 ├── config/
 │   ├── pipeline.yaml         every tunable value; seed 42; no script hard-codes these
 │   ├── identity_terms.txt    identity lexicon (owner: Ruchita; others only read it)
@@ -214,7 +214,7 @@ Data-Pipeline/
 │   ├── stubs.py              contract-shaped placeholder output for unmerged stages
 │   ├── utils.py              get_logger, load_config, atomic_write, write_summary, timed
 │   ├── alerts.py             send_alert plus the Airflow on_failure_callback
-│   ├── retrain.py            retrain_dag's five steps (stubs until Phase 3)
+│   ├── retrain.py            retrain_dag's seven steps (Model-Pipeline/docs/retraining.md)
 │   ├── columns.py            label names and the Kaggle-to-contract column renames
 │   ├── errors.py             the pipeline's typed errors
 │   ├── parquet_io.py         chunked Parquet writing and SHA-256 helpers

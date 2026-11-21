@@ -1,18 +1,26 @@
-"""retrain_dag: retrain the student, gate it and register it (Phase 2 skeleton).
+"""retrain_dag: retrain the student on the drift stream, check it, register and deploy it.
 
-pull_data -> submit_training -> gate -> register -> notify, each a step of scripts/retrain.py.
-The record of the run (the trigger, then one entry per step) is passed from task to task
-through XCom and written to reports/retrain/<run_id>.json by notify.
+pull_data -> submit_training -> gate -> promote_check -> register -> dispatch -> notify, each a
+step of scripts/retrain.py (work plan v5 6.1, Model-Pipeline/docs/retraining.md). The record of
+the run (the trigger, then one entry per step) is passed from task to task through XCom and
+written by notify to reports/retrain/<run_id>.json and to
+gs://distillate-mlops-data/deployments/retrain/ (for the demo app's Status page).
 
-In Phase 2 the steps are stubs: pull_data records the data revision and the delivered drift
-batches, submit_training builds the Vertex AI job spec model-ci uses without submitting it, and
-gate and register report that nothing ran. Phase 3 completes them (work plan v4 section 6): the
-monitoring alerts trigger this DAG through Airflow's REST API with a conf such as
-``{"reason": "flag_rate PSI 0.31", "source": "alert"}``, the job trains on the original data plus
-the delivered drift batches, and the candidate reaches traffic only through the same gate and
-registry as CI.
+* pull_data reads drift_ingest's state.json (next_batch = n): train on drift batches 0..n-3,
+  hold out n-2. With fewer than three batches out it skips the run (Slack), and the later steps
+  do nothing.
+* submit_training runs model-ci's Vertex AI job with those overrides and waits for it
+  (retrain.submit: false only records the job spec).
+* gate and promote_check: the candidate must pass the CI gate and beat @production on the
+  held-out batch; production's scores are rescored through the live service if @production has
+  moved since drift_ingest scored the batch.
+* register (@staging) and dispatch (repository_dispatch to deploy.yml) run only on a pass.
 
-Never on a clock and created paused: trigger it by hand (or through the REST API) to run it.
+Slack: "triggered" (or "skipped") from pull_data, "deployment requested" from dispatch, the
+result from notify, and a failed task's message from the failure callback.
+
+Never on a clock and created paused. check_thresholds in drift_ingest_dag triggers it with a conf
+such as ``{"reason": "flag_rate PSI 0.31", "source": "alert"}``; it can also be triggered by hand.
 """
 
 from __future__ import annotations
@@ -25,6 +33,9 @@ from airflow.sdk import DAG
 
 from scripts.alerts import task_failure_callback
 from scripts.retrain import STEPS
+
+# submit_training waits for the Vertex AI job (retrain.job_timeout_h); the rest are minutes.
+TIMEOUTS = {"submit_training": timedelta(hours=5, minutes=15)}
 
 
 def _step(func: str, previous: str | None, ti=None, dag_run=None, **_: Any) -> dict[str, Any]:
@@ -43,7 +54,7 @@ def _step(func: str, previous: str | None, ti=None, dag_run=None, **_: Any) -> d
 
 with DAG(
     dag_id="retrain_dag",
-    description="Retrain the student on Vertex AI, gate it, register it, notify (skeleton).",
+    description="Retrain the student on the drift stream, gate, promote_check, register, deploy.",
     doc_md=__doc__,
     schedule=None,
     start_date=datetime(2026, 11, 1),
@@ -56,13 +67,15 @@ with DAG(
         "execution_timeout": timedelta(minutes=30),
         "on_failure_callback": task_failure_callback,
     },
-    tags=["distillate", "retrain", "phase2"],
+    tags=["distillate", "retrain", "phase3"],
 ) as dag:
     previous = None
     upstream = None
     for task_id, func in STEPS:
         task = PythonOperator(task_id=task_id, python_callable=_step,
-                              op_kwargs={"func": func, "previous": previous})
+                              op_kwargs={"func": func, "previous": previous},
+                              **({"execution_timeout": TIMEOUTS[task_id]}
+                                 if task_id in TIMEOUTS else {}))
         if upstream is not None:
             upstream >> task
         upstream, previous = task, task_id
