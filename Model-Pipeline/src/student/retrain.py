@@ -50,6 +50,10 @@ def settings(cfg: Mapping[str, Any]) -> dict[str, Any]:
                          f"section 1), got {batches}")
     if holdout is not None and holdout in batches:
         raise ValueError(f"retrain.holdout_batch {holdout} is also a training batch")
+    if holdout is not None and holdout != len(batches):
+        # Training batches 0..n-3 and the held-out batch n-2: it comes right after them.
+        raise ValueError(f"retrain.holdout_batch must be the batch right after the training "
+                         f"batches ({len(batches)}, docs/retraining.md section 1), got {holdout}")
     if out["drift_weight"] <= 0:
         raise ValueError("retrain.drift_weight must be positive")
     if out["augment_rows"] < 0:

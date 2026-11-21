@@ -30,6 +30,8 @@ def test_off_by_default(synthetic_root):
 @pytest.mark.parametrize("overrides, message", [
     (["retrain.drift_batches=[1,2]"], "0, 1, ..., m-1"),
     (["retrain.drift_batches=[0,1]", "retrain.holdout_batch=1"], "also a training batch"),
+    (["retrain.drift_batches=[0,1]", "retrain.holdout_batch=5"], "right after the training"),
+    (["retrain.holdout_batch=2"], "right after the training"),
     (["retrain.drift_weight=0"], "positive"),
     (["retrain.obfuscation_augment.rows=-1"], "negative"),
 ])

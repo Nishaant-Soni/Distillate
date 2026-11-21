@@ -44,7 +44,8 @@ A `retrain` section in `configs/student.yaml` (and `smoke.yaml`), implemented by
 ```yaml
 retrain:
   drift_batches: []        # training batches 0, 1, ..., m-1 (no gaps), e.g. [0, 1, 2, 3, 4]
-  holdout_batch: null      # scored whole into predictions/drift_holdout.parquet
+  holdout_batch: null      # scored whole into predictions/drift_holdout.parquet; must be the
+                           # batch right after the training ones (n-2 = len(drift_batches))
   drift_weight: 1.0
   drift_dir: null          # the batch files; null = <pipeline.data_dir>/civil/drift
   obfuscation_augment: {rows: 0, seed: 42}   # 3000 in a retraining run

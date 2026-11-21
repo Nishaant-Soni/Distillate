@@ -172,7 +172,8 @@ pipeline:
 # for a retraining run (train on batches 0..n-3, hold out n-2).
 retrain:
   drift_batches: []         # Civil drift batches added to training: 0, 1, ..., m-1, no gaps
-  holdout_batch: null       # scored into predictions/drift_holdout.parquet for promote_check
+  holdout_batch: null       # scored into predictions/drift_holdout.parquet for promote_check;
+                            # the batch right after the training ones (n-2)
   drift_weight: 1.0         # sample_weight of the drift rows
   drift_dir: null           # the batch_<k>.parquet files; null = <pipeline.data_dir>/civil/drift
   obfuscation_augment:
