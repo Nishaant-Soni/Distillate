@@ -20,18 +20,24 @@ esac
 FAKE_CURL = """#!/usr/bin/env bash
 printf '%s' "$FAKE_HEALTH"
 """
+FAKE_GH = """#!/usr/bin/env bash
+[ "$*" = "variable get MLFLOW_TRACKING_URI --repo Nishaant-Soni/Distillate" ] \\
+  && echo "http://mlflow.from-repo:5000"
+"""
 
 
 def run(tmp_path, health, **env):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
-    for name, body in (("gcloud", FAKE_GCLOUD), ("curl", FAKE_CURL)):
+    for name, body in (("gcloud", FAKE_GCLOUD), ("curl", FAKE_CURL), ("gh", FAKE_GH)):
         (bin_dir / name).write_text(body)
         (bin_dir / name).chmod(0o755)
     full = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_HEALTH": health,
-            "PYTHON": sys.executable, "MLFLOW_TRACKING_URI": "http://mlflow.example:5000",
-            **env}
+            "PYTHON": sys.executable, "GH": str(bin_dir / "gh"),
+            "MLFLOW_TRACKING_URI": "http://mlflow.example:5000", **env}
     full.pop("API_URL", None)
+    for name in [k for k, v in full.items() if v is None]:     # None: unset it
+        del full[name]
     return subprocess.run(["bash", str(SCRIPT)], env=full, capture_output=True, text=True,
                           timeout=30)
 
@@ -62,3 +68,21 @@ def test_an_empty_mlflow_uri_is_warned_about(tmp_path):
 def test_it_stops_at_the_build_and_deploys_nothing(tmp_path):
     result = run(tmp_path, '{"status": "ok"}')
     assert result.returncode == 1 and "the image build failed" in result.stderr
+
+
+def test_the_mlflow_server_defaults_to_the_repository_variable(tmp_path):
+    result = run(tmp_path, '{"status": "ok"}', MLFLOW_TRACKING_URI=None)
+    assert "MLflow server: http://mlflow.from-repo:5000 (repository variable)" in result.stdout
+    assert "MLFLOW_TRACKING_URI is empty" not in result.stderr
+
+
+def test_an_explicit_empty_mlflow_uri_is_kept_and_warned_about(tmp_path):
+    result = run(tmp_path, '{"status": "ok"}', MLFLOW_TRACKING_URI="")
+    assert "repository variable" not in result.stdout
+    assert "MLFLOW_TRACKING_URI is empty" in result.stderr
+
+
+def test_without_gh_the_uri_stays_empty_and_is_warned_about(tmp_path):
+    result = run(tmp_path, '{"status": "ok"}', MLFLOW_TRACKING_URI=None,
+                 GH=str(tmp_path / "no-such-gh"))
+    assert "MLFLOW_TRACKING_URI is empty" in result.stderr

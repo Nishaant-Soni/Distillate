@@ -15,7 +15,8 @@
 #   BUCKET [distillate-mlops-data]  MLFLOW_SECRET [mlflow-password]
 #   API_URL [distillate-api's URL if it answers /health as the serving app does, else empty:
 #           the built-in mock]
-#   MLFLOW_TRACKING_URI, MLFLOW_TRACKING_USERNAME, GRAFANA_URL [empty: "not yet" on Status]
+#   MLFLOW_TRACKING_URI [the repository variable MLFLOW_TRACKING_URI, via gh; "" for none]
+#   MLFLOW_TRACKING_USERNAME [team]  GRAFANA_URL [empty: "not yet" on Status]
 #
 # One-time setup first (the service account and its access): setup_frontend.sh.
 # Exit codes: 0 deployed and healthy; 1 a step failed (the message says which); 2 usage.
@@ -30,8 +31,18 @@ export SERVICE="${SERVICE:-distillate-frontend}"
 export SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-distillate-frontend@$PROJECT.iam.gserviceaccount.com}"
 export BUCKET="${BUCKET:-distillate-mlops-data}"
 export MLFLOW_SECRET="${MLFLOW_SECRET:-mlflow-password}"
+export MLFLOW_TRACKING_USERNAME="${MLFLOW_TRACKING_USERNAME:-team}"
+# The team MLflow server: if MLFLOW_TRACKING_URI isn't set at all, the repository variable of the
+# same name, which model-ci and deploy.yml use (set it to "" to deploy without the registry).
+GH="${GH:-gh}"
+GITHUB_REPO="${GITHUB_REPO:-Nishaant-Soni/Distillate}"
+if [ -z "${MLFLOW_TRACKING_URI+set}" ] && command -v "$GH" >/dev/null 2>&1; then
+  MLFLOW_TRACKING_URI="$("$GH" variable get MLFLOW_TRACKING_URI --repo "$GITHUB_REPO" \
+    2>/dev/null || true)"
+  [ -n "$MLFLOW_TRACKING_URI" ] \
+    && echo "deploy_frontend.sh: MLflow server: $MLFLOW_TRACKING_URI (repository variable)"
+fi
 export MLFLOW_TRACKING_URI="${MLFLOW_TRACKING_URI:-}"
-export MLFLOW_TRACKING_USERNAME="${MLFLOW_TRACKING_USERNAME:-}"
 export GRAFANA_URL="${GRAFANA_URL:-}"
 IMAGE_REPO="${IMAGE_REPO:-$REGION-docker.pkg.dev/$PROJECT/distillate-images/frontend}"
 PYTHON="${PYTHON:-python3}"

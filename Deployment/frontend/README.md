@@ -75,8 +75,7 @@ PROJECT=distillate-mlops Deployment/frontend/setup_frontend.sh --deployer user:<
 **Each deploy** (from the repository root; needs `gcloud`, logged in):
 
 ```bash
-MLFLOW_TRACKING_URI=<team server> MLFLOW_TRACKING_USERNAME=<user> \
-  GRAFANA_URL=<optional> Deployment/frontend/deploy_frontend.sh
+Deployment/frontend/deploy_frontend.sh            # GRAFANA_URL=<url> to add the Grafana link
 ```
 
 It checks the APIs, builds the image with Cloud Build (`cloudbuild.yaml`; the image is
@@ -85,7 +84,7 @@ field stops it), applies it with `gcloud run services replace`, makes the servic
 waits for `/_stcore/health`. The serving API is `distillate-api`'s URL when that service
 exists and its `/health` answers `{"status": "ok"}` (a placeholder service, before the first
 `deploy.sh` run, falls back to the mock with a warning); `API_URL=` (empty) forces the built-in
-mock. An empty `MLFLOW_TRACKING_URI` is warned about, since the Status page then shows "not yet"
+mock. `MLFLOW_TRACKING_URI` defaults to the repository variable of the same name (through `gh`, the value model-ci uses) and `MLFLOW_TRACKING_USERNAME` to `team`; an empty `MLFLOW_TRACKING_URI` is warned about, since the Status page then shows "not yet"
 for the registry.
 
 Things to know:
