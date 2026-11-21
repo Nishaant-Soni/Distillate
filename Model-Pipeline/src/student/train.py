@@ -198,6 +198,7 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
     from transformers import get_linear_schedule_with_warmup
 
     from src.student import data as data_mod
+    from src.student import retrain as retrain_mod
     from src.student.loss import distillation_loss
     from src.student.model import build
     from src.student.predict import check_prediction_frame
@@ -225,6 +226,12 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
             cfg["data"]["source"] in ("temp", "ids") or Path(raw_train).exists()) else None
         labels, soft_info = data_mod.load_soft_labels(cfg, source_ids)
         train_df = data_mod.attach_soft_labels(train_df, labels)
+    # Retraining (docs/retraining.md): drift batches and obfuscated rows join training; off
+    # unless the config's retrain section asks for it.
+    retrain_info = None
+    if retrain_mod.enabled(cfg):
+        train_df, retrain_info = retrain_mod.extend_training(cfg, train_df, soft)
+        data_mod.check_no_gate((train_df,), cfg["paths"].get("gate_ids"))
     for name, frame in (("train", train_df), ("val", val_df)):
         (run_dir / "splits" / f"{name}_ids.txt").write_text("\n".join(frame["id"]) + "\n")
     logger.info("data: %s", json.dumps(data_info))
@@ -354,6 +361,7 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
             data_info["source_sha256"], "training_data_dvc_hash": None,   # set in Phase 2
             "seed": seed, "best_epoch": best_epoch, "code_commit": code_commit(),
             "mlflow_run_id": mlflow_run.info.run_id if mlflow_run else None,
+            "retrain": retrain_info,
         }
         (run_dir / "model" / "meta.json").write_text(json.dumps(meta, indent=2) + "\n")
         package_on = bool((cfg.get("package") or {}).get("enabled"))
@@ -365,6 +373,7 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
             "model_id": model_id, "device": device.type, "alpha": alpha,
             "temperature": temperature, "rows_in": data_info["train_rows"] + data_info[
                 "val_rows"], "data": data_info, "soft_labels": soft_info,
+            "retrain": retrain_info,
             "truncated_share_train": round(train_rows.truncated_share, 5),
             "steps": step, "best_epoch": best_epoch, "best_val_mean_auc": best_auc,
             "best_val_mean_pr_auc": float(best_table.loc["mean", "pr_auc"]),

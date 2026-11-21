@@ -216,6 +216,7 @@ def _build(run_dir: str | Path, out: Path, settings: Mapping[str, Any] | None,
         "data_source": run_meta.get("data_source"), "seed": run_meta.get("seed"),
         "code_commit": run_meta.get("code_commit"),
         "mlflow_run_id": run_meta.get("mlflow_run_id"),
+        "retrain": run_meta.get("retrain"),       # drift batches trained on, the held-out batch
         "thresholds": thresholds, "onnx": {**export, "parity": check},
         "files": files, "source_run": str(Path(run_dir).name),
     }

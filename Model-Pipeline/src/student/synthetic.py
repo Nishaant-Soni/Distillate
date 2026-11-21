@@ -150,6 +150,37 @@ def write_oof(rows, root: str | Path, manifest_path: str | Path, seed: int = 42)
     return OOF_PATH
 
 
+def write_drift(drift_dir: str | Path, store_root: str | Path, batches: int, n: int = 80,
+                seed: int = 500, stack_sha256: str | None = None) -> dict[int, list[str]]:
+    """Drift batches ``batch_<k>.parquet`` (numeric ids, like Civil's) under ``drift_dir``, and
+    one stack shard per batch under ``<store_root>/<prefix>drift/``; returns each batch's ids."""
+    from src.student.data import file_sha256
+    from src.teacher.shards import ids_sha256, shard_name
+    from src.teacher.storage import LocalStorage, write_shard
+
+    drift_dir = Path(drift_dir)
+    drift_dir.mkdir(parents=True, exist_ok=True)
+    storage = LocalStorage(store_root)
+    prefix = SOFT_DEFAULTS["prefix"].rstrip("/") + "/drift/"
+    lineage = {"stack_version": "stack-v1",
+               "stack_sha256": stack_sha256 or file_sha256(STACK_FILE),
+               "stack_file": "artifacts/stack/stack_p2-zs-v2b.json"}
+    out = {}
+    for k in range(batches):
+        rows = make_rows(n, seed + k)
+        rows["id"] = [str(7_000_000 + k * n + i) for i in range(n)]
+        rows.to_parquet(drift_dir / f"batch_{k:02d}.parquet", index=False)
+        soft = make_soft_labels(rows, seed + k).sort_values("id").reset_index(drop=True)
+        ids = soft["id"].astype(str).tolist()
+        manifest = {"row_count": len(soft), "ids_sha256": ids_sha256(ids),
+                    "prompt_version": SOFT_DEFAULTS["prompt_version"],
+                    "model_version": SOFT_DEFAULTS["model_version"], **lineage,
+                    "synthetic": True}
+        write_shard(storage, prefix, shard_name(k), soft, manifest)
+        out[k] = ids
+    return out
+
+
 def build(out: str | Path, n: int = 600, seed: int = 42, failed: int = 0) -> dict[str, Any]:
     """``<out>/wiki_train_raw.parquet`` and the store under ``<out>/store``."""
     out = Path(out)
