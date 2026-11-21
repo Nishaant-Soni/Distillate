@@ -1,0 +1,8 @@
+# Build context: Deployment/serving. Only the app, its config and the package go in.
+*
+!app.py
+!scorer.py
+!config.yaml
+!requirements.txt
+!package/
+!package/**

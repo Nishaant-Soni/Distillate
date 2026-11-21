@@ -1,0 +1,11 @@
+# Serving image (serve.Dockerfile). The model-side pins match Model-Pipeline/requirements-pipeline.txt,
+# so the service tokenizes and runs the ONNX graph exactly as the package's own checks did.
+onnxruntime==1.31.1
+transformers==5.20.2     # AutoTokenizer only; no torch in the serving image
+tokenizers==0.23.3
+numpy==2.5.4
+fastapi==0.165.0
+starlette==1.10.0
+uvicorn==0.54.0
+prometheus-client==0.26.0
+pyyaml==6.0.4
