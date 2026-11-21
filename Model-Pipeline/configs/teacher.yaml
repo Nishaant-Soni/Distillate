@@ -144,6 +144,7 @@ mlflow:
 # test compares at the same rate). load_ids_file is the 2,000 load comments, in order (ids only).
 h3:
   sweep_file: h3_sweep.json
+  stability_file: h3_stability.json   # the second session: 30 min at the sustainable rate
   load_ids_file: h3_load_ids.csv
   report: reports/h3_teacher_cost.json
   target_rate: 10           # comments/s (agreed Nov 21); --rate overrides

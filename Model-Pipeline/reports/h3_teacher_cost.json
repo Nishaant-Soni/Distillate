@@ -17,6 +17,10 @@
     },
     "max_throughput": 7.469,
     "max_throughput_note": "closed loop, 64 concurrent requests; p95 9.032 s",
+    "max_throughput_by_session": [
+      7.469,
+      7.864
+    ],
     "comments_per_hour": 21600,
     "cost_per_million_comments": 25.0,
     "cost_per_million_at_max_throughput": 20.08,
@@ -47,6 +51,24 @@
     "utilization": 0.8333,
     "cost_per_hour": 1.08,
     "cost_per_million_comments": 30.0
+  },
+  "stability": {
+    "offered_rate": 6,
+    "seconds": 1800,
+    "sent": 11021,
+    "ok": 11021,
+    "errors": 0,
+    "achieved_rate": 6.122,
+    "latency_p50_s": 0.568,
+    "latency_p95_s": 1.683,
+    "latency_p99_s": 2.839,
+    "latency_mean_s": 0.705,
+    "gpu_util_mean": 87.4,
+    "keeps_up": true,
+    "confirms_sustainable_rate": true,
+    "session_max_throughput": 7.864,
+    "server_ready_s": 150.0,
+    "session_hours": 0.91
   },
   "runs": [
     {
@@ -175,7 +197,7 @@
     "Measured on a T4 (Kaggle), not an L4: Kaggle's free tier has no L4.",
     "The load generator ran in the same session against localhost (Kaggle exposes no ports), so network time is left out, and the generator shared the host's CPUs with the server.",
     "The Kaggle host isn't an n1-standard-4; the price is for the machine a T4 would attach to on GCP.",
-    "Each rate ran for 5 minutes after a 2-minute warm-up; there was no longer stability run.",
+    "Each sweep rate ran for 5 minutes after a 2-minute warm-up; the sustainable rate then ran for 30 minutes in a second session (stability).",
     "The load is Civil drift comments (the traffic the service sees), 2,000 seeded.",
     "List prices, on demand: sustained-use and committed-use discounts are left out."
   ]

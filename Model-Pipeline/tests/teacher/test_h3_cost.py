@@ -95,7 +95,7 @@ def test_run_writes_the_report(tmp_path):
     cfg["paths"]["h3_dir"] = str(tmp_path / "h3")
     (tmp_path / "h3" / "ids.csv").write_text("order,id,batch\n0,111,3\n1,222,7\n")
     cfg["h3"] = {**cfg["h3"], "report": str(tmp_path / "out" / "h3.json"), "price": PRICE,
-                 "load_ids_file": "ids.csv"}
+                 "load_ids_file": "ids.csv", "stability_file": None}
     report = run(cfg, target_rate=3)
     assert json.loads((tmp_path / "out" / "h3.json").read_text()) == report
     assert report["at_target_rate"]["instances"] == 1
@@ -125,3 +125,54 @@ def test_committed_config_prices():
     price = load_config()["h3"]["price"]
     assert price["region"] == "us-east1" and price["gpu"]["count"] == 1
     assert hourly_price(price)["total"] == pytest.approx(0.54, abs=0.001)
+
+
+def session(rate=6, keeps_up=True, **env):
+    """A second session's sweep file with a 30-minute stability run."""
+    s = sweep()
+    s["environment"] = {**s["environment"], **env}
+    s["saturation"] = {**s["saturation"], "achieved_rate": 7.9}
+    s["stability"] = {"offered_rate": rate, "seconds": 1800, "sent": 11000, "ok": 11000,
+                      "errors": 0, "achieved_rate": 6.1, "latency_p50_s": 0.6,
+                      "latency_p95_s": 1.7, "latency_p99_s": 2.8, "latency_mean_s": 0.7,
+                      "gpu_util_mean": 87.0, "keeps_up": keeps_up}
+    return s
+
+
+def test_the_stability_run_is_added_from_the_second_session():
+    report = build(sweep(), PRICE, None, stability_session=session())
+    st = report["stability"]
+    assert st["confirms_sustainable_rate"] and st["seconds"] == 1800 and st["errors"] == 0
+    assert report["per_instance"]["max_throughput_by_session"] == [7.5, 7.9]
+    assert any("30 minutes in a second session" in c for c in report["caveats"])
+    assert not any("no longer stability run" in c for c in report["caveats"])
+    assert not build(sweep(), PRICE, None, stability_session=session(keeps_up=False))[
+        "stability"]["confirms_sustainable_rate"]
+
+
+def test_without_a_stability_run_the_caveat_says_so():
+    report = build(sweep(), PRICE, None)
+    assert report["stability"] is None
+    assert any("no longer stability run" in c for c in report["caveats"])
+
+
+@pytest.mark.parametrize("bad, message", [
+    (session(code_commit="other"), "code_commit"),
+    (session(model_version="other"), "model_version"),
+    (session(rate=5), "not the sustainable rate"),
+    ({**session(), "texts": {"comments": 1000}}, "load differs"),
+    ({**session(), "stability": None}, "no stability run"),
+])
+def test_a_mismatched_stability_session_is_refused(bad, message):
+    with pytest.raises(ValueError, match=message):
+        build(sweep(), PRICE, None, stability_session=bad)
+
+
+def test_committed_stability_run_confirms_the_sustainable_rate():
+    cfg = load_config()
+    h3_dir = Path(cfg["paths"]["h3_dir"])
+    sweep_file = json.loads((h3_dir / cfg["h3"]["sweep_file"]).read_text())
+    stable = json.loads((h3_dir / cfg["h3"]["stability_file"]).read_text())
+    st = build(sweep_file, cfg["h3"]["price"], 10, stability_session=stable)["stability"]
+    assert st["offered_rate"] == sweep_file["sustainable_rate"] == 6
+    assert st["confirms_sustainable_rate"] and st["errors"] == 0

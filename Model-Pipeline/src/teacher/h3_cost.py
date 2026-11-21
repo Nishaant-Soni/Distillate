@@ -37,10 +37,39 @@ CAVEATS = [
     "so network time is left out, and the generator shared the host's CPUs with the server.",
     "The Kaggle host isn't an n1-standard-4; the price is for the machine a T4 would attach to "
     "on GCP.",
-    "Each rate ran for 5 minutes after a 2-minute warm-up; there was no longer stability run.",
     "The load is Civil drift comments (the traffic the service sees), 2,000 seeded.",
     "List prices, on demand: sustained-use and committed-use discounts are left out.",
 ]
+DURATION_SHORT = ("Each rate ran for 5 minutes after a 2-minute warm-up; there was no longer "
+                  "stability run.")
+DURATION_STABLE = ("Each sweep rate ran for 5 minutes after a 2-minute warm-up; the sustainable "
+                   "rate then ran for {minutes:g} minutes in a second session (stability).")
+# What must match between the sweep session and the stability session.
+SAME_SESSION_KEYS = ("model_version", "prompt_version", "code_commit", "vllm_version", "gpu")
+
+
+def stability_section(sweep: Mapping[str, Any], session: Mapping[str, Any]) -> dict[str, Any]:
+    """The long run at the sustainable rate, from a second session's sweep file; checked to be
+    the same teacher, code and load as ``sweep``, and run at its sustainable rate."""
+    run = session.get("stability")
+    if not run:
+        raise ValueError("the stability file has no stability run")
+    for key in SAME_SESSION_KEYS:
+        if session["environment"][key] != sweep["environment"][key]:
+            raise ValueError(f"the stability session's {key} ({session['environment'][key]}) "
+                             f"differs from the sweep's ({sweep['environment'][key]})")
+    if session["texts"] != sweep["texts"]:
+        raise ValueError("the stability session's load differs from the sweep's")
+    if run["offered_rate"] != sweep["sustainable_rate"]:
+        raise ValueError(f"the stability run is at {run['offered_rate']}/s, not the sustainable "
+                         f"rate ({sweep['sustainable_rate']}/s)")
+    keys = ("offered_rate", "seconds", "sent", "ok", "errors", "achieved_rate", "latency_p50_s",
+            "latency_p95_s", "latency_p99_s", "latency_mean_s", "gpu_util_mean", "keeps_up")
+    return {**{k: run.get(k) for k in keys},
+            "confirms_sustainable_rate": bool(run["keeps_up"]),
+            "session_max_throughput": session["saturation"]["achieved_rate"],
+            "server_ready_s": session["environment"].get("server_ready_s"),
+            "session_hours": session.get("session_hours")}
 
 
 def hourly_price(price: Mapping[str, Any]) -> dict[str, float]:
@@ -69,7 +98,8 @@ def at_rate(rate: float, sustainable: float, per_hour: float) -> dict[str, Any]:
 
 
 def build(sweep: Mapping[str, Any], price: Mapping[str, Any], target_rate: float | None,
-          p95_target: float = 2.0) -> dict[str, Any]:
+          p95_target: float = 2.0,
+          stability_session: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """The report's content."""
     sustainable = sweep["sustainable_rate"]
     if not sustainable:
@@ -100,6 +130,11 @@ def build(sweep: Mapping[str, Any], price: Mapping[str, Any], target_rate: float
         runs.append(row)
     at_sustainable = next(r for r in sweep["runs"] if r["offered_rate"] == sustainable)
     saturation = sweep["saturation"]
+    stability = stability_section(sweep, stability_session) if stability_session else None
+    sessions = [saturation["achieved_rate"]] + ([stability["session_max_throughput"]]
+                                                if stability else [])
+    duration = (DURATION_STABLE.format(minutes=stability["seconds"] / 60) if stability
+                else DURATION_SHORT)
     return {
         "what": "the teacher (raw Qwen, P2 zero-shot, vLLM) as a service on one T4: throughput, "
                 "latency, instances and cost per million comments",
@@ -114,6 +149,7 @@ def build(sweep: Mapping[str, Any], price: Mapping[str, Any], target_rate: float
             "max_throughput": saturation["achieved_rate"],
             "max_throughput_note": f"closed loop, {saturation['concurrency']} concurrent "
                                    f"requests; p95 {saturation['latency_p95_s']} s",
+            "max_throughput_by_session": sessions,
             "comments_per_hour": round(sustainable * 3600),
             "cost_per_million_comments": round(per_million(per_hour, sustainable), 2),
             "cost_per_million_at_max_throughput": round(
@@ -127,10 +163,11 @@ def build(sweep: Mapping[str, Any], price: Mapping[str, Any], target_rate: float
                            "ram": price["machine"]["ram_sku"]}},
         "at_target_rate": (at_rate(target_rate, sustainable, per_hour)
                            if target_rate else None),
+        "stability": stability,
         "runs": runs,
         "parity_with_offline": sweep["parity_with_offline"],
         "load": sweep["texts"],
-        "caveats": CAVEATS,
+        "caveats": [*CAVEATS[:3], duration, *CAVEATS[3:]],
     }
 
 
@@ -154,7 +191,9 @@ def run(cfg: Mapping[str, Any], target_rate: float | None = None) -> dict[str, A
     h3 = cfg["h3"]
     sweep = json.loads((Path(cfg["paths"]["h3_dir"]) / h3["sweep_file"]).read_text())
     rate = target_rate if target_rate is not None else h3.get("target_rate")
-    report = build(sweep, h3["price"], rate, h3["p95_target_s"])
+    stability = (json.loads((Path(cfg["paths"]["h3_dir"]) / h3["stability_file"]).read_text())
+                 if h3.get("stability_file") else None)
+    report = build(sweep, h3["price"], rate, h3["p95_target_s"], stability)
     if h3.get("load_ids_file"):
         report["load"] = {**report["load"],
                           **load_ids(Path(cfg["paths"]["h3_dir"]) / h3["load_ids_file"])}
