@@ -1,0 +1,11 @@
+# Ruff settings for Deployment/serving, matching Deployment/monitoring and Data-Pipeline
+# (line length 100, the same rule set). app and scorer are first-party here.
+line-length = 100
+target-version = "py312"
+exclude = [".venv"]
+
+[lint]
+select = ["E", "F", "W", "I", "B"]
+
+[lint.isort]
+known-first-party = ["app", "scorer"]

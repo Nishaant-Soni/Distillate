@@ -1,0 +1,34 @@
+# Serving settings (work plan v5 §2.4, §6.1). Baked into the image next to app.py.
+# Environment variables override a few of them at run time, for Cloud Run and the load test:
+#   DISTILLATE_PACKAGE_DIR            package_dir
+#   DISTILLATE_RATE_LIMIT_PER_MINUTE  rate_limit.requests_per_minute (0 turns the limit off)
+#   DISTILLATE_ORT_THREADS            onnx.intra_op_threads
+
+# The model package baked into the image (serve.Dockerfile copies it here).
+package_dir: /app/package
+
+# low_confidence is true when any label's score is within this distance of its threshold.
+low_confidence_margin: 0.1
+
+# Input limits. Text beyond the model's max_length tokens is truncated anyway; the character
+# cap bounds tokenizer work per request. Longer text gets 413.
+max_text_chars: 10000
+max_body_bytes: 65536
+
+# Per-client token bucket, per instance (Cloud Run instances don't share it). The client is the
+# last X-Forwarded-For entry, which Google's front end appends and a caller can't forge.
+# Over the limit gets 429. Sized for our own batch callers, which come from one address each:
+# the canary replay (Data-Pipeline config: 8 requests in flight, no retries, fails above 1%
+# errors) and drift ingestion reach roughly 100-200 requests a second against Cloud Run, so a
+# lower limit would fail them. It stops one runaway client; max instances (service.yaml) caps
+# cost beyond that. The load test turns it off with DISTILLATE_RATE_LIMIT_PER_MINUTE=0.
+rate_limit:
+  requests_per_minute: 12000
+  burst: 200
+
+# ONNX Runtime threads per request. Cloud Run gives 2 vCPU (service.yaml) and the host can
+# report more cores than that, so the count is set, not detected. The load test tunes this
+# together with Cloud Run's concurrency.
+onnx:
+  intra_op_threads: 2
+  inter_op_threads: 1
