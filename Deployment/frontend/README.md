@@ -94,6 +94,37 @@ Things to know:
 * Retraining records (`RETRAIN_RECORDS`) stay "not yet" until `retrain_dag` writes them to GCS;
   then a second mount like the `deployments/` one shows them.
 
+### If the mount fails
+
+The prefix-limited grant has two requirements:
+
+* **Uniform bucket-level access on the bucket.** IAM conditions don't work with fine-grained
+  ACLs, so `setup_frontend.sh` checks this first and stops before changing anything if it's off.
+* **The mount only makes calls the grant allows.** The condition allows reading objects under
+  `deployments/` and listing with that prefix, which is what `only-dir=deployments` needs.
+  If gcsfuse also makes a bucket-level call when it mounts, that call is refused. The new
+  revision then fails to start, or the Status page says the deployment log doesn't exist, with
+  a permission error in the service's logs.
+
+Either way, the fallback is a **separate small bucket that holds only the deployment log**, so
+no condition is needed:
+
+```bash
+gcloud storage buckets create gs://distillate-mlops-deployments --project=distillate-mlops \
+  --location=us-east1 --uniform-bucket-level-access
+gcloud storage buckets add-iam-policy-binding gs://distillate-mlops-deployments \
+  --member=serviceAccount:distillate-frontend@distillate-mlops.iam.gserviceaccount.com \
+  --role=roles/storage.objectViewer
+# plus write access (roles/storage.objectAdmin) for whoever runs deploy.sh / rollback.sh
+```
+
+Then:
+
+* deploy with `BUCKET=distillate-mlops-deployments`; the mount keeps `only-dir=deployments`, so
+  the log goes in a `deployments/` folder there too;
+* `deploy.sh` writes to `DEPLOYMENTS_LOG=gs://distillate-mlops-deployments/deployments/deployments.jsonl`
+  (its setting in #64).
+
 ## Tests
 
 ```bash

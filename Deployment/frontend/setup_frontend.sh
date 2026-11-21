@@ -4,6 +4,8 @@
 #
 #   PROJECT=distillate-mlops Deployment/frontend/setup_frontend.sh [--deployer user:<email>]
 #
+# 0. checks that the bucket uses uniform bucket-level access (IAM conditions need it); stops
+#    before changing anything if it doesn't
 # 1. enables the Cloud Run, Cloud Build and Secret Manager APIs
 # 2. creates the frontend's own service account (distillate-frontend)
 # 3. lets it read the mlflow-password secret
@@ -26,10 +28,25 @@ while [ $# -gt 0 ]; do
     --deployer)
       [ $# -ge 2 ] || { echo "setup_frontend.sh: --deployer needs user:<email>" >&2; exit 2; }
       DEPLOYER="$2"; shift 2 ;;
-    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "setup_frontend.sh: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+
+echo "== Check: gs://$BUCKET uses uniform bucket-level access"
+# IAM conditions work only on buckets with uniform bucket-level access; with fine-grained ACLs
+# the conditional grant is refused. Checked before anything changes, so the failure says why.
+ubla="$(gcloud storage buckets describe "gs://$BUCKET" \
+  --format='value(uniform_bucket_level_access)')" \
+  || { echo "setup_frontend.sh: can't read gs://$BUCKET's settings (needs storage.buckets.get)" >&2
+       exit 1; }
+if [ "$ubla" != "True" ]; then
+  echo "setup_frontend.sh: gs://$BUCKET doesn't use uniform bucket-level access, so the" \
+    "prefix-limited grant can't be made. Either enable it (gcloud storage buckets update" \
+    "gs://$BUCKET --uniform-bucket-level-access, after checking nothing relies on object" \
+    "ACLs) or use a separate deployments bucket (README, 'If the mount fails')." >&2
+  exit 1
+fi
 
 echo "== APIs"
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
@@ -45,9 +62,11 @@ gcloud secrets add-iam-policy-binding "$MLFLOW_SECRET" --project="$PROJECT" \
   --member="serviceAccount:$SA" --role=roles/secretmanager.secretAccessor >/dev/null
 
 echo "== gs://$BUCKET/deployments/: read access to that prefix only"
-# Objects under deployments/, and listings whose prefix is deployments/ (the mount's only-dir
-# lists with that prefix). IAM conditions need uniform bucket-level access, which the bucket uses.
-# The expression has commas, which --condition would split on, so it goes in a file.
+# Two clauses: objects whose name is under deployments/ (reads by name), and listings whose
+# prefix is deployments/. A listing's resource is the bucket, so the first clause alone wouldn't
+# allow it; objectListPrefix is the request's prefix, and the mount (only-dir=deployments) lists
+# with that prefix. The expression has commas, which --condition would split on, so it goes in
+# a file.
 condition_file="$(mktemp)"
 trap 'rm -f "$condition_file"' EXIT
 cat > "$condition_file" <<EOF
