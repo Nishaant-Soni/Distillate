@@ -13,7 +13,8 @@
 #   PROJECT [distillate-mlops]  REGION [us-east1]  SERVICE [distillate-frontend]
 #   SERVICE_ACCOUNT [distillate-frontend@$PROJECT.iam.gserviceaccount.com]
 #   BUCKET [distillate-mlops-data]  MLFLOW_SECRET [mlflow-password]
-#   API_URL [distillate-api's URL if that service exists, else empty: the built-in mock]
+#   API_URL [distillate-api's URL if it answers /health as the serving app does, else empty:
+#           the built-in mock]
 #   MLFLOW_TRACKING_URI, MLFLOW_TRACKING_USERNAME, GRAFANA_URL [empty: "not yet" on Status]
 #
 # One-time setup first (the service account and its access): setup_frontend.sh.
@@ -57,13 +58,28 @@ for api in run.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis
     || fail "$api is disabled in $PROJECT; a project owner enables it (setup_frontend.sh)"
 done
 
-# The serving API: the live service if it exists, unless API_URL is set (empty means the mock).
+# The serving API: the live service if it exists and answers /health as the serving app does,
+# unless API_URL is set (empty means the mock). A service that exists but isn't the app yet
+# (Cloud Run's placeholder before the first deploy.sh run) falls back to the mock.
 if [ -z "${API_URL+set}" ]; then
   API_URL="$(gcloud run services describe distillate-api --region="$REGION" --project="$PROJECT" \
     --format='value(status.url)' 2>/dev/null || true)"
+  if [ -n "$API_URL" ]; then
+    health="$(curl -fsS --max-time 15 "$API_URL/health" 2>/dev/null || true)"
+    if ! "$PYTHON" -c 'import json, sys; sys.exit(json.loads(sys.argv[1]).get("status") != "ok")' \
+        "$health" 2>/dev/null; then
+      echo "deploy_frontend.sh: warning: $API_URL/health doesn't answer {\"status\": \"ok\"}" \
+        "(not the serving app yet?); using the built-in mock" >&2
+      API_URL=""
+    fi
+  fi
 fi
 export API_URL
 echo "deploy_frontend.sh: serving API: ${API_URL:-the built-in mock}"
+if [ -z "$MLFLOW_TRACKING_URI" ]; then
+  echo "deploy_frontend.sh: warning: MLFLOW_TRACKING_URI is empty, so the Status page will show" \
+    "\"not yet\" for the registry; set it to the team MLflow server to show @production" >&2
+fi
 
 # 2. Build.
 TAG="$(git -C "$REPO_ROOT" rev-parse --short=7 HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)"

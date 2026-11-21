@@ -83,7 +83,10 @@ It checks the APIs, builds the image with Cloud Build (`cloudbuild.yaml`; the im
 `distillate-images/frontend:<commit>`), fills `service.yaml` (`render_service.py`; an unset
 field stops it), applies it with `gcloud run services replace`, makes the service public, and
 waits for `/_stcore/health`. The serving API is `distillate-api`'s URL when that service
-exists; `API_URL=` (empty) forces the built-in mock.
+exists and its `/health` answers `{"status": "ok"}` (a placeholder service, before the first
+`deploy.sh` run, falls back to the mock with a warning); `API_URL=` (empty) forces the built-in
+mock. An empty `MLFLOW_TRACKING_URI` is warned about, since the Status page then shows "not yet"
+for the registry.
 
 Things to know:
 
