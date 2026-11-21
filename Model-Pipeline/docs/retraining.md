@@ -64,7 +64,7 @@ After the gate passes, `python -m src.pipeline.promote_check` compares the candi
 
 * **Candidate's predictions:** written by the job (`predictions/drift_holdout.parquet`).
 * **Production's predictions:** already on the ops VM: `drift_ingest` stored the live service's scores for that batch (`reports/drift/predictions/batch_<k>.parquet`, no text). If `@production` has moved since the batch was scored, the check refuses that file, and `retrain_dag` rescores the batch through the live service first.
-* **Rule (work plan v5):** the candidate's mean AUC over the five Civil labels minus production's is above `min_gain`. Both models are scored on the same rows. Exit 0 = pass; 1 = keep production.
+* **Rule (work plan v5):** the candidate's mean AUC over the five Civil labels minus production's is above `min_gain`. Both models are scored on the same rows, which must cover at least 95% of the batch (`min_coverage`). Exit 0 = pass; 1 = keep production; 2 = the check couldn't decide (bad or mismatched inputs, too few rows scored), with the reason on stderr and no report, so a crash is never read as a verdict.
 * **Order in `retrain_dag`:** gate → promote_check → register `@staging` → `repository_dispatch` → Slack.
 
 **How noisy one batch is.** A 2,000-row batch has few positives for some labels:

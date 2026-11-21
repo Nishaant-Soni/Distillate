@@ -14,6 +14,10 @@ min_gain: 0.0
 # those AUCs are noisy. Kept null (agreed Nov 21): docs/retraining.md, section 5.
 min_positives: null
 
+# The rows scored ok by both models must be at least this share of the batch; otherwise the
+# check exits 2 (can't decide) rather than voting on a few rows. #69 scores the batch whole.
+min_coverage: 0.95
+
 # Paired bootstrap of the difference, for the record; it does not change the verdict.
 bootstrap: 1000
 seed: 42
