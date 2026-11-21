@@ -48,6 +48,8 @@ class FakeRun:
     def __init__(self, tmp_path, gate_passed=True, promote_passed=True, production=True,
                  holdout=5):
         self.calls = []
+        self.promote_crashes = False
+        self.production_tag = "prod-1"
         self.tmp = tmp_path
         self.gate_passed, self.promote_passed = gate_passed, promote_passed
         self.production, self.holdout = production, holdout
@@ -73,12 +75,15 @@ class FakeRun:
                 {"model_version": "cand-1",
                  "retrain": {"drift_batches": list(range(self.holdout)),
                              "holdout_batch": self.holdout}}))
+            if self.promote_crashes:   # an earlier attempt's passing verdict, left behind
+                (dest / "promotion").mkdir(exist_ok=True)
+                (dest / "promotion" / "promote_check.json").write_text('{"passed": true}')
             return done()
         if command[:2] == ["gcloud", "storage"]:
             return done()
         module = command[2] if len(command) > 2 else ""
         if module == "src.pipeline.ci" and command[3] == "fetch-production":
-            found = {"version": "1", "model_version": "prod-1", "run_id": "r"}
+            found = {"version": "1", "model_version": self.production_tag, "run_id": "r"}
             return done((json.dumps(found) if self.production else "none") + "\n")
         if module == "src.pipeline.ci":
             return done()
@@ -90,6 +95,8 @@ class FakeRun:
                  "failed_checks": [] if self.gate_passed else ["regression"]}))
             return done(code=0 if self.gate_passed else 1)
         if module == "src.pipeline.promote_check":
+            if self.promote_crashes:
+                return done(code=1, stderr="ValueError: production moved")
             out = Path(command[command.index("--out") + 1])
             out.mkdir(parents=True, exist_ok=True)
             trained = command[command.index("--trained-on") + 1:command.index("--out")]
@@ -301,6 +308,20 @@ def test_a_package_holding_out_another_batch_is_refused(cfg, live):
     fake, _ = live
     fake.holdout = 4
     with pytest.raises(retrain.RetrainError, match="overrides were lost"):
+        retrain.run_all(cfg)
+
+
+def test_promote_check_stopping_on_an_error_is_not_read_as_a_verdict(cfg, live):
+    fake, _ = live
+    fake.promote_crashes = True
+    with pytest.raises(retrain.RetrainError, match="without writing"):
+        retrain.run_all(cfg)
+
+
+def test_production_without_a_model_version_tag_stops_the_check(cfg, live):
+    fake, _ = live
+    fake.production_tag = None
+    with pytest.raises(retrain.RetrainError, match="no model_version tag"):
         retrain.run_all(cfg)
 
 

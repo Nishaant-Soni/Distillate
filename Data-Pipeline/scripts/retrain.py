@@ -42,6 +42,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -389,8 +390,12 @@ def step_promote_check(cfg: dict[str, Any], run: dict[str, Any]) -> dict[str, An
     if trained.get("holdout_batch") != k:
         raise RetrainError(f"the package's meta.json holds out batch {trained.get('holdout_batch')}"
                            f", but this run asked for batch {k}: the retrain overrides were lost")
+    if not production.get("model_version"):
+        raise RetrainError(f"@production (v{production.get('version')}) has no model_version tag"
+                           ", so its scores can't be matched to the live service")
     prod_path, rescored = production_scores(cfg, run, k, production["model_version"])
     out = job / "promotion"
+    shutil.rmtree(out, ignore_errors=True)   # never read an earlier attempt's verdict
     proc = _model_pipeline(
         cfg, "src.pipeline.promote_check", "--batch", str(k),
         "--candidate", str(job / "predictions" / f"{HOLDOUT_STEM}.parquet"),
@@ -399,7 +404,11 @@ def step_promote_check(cfg: dict[str, Any], run: dict[str, Any]) -> dict[str, An
         "--production-model-version", production["model_version"],
         "--trained-on", *[str(b) for b in trained.get("drift_batches", [])],
         "--out", str(out), what="promote_check", ok_codes=(0, 1))
-    report = json.loads((out / "promote_check.json").read_text(encoding="utf-8"))
+    report_path = out / "promote_check.json"
+    if not report_path.exists():   # exit 1 is also how an uncaught error ends
+        raise RetrainError(f"promote_check exited {proc.returncode} without writing "
+                           f"{report_path}: it stopped on an error, see its log")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
     _run(["gcloud", "storage", "cp", "-r", str(out), f"{gate['run_dir']}/retrain-promotion/"])
     return {"result": "passed" if proc.returncode == 0 else "failed", "batch": k,
             "gain": report.get("gain"), "trained_on": report.get("trained_on"),
