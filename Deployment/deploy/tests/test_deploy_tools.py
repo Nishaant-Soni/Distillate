@@ -300,6 +300,22 @@ def test_a_concurrent_write_is_retried_not_lost():
     assert gcs.content == '{"old": 1}\n{"other": 1}\n{"new": 2}\n'
 
 
+def test_an_unreadable_log_says_so():
+    # gcloud reports an unreadable object as 404, so the read looks like "no log yet"; the
+    # generation-0 write then keeps failing, and the error should point at permissions.
+    with pytest.raises(dt.DeployError, match="exists but can't be read"):
+        dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=_always_conflict)
+
+
+def _always_conflict(command, **_):
+    if command[:4] == ["gcloud", "storage", "objects", "describe"]:
+        return SimpleNamespace(returncode=1, stdout="", stderr="ERROR: not found: 404")
+    if command[:3] == ["gcloud", "storage", "cp"]:
+        assert command[5] == "--if-generation-match=0"
+        return SimpleNamespace(returncode=1, stdout="", stderr="ERROR: 412 Precondition Failed")
+    raise AssertionError(command)
+
+
 def test_endless_conflicts_give_up_with_an_error():
     gcs = FakeGCS(content='{"old": 1}\n', conflicts=5)
     with pytest.raises(dt.DeployError, match="kept changing"):

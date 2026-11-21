@@ -45,7 +45,9 @@ SERVING_DIR="${SERVING_DIR:-$REPO_ROOT/Deployment/serving}"
 # version as --build-arg REGISTRY_VERSION. deploy.sh builds a copy, so the repo stays clean.
 DOCKERFILE="${DOCKERFILE:-serve.Dockerfile}"
 PACKAGE_SUBDIR="${PACKAGE_SUBDIR:-package}"
-# Serving matched the pipeline's own ONNX scoring to 6e-8 on a real package.
+# Serving matched the pipeline's own ONNX scoring to 6e-8 on a real package. 1e-4 assumes the
+# expected scores come from the ONNX model (serving's scorer.py does); reference outputs written
+# from PyTorch scores could differ by more (ONNX parity allows up to 1e-3 in logits).
 SMOKE_TOLERANCE="${SMOKE_TOLERANCE:-0.0001}"
 DEPLOYMENTS_LOG="${DEPLOYMENTS_LOG:-gs://distillate-mlops-data/deployments/deployments.jsonl}"
 PYTHON="${PYTHON:-python3}"
@@ -188,7 +190,8 @@ cp -R "$PACKAGE" "$CONTEXT/$PACKAGE_SUBDIR"
 IMAGE_REF="$IMAGE:$TAG"
 # gcloud builds submit --tag only finds a file named Dockerfile and can't pass build args, so
 # the build runs from a one-step config. BuildKit for serve.Dockerfile's syntax line and its
-# own serve.Dockerfile.dockerignore.
+# own serve.Dockerfile.dockerignore. Logs go to Cloud Logging only, so gcloud can stream them
+# without read access to the build-log bucket (the caller needs Logs Viewer).
 cat > "$WORK/cloudbuild.yaml" <<CONFIG
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -196,6 +199,8 @@ steps:
     args: ["build", "-f", "$DOCKERFILE", "--build-arg", "REGISTRY_VERSION=${VERSION:-$TAG}",
            "-t", "$IMAGE_REF", "."]
 images: ["$IMAGE_REF"]
+options:
+  logging: CLOUD_LOGGING_ONLY
 CONFIG
 gcloud builds submit "$CONTEXT" --project="$PROJECT" --config="$WORK/cloudbuild.yaml" --quiet \
   || fail "the image build failed (a broken package fails here too: see the build log)"
