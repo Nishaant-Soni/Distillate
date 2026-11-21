@@ -21,6 +21,7 @@ What a retraining run trains on, what it holds out, and how the candidate is com
 * **Gold:** the batch file's own label columns (Civil Comments, positive at a rater fraction ≥ 0.5): the "delayed labels".
 * **Soft labels:** the stack's, already produced for all 20 batches in `soft_labels/stack-v1/p2-zs-v2b/drift/shard_<k>` (one shard per batch). On the drift stream the stack's mean AUC is 0.924, against 0.887 for TF-IDF and 0.882 for raw Qwen; it beats both in all 20 batches (`artifacts/stack/drift_check.json`).
 * The same loss as for Wikipedia rows (α · gold BCE + (1 − α) · T² · soft BCE), with the production recipe's α and T.
+* **`severe_toxicity` on drift rows:** no drift comment is positive for it (Civil marks a label positive only when at least half the raters chose it), so the drift rows add only negatives for that label through the gold loss. That is Civil's real rate, so they are kept as they are, not masked. Two things still guard the label: the gate checks it on Wikipedia (validation PR-AUC floor, no-regression on the gate set), and `promote_check` doesn't score it (five Civil labels). Revisit (mask its gold loss on drift rows) if a retrained candidate is blocked on `severe_toxicity`.
 
 ## 3. What the retraining job trains on
 

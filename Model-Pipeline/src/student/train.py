@@ -371,8 +371,10 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
         summary = {
             "task": TASK_ID, "run_name": run_name, "model_version": model_version,
             "model_id": model_id, "device": device.type, "alpha": alpha,
-            "temperature": temperature, "rows_in": data_info["train_rows"] + data_info[
-                "val_rows"], "data": data_info, "soft_labels": soft_info,
+            "temperature": temperature,
+            # the rows trained on (with any drift and augmented rows) plus validation
+            "rows_in": len(train_df) + data_info["val_rows"],
+            "data": data_info, "soft_labels": soft_info,
             "retrain": retrain_info,
             "truncated_share_train": round(train_rows.truncated_share, 5),
             "steps": step, "best_epoch": best_epoch, "best_val_mean_auc": best_auc,

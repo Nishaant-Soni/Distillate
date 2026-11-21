@@ -49,6 +49,10 @@ def test_training_used_the_drift_and_augmented_rows_but_not_the_held_out_batch(r
     meta = json.loads((run_dir / "model" / "meta.json").read_text())
     assert meta["retrain"]["drift_batches"] == [0, 1] and meta["retrain"]["holdout_batch"] == 2
     assert meta["retrain"]["drift_rows"] == 120 and meta["retrain"]["obfuscation_augment"]["rows"]
+    # the summary counts the rows actually trained on: Wikipedia, drift and augmented, plus val
+    summary = json.loads((run_dir / "summary.json").read_text())
+    val_rows = len((run_dir / "splits" / "val_ids.txt").read_text().split())
+    assert summary["rows_in"] == len(trained) + val_rows == meta["retrain"]["train_rows"] + val_rows
     package = json.loads((run_dir / "package" / "meta.json").read_text())
     assert package["retrain"] == meta["retrain"]          # promote_check --trained-on reads it
 
