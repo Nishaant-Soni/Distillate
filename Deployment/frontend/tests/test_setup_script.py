@@ -51,6 +51,12 @@ def test_full_setup_when_the_bucket_uses_uniform_access(tmp_path):
            '.startsWith("deployments/")' in calls
     assert any("iam service-accounts add-iam-policy-binding" in c
                and "user:someone@example.com" in c for c in order)
+    # Cloud Build: the staging bucket (exists here, so not created) and the logs.
+    assert any("storage buckets add-iam-policy-binding gs://test-project_cloudbuild" in c
+               and "--role=roles/storage.admin" in c for c in order)
+    assert not any("storage buckets create" in c for c in order)
+    assert any("projects add-iam-policy-binding" in c and "roles/logging.viewer" in c
+               for c in order)
 
 
 @pytest.mark.parametrize("ubla, message", [("False", "doesn't use uniform bucket-level access"),

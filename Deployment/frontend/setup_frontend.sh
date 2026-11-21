@@ -11,8 +11,8 @@
 # 3. lets it read the mlflow-password secret
 # 4. lets it read the bucket's deployments/ prefix only (an IAM condition), for the
 #    read-only deployments.jsonl mount in service.yaml; the rest of the bucket holds data
-# 5. with --deployer: lets that person deploy (Cloud Build, Cloud Run, pushing the image,
-#    acting as the service account)
+# 5. with --deployer: lets that person deploy (Cloud Build and its staging bucket, Cloud Run,
+#    pushing the image, reading the build logs, acting as the service account)
 set -euo pipefail
 
 PROJECT="${PROJECT:-distillate-mlops}"
@@ -82,7 +82,9 @@ gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" \
 
 if [ -n "$DEPLOYER" ]; then
   echo "== Deployer $DEPLOYER"
-  for role in roles/run.admin roles/cloudbuild.builds.editor roles/serviceusage.serviceUsageConsumer; do
+  # logging.viewer: cloudbuild.yaml logs to Cloud Logging only, which gcloud streams from.
+  for role in roles/run.admin roles/cloudbuild.builds.editor \
+      roles/serviceusage.serviceUsageConsumer roles/logging.viewer; do
     gcloud projects add-iam-policy-binding "$PROJECT" --member="$DEPLOYER" --role="$role" \
       --condition=None >/dev/null
   done
@@ -90,6 +92,14 @@ if [ -n "$DEPLOYER" ]; then
     --location="$REGION" --member="$DEPLOYER" --role=roles/artifactregistry.writer >/dev/null
   gcloud iam service-accounts add-iam-policy-binding "$SA" --project="$PROJECT" \
     --member="$DEPLOYER" --role=roles/iam.serviceAccountUser >/dev/null
+  # `gcloud builds submit` uploads the build context to this bucket first (Cloud Build's
+  # default staging bucket); create it if no build has run yet, and let the deployer use it.
+  staging="gs://${PROJECT}_cloudbuild"
+  gcloud storage buckets describe "$staging" >/dev/null 2>&1 \
+    || gcloud storage buckets create "$staging" --project="$PROJECT" \
+         --uniform-bucket-level-access
+  gcloud storage buckets add-iam-policy-binding "$staging" --member="$DEPLOYER" \
+    --role=roles/storage.admin >/dev/null
 fi
 
 echo "Done. Deploy with Deployment/frontend/deploy_frontend.sh"

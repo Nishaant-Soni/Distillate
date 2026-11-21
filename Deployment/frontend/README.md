@@ -91,6 +91,11 @@ Things to know:
   ever becomes private to the VPC, the service needs Direct VPC egress.
 * Cloud Build pushes the image as the project's build service account, which needs
   Artifact Registry write access on `distillate-images`.
+* `gcloud builds submit` uploads the build files to Cloud Build's staging bucket
+  (`gs://distillate-mlops_cloudbuild`) and streams the build's logs. `cloudbuild.yaml` sends the
+  logs to Cloud Logging only, since the default logs bucket can be read only by project
+  Viewers. `setup_frontend.sh --deployer` creates the staging bucket if needed, and grants
+  access to it and Logs Viewer.
 * Retraining records (`RETRAIN_RECORDS`) stay "not yet" until `retrain_dag` writes them to GCS;
   then a second mount like the `deployments/` one shows them.
 

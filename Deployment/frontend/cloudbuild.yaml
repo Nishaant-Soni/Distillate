@@ -7,3 +7,8 @@ steps:
     args: ["build", "-f", "frontend.Dockerfile", "-t", "${_IMAGE}", "."]
 images:
   - "${_IMAGE}"
+# Logs go to Cloud Logging only: the default logs bucket can be read only by project Viewers,
+# so `gcloud builds submit` would fail while streaming logs for anyone with narrower roles.
+# setup_frontend.sh --deployer grants Logs Viewer for this.
+options:
+  logging: CLOUD_LOGGING_ONLY

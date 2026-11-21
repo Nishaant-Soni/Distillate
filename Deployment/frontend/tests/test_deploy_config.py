@@ -101,6 +101,7 @@ def test_deploy_script_sets_every_field():
 def test_the_build_uploads_what_the_dockerfile_copies():
     build = yaml.safe_load((HERE / "cloudbuild.yaml").read_text(encoding="utf-8"))
     assert build["steps"][0]["args"][:3] == ["build", "-f", "frontend.Dockerfile"]
+    assert build["options"]["logging"] == "CLOUD_LOGGING_ONLY"
     ignored = [line.strip().rstrip("/") for line in
                (HERE / ".gcloudignore").read_text(encoding="utf-8").splitlines()
                if line.strip() and not line.startswith("#")]
