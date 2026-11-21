@@ -67,6 +67,11 @@ WORK="$(mktemp -d)"
 
 finish() {
   local code=$?
+  # set -e exits with 1 on any unguarded failure; 1 means "smoke test failed" only when that
+  # step set it, so an unexpected 1 is reported as 3 (stopped before any traffic change).
+  if [ "$STATUS" = "error" ] && [ "$code" -eq 1 ]; then
+    code=3
+  fi
   if [ "$STATUS" = "error" ] && [ -z "$DETAIL" ]; then
     DETAIL="stopped at step '$STEP' (exit $code); see the log above"
   fi
@@ -109,7 +114,13 @@ else
 fi
 echo "rollback.sh: rolling back from v${CURRENT:-?} to v$TARGET ($REASON)"
 
-# 2. Find that version's revision and move the traffic.
+# 2. The target must have passed the gate and be published, checked before any traffic moves
+#    (rollback_model applies the same rule to the alias, but only after the traffic shift).
+STEP="check-target"
+"$PYTHON" "$TOOLS" resolve --model "$MODEL_NAME" --spec "$TARGET" >/dev/null \
+  || fail "v$TARGET can't be rolled back to: it must have passed the gate and be published"
+
+# 3. Find that version's revision and move the traffic.
 STEP="find-revision"
 gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT" \
   --format=json > "$WORK/service.json" || fail "could not read the Cloud Run service $SERVICE"
@@ -120,7 +131,7 @@ STEP="shift-traffic"
 gcloud run services update-traffic "$SERVICE" --region="$REGION" --project="$PROJECT" \
   --to-tags="$TAG=100" --quiet || fail "could not shift traffic to $TAG; traffic is unchanged"
 
-# 3. Move @production.
+# 4. Move @production.
 STEP="move-alias"
 if ! (cd "$REPO_ROOT/Model-Pipeline" && "$PYTHON" -m src.pipeline.rollback_model --to "$TARGET" \
     --alias production --reason "rollback.sh: $REASON"); then

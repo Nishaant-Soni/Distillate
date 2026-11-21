@@ -78,6 +78,12 @@ if { [ -z "$SPEC" ] && [ -z "$PACKAGE_DIR" ]; } || { [ -n "$SPEC" ] && [ -n "$PA
   exit 2
 fi
 
+# rollback.sh --to <n> picks revisions tagged v<n>-...; a test package must never look like one.
+if [ -n "$PACKAGE_DIR" ] && printf '%s' "$LABEL" | tr '[:upper:]' '[:lower:]' | grep -Eq '^v[0-9]+'; then
+  echo "deploy.sh: --label can't start with v<number> (reserved for registered versions)" >&2
+  exit 2
+fi
+
 STATUS="error"
 STEP="start"
 DETAIL=""
@@ -90,6 +96,11 @@ WORK="$(mktemp -d)"
 
 finish() {
   local code=$?
+  # set -e exits with 1 on any unguarded failure; 1 means "smoke test failed" only when that
+  # step set it, so an unexpected 1 is reported as 3 (stopped before any traffic change).
+  if [ "$STATUS" = "error" ] && [ "$code" -eq 1 ]; then
+    code=3
+  fi
   if [ "$STATUS" = "error" ] && [ -z "$DETAIL" ]; then
     DETAIL="stopped at step '$STEP' (exit $code); see the log above"
   fi

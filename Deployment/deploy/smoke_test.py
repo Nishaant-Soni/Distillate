@@ -6,8 +6,9 @@ Owner: Ruchita. Called by deploy.sh on the revision's tagged URL (no traffic yet
    revision starts).
 2. POST /predict for every reference input in the package's reference_outputs.json. Each
    response must report the same model_version, scores within ``--tolerance`` of the
-   package's own, flagged[label] exactly when the score reaches that label's threshold, and
-   flag exactly when any label is flagged (the API contract, section 2.4).
+   package's own, flagged[label] exactly when the score reaches that label's threshold (not
+   judged when the score is within ``--tolerance`` of it, since serving may round scores but
+   flag on the unrounded ones), and flag exactly when any label is flagged (section 2.4).
 
 Exit 0 when everything passes, 1 otherwise; ``--out`` gets a JSON summary either way.
 Standard library only, so it runs anywhere deploy.sh does.
@@ -77,7 +78,8 @@ def check_prediction(response: dict[str, Any], expected: dict[str, float],
         if diff > tolerance:
             problems.append(f"{label} score {scores[label]:.6f} vs package "
                             f"{expected[label]:.6f} (diff {diff:.2e} > {tolerance:.0e})")
-        if bool(flagged[label]) != (float(scores[label]) >= float(thresholds[label])):
+        near = abs(float(scores[label]) - float(thresholds[label])) < tolerance
+        if not near and bool(flagged[label]) != (float(scores[label]) >= float(thresholds[label])):
             problems.append(f"{label} flagged={flagged[label]} disagrees with score "
                             f"{scores[label]:.4f} vs threshold {thresholds[label]:.4f}")
     if flagged and bool(response.get("flag")) != any(bool(flagged.get(lab)) for lab in LABELS):

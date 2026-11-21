@@ -229,19 +229,70 @@ def test_record_appends_jsonl_and_summary(tmp_path, monkeypatch):
     assert "✅ deploy: deployed" in text and "❌ deploy: smoke-failed" in text
 
 
-def test_append_to_gcs_rewrites_the_object(tmp_path):
-    calls = []
+class FakeGCS:
+    """Answers gcloud storage describe / cat / cp like a bucket with generations."""
 
-    def runner(command, **_):
-        calls.append(command)
+    def __init__(self, content=None, generation=7, describe_error="", conflicts=0):
+        self.content, self.generation = content, generation
+        self.describe_error, self.conflicts = describe_error, conflicts
+        self.calls = []
+
+    def __call__(self, command, **_):
+        self.calls.append(command)
+        ok = SimpleNamespace(returncode=0, stdout="", stderr="")
+        if command[:4] == ["gcloud", "storage", "objects", "describe"]:
+            if self.describe_error:
+                return SimpleNamespace(returncode=1, stdout="", stderr=self.describe_error)
+            if self.content is None:
+                return SimpleNamespace(returncode=1, stdout="", stderr="ERROR: 404 Not Found")
+            return SimpleNamespace(returncode=0, stdout=f"{self.generation}\n", stderr="")
         if command[:3] == ["gcloud", "storage", "cat"]:
-            return SimpleNamespace(returncode=0, stdout='{"old": 1}\n', stderr="")
-        assert Path(command[3]).read_text() == '{"old": 1}\n{"new": 2}\n'
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+            assert command[3].endswith(f"#{self.generation}")
+            return SimpleNamespace(returncode=0, stdout=self.content, stderr="")
+        if command[:3] == ["gcloud", "storage", "cp"]:
+            expected = 0 if self.content is None else self.generation
+            assert command[5] == f"--if-generation-match={expected}"
+            if self.conflicts:
+                self.conflicts -= 1
+                self.content, self.generation = (self.content or "") + '{"other": 1}\n', \
+                    self.generation + 1
+                return SimpleNamespace(returncode=1, stdout="",
+                                       stderr="ERROR: 412 Precondition Failed")
+            self.content, self.generation = Path(command[3]).read_text(), self.generation + 1
+            return ok
+        raise AssertionError(command)
 
-    dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=runner)
-    assert calls[1][:3] == ["gcloud", "storage", "cp"]
-    assert calls[1][4] == "gs://bucket/deployments.jsonl"
+
+def test_append_to_gcs_keeps_the_history():
+    gcs = FakeGCS(content='{"old": 1}\n')
+    dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=gcs)
+    assert gcs.content == '{"old": 1}\n{"new": 2}\n'
+
+
+def test_append_to_gcs_creates_a_missing_log():
+    gcs = FakeGCS(content=None)
+    dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=gcs)
+    assert gcs.content == '{"new": 2}\n'
+
+
+def test_a_read_error_never_overwrites_the_log():
+    gcs = FakeGCS(content='{"old": 1}\n', describe_error="ERROR: 403 Permission denied")
+    with pytest.raises(dt.DeployError, match="could not read"):
+        dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=gcs)
+    assert not any(c[:3] == ["gcloud", "storage", "cp"] for c in gcs.calls)
+    assert gcs.content == '{"old": 1}\n'
+
+
+def test_a_concurrent_write_is_retried_not_lost():
+    gcs = FakeGCS(content='{"old": 1}\n', conflicts=1)
+    dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=gcs)
+    assert gcs.content == '{"old": 1}\n{"other": 1}\n{"new": 2}\n'
+
+
+def test_endless_conflicts_give_up_with_an_error():
+    gcs = FakeGCS(content='{"old": 1}\n', conflicts=5)
+    with pytest.raises(dt.DeployError, match="kept changing"):
+        dt.append_log("gs://bucket/deployments.jsonl", {"new": 2}, runner=gcs, attempts=3)
 
 
 def test_slack_is_skipped_without_a_webhook(monkeypatch):

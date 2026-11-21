@@ -70,6 +70,8 @@ exit 0
     write_exe(bin_dir / "python3", f"""#!/usr/bin/env bash
 echo "python3 $*" >> "{calls}"
 case "$*" in
+  *"deploy_tools.py resolve"*"--spec 8"*)
+    echo "error: v8 can't be deployed: the gate didn't pass" >&2; exit 1 ;;
   *"deploy_tools.py resolve"*)
     echo '{{"version": "3", "model_version": "student-v3", "production_version": "2"}}' ;;
   *"deploy_tools.py previous"*)
@@ -109,7 +111,7 @@ def test_help(script):
 
 
 @pytest.mark.parametrize("args", [[], ["--version", "3", "--package-dir", "x"], ["--bogus"],
-                                  ["--version"]])
+                                  ["--version"], ["--package-dir", "x", "--label", "V3"]])
 def test_deploy_usage_errors(args):
     assert run(DEPLOY, *args).returncode == 2
 
@@ -189,3 +191,19 @@ def test_rollback_to_a_version_without_a_revision_moves_nothing(env):
     result = run(ROLLBACK, "--to", "7", env=env["env"])
     assert result.returncode == 3
     assert "update-traffic" not in env["calls"].read_text()
+
+
+def test_rollback_to_an_unapproved_version_moves_nothing(env):
+    env["tmp"].joinpath("service.json").write_text(json.dumps({"status": {"traffic": [
+        {"revisionName": "distillate-api-00009-zzz", "tag": "v8-9999999", "url": "x"}]}}))
+    result = run(ROLLBACK, "--to", "8", env=env["env"])
+    assert result.returncode == 3
+    calls = env["calls"].read_text()
+    assert "update-traffic" not in calls and "rollback_model" not in calls
+    assert log_entries(env["log"])[-1]["step"] == "check-target"
+
+
+def test_an_unexpected_failure_exits_3_not_1(env):
+    result = run(DEPLOY, "--package-dir", str(env["tmp"] / "no-such-package"), env=env["env"])
+    assert result.returncode == 3                 # 1 is reserved for a failed smoke test
+    assert log_entries(env["log"])[-1]["status"] == "error"

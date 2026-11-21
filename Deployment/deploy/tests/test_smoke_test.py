@@ -131,3 +131,15 @@ def test_cli_writes_summary_and_exit_code(serve, tmp_path):
                     str(thresholds), "--model-version", MODEL_VERSION, "--out", str(out)])
     assert code == 0
     assert json.loads(out.read_text())["passed"] is True
+
+
+def test_flags_within_tolerance_of_a_threshold_are_not_judged():
+    expected = {lab: 0.2 for lab in st.LABELS}
+    response = {"scores": {**expected, "threat": 0.5003}, "model_version": MODEL_VERSION,
+                "flagged": {lab: False for lab in st.LABELS}, "flag": False}
+    expected["threat"] = 0.5003
+    problems, _ = st.check_prediction(response, expected, THRESHOLDS, MODEL_VERSION, 1e-3)
+    assert problems == []                     # 0.5003 rounds near 0.5: flag not judged
+    response["scores"]["threat"] = expected["threat"] = 0.6
+    problems, _ = st.check_prediction(response, expected, THRESHOLDS, MODEL_VERSION, 1e-3)
+    assert any("threat flagged=" in p for p in problems)

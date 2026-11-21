@@ -288,25 +288,60 @@ def _git_commit() -> str | None:
         return None
 
 
-def append_log(log: str, entry: dict[str, Any], runner=subprocess.run) -> None:
-    """Append one JSON line to a local file or a gs:// object."""
+NOT_FOUND = ("not found", "notfound", "404", "no urls matched", "does not exist")
+PRECONDITION = ("precondition", "412")
+
+
+def _gcs_read(log: str, runner) -> tuple[str, int]:
+    """(content, generation) of a gs:// object; ("", 0) only when it doesn't exist yet.
+
+    Any other failure (network, permissions) raises, so a transient error can never be taken
+    for an empty log and overwrite the history.
+    """
+    described = runner(["gcloud", "storage", "objects", "describe", log,
+                        "--format=value(generation)"], capture_output=True, text=True)
+    if described.returncode != 0:
+        if any(marker in described.stderr.lower() for marker in NOT_FOUND):
+            return "", 0
+        raise DeployError(f"could not read {log}: {described.stderr.strip()[-300:]}")
+    generation = int(described.stdout.strip())
+    content = runner(["gcloud", "storage", "cat", f"{log}#{generation}"], capture_output=True,
+                     text=True)
+    if content.returncode != 0:
+        raise DeployError(f"could not read {log}: {content.stderr.strip()[-300:]}")
+    return content.stdout, generation
+
+
+def append_log(log: str, entry: dict[str, Any], runner=subprocess.run, attempts: int = 3) -> None:
+    """Append one JSON line to a local file or a gs:// object.
+
+    For gs://, the write only succeeds if the object is still the generation that was read
+    (``--if-generation-match``; 0 means "doesn't exist yet"), so two writers at the same time
+    can't drop each other's line: the loser re-reads and tries again.
+    """
     line = json.dumps(entry, sort_keys=True) + "\n"
     if not log.startswith("gs://"):
         Path(log).parent.mkdir(parents=True, exist_ok=True)
         with open(log, "a", encoding="utf-8") as f:
             f.write(line)
         return
-    existing = runner(["gcloud", "storage", "cat", log], capture_output=True, text=True)
-    body = existing.stdout if existing.returncode == 0 else ""
-    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as tmp:
-        tmp.write(body + line)
-    try:
-        result = runner(["gcloud", "storage", "cp", tmp.name, log], capture_output=True,
-                        text=True)
-        if result.returncode != 0:
+    for _ in range(attempts):
+        body, generation = _gcs_read(log, runner)
+        if body and not body.endswith("\n"):
+            body += "\n"
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as tmp:
+            tmp.write(body + line)
+        try:
+            result = runner(["gcloud", "storage", "cp", tmp.name, log,
+                             f"--if-generation-match={generation}"], capture_output=True,
+                            text=True)
+        finally:
+            os.unlink(tmp.name)
+        if result.returncode == 0:
+            return
+        if not any(marker in result.stderr.lower() for marker in PRECONDITION):
             raise DeployError(f"could not write {log}: {result.stderr.strip()[-300:]}")
-    finally:
-        os.unlink(tmp.name)
+    raise DeployError(f"{log} kept changing under another writer ({attempts} tries)")
 
 
 def summary_markdown(entry: dict[str, Any]) -> str:
