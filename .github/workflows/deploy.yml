@@ -92,8 +92,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Serving's requirements too: deploy.sh scores packages that have no reference_outputs.json
+      # with Deployment/serving/scorer.py, the code the service itself runs.
       - name: Install the deploy tools
-        run: pip install -r Deployment/deploy/requirements.txt
+        run: pip install -r Deployment/deploy/requirements.txt -r Deployment/serving/requirements.txt
 
       - uses: google-github-actions/auth@v2
         with:
