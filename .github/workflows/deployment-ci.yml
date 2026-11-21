@@ -24,7 +24,7 @@ on:
 
 concurrency:
   group: deployment-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -69,7 +69,7 @@ jobs:
             echo "Installing $req"
             pip install -r "$req"
           done
-          pip install pytest ruff
+          pip install pytest==9.2.0 ruff==0.17.6
 
       - name: Lint (ruff)
         if: steps.present.outputs.present == 'true'
@@ -97,4 +97,4 @@ jobs:
             echo "No tests/ folder yet."
             exit 0
           fi
-          python -m pytest tests -v
+          python -m pytest tests -v || [ $? -eq 5 ]
