@@ -143,3 +143,12 @@ def test_flags_within_tolerance_of_a_threshold_are_not_judged():
     response["scores"]["threat"] = expected["threat"] = 0.6
     problems, _ = st.check_prediction(response, expected, THRESHOLDS, MODEL_VERSION, 1e-3)
     assert any("threat flagged=" in p for p in problems)
+
+
+def test_servings_reference_format_is_read(serve):
+    items = {"model_version": MODEL_VERSION, "max_length": 256,
+             "items": [{"text": t, "scores": s}
+                       for t, s in zip(REFERENCE["texts"], REFERENCE["scores"], strict=True)]}
+    result = st.run(serve(), items, THRESHOLDS, MODEL_VERSION, 1e-4, timeout=5,
+                    health_attempts=2, health_delay=0.01)
+    assert result["passed"] and result["n_checked"] == 3

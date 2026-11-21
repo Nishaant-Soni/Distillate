@@ -42,7 +42,8 @@ def env(tmp_path):
     from test_smoke_test import expected_scores
     texts = ["revert", "thanks for the edit"]
     (package / "reference_outputs.json").write_text(json.dumps(
-        {"texts": texts, "scores": [expected_scores(t) for t in texts]}))
+        {"model_version": "student-v3", "max_length": 256,
+         "items": [{"text": t, "scores": expected_scores(t)} for t in texts]}))
     serving = tmp_path / "serving"
     serving.mkdir()
     (serving / "serve.Dockerfile").write_text("FROM scratch\n")
@@ -130,6 +131,7 @@ def test_deploy_passes_and_promotes(env):
     result = run(DEPLOY, "--version", "staging", env=env["env"])
     assert result.returncode == 0, result.stderr
     calls = env["calls"].read_text()
+    assert "builds submit" in calls and "--config=" in calls      # serve.Dockerfile via config
     order = ["artifacts generic download", "builds submit", "run deploy", "--no-traffic",
              "update-traffic", "rollback_model --to 3 --alias production"]
     positions = [calls.index(step) for step in order]
@@ -142,7 +144,7 @@ def test_deploy_passes_and_promotes(env):
 def test_failed_smoke_test_moves_nothing(env):
     reference = env["package"] / "reference_outputs.json"
     data = json.loads(reference.read_text())
-    data["scores"][0] = {k: v + 0.2 for k, v in data["scores"][0].items()}
+    data["items"][0]["scores"] = {k: v + 0.2 for k, v in data["items"][0]["scores"].items()}
     reference.write_text(json.dumps(data))          # scores the service won't reproduce
     result = run(DEPLOY, "--version", "3", env=env["env"])
     assert result.returncode == 1

@@ -4,7 +4,8 @@ Owner: Ruchita. Called by deploy.sh on the revision's tagged URL (no traffic yet
 
 1. GET /health returns status "ok" and the package's model_version (retried while the
    revision starts).
-2. POST /predict for every reference input in the package's reference_outputs.json. Each
+2. POST /predict for every reference input in the package's reference_outputs.json
+   (serving's format: {"model_version", "max_length", "items": [{"text", "scores"}]}). Each
    response must report the same model_version, scores within ``--tolerance`` of the
    package's own, flagged[label] exactly when the score reaches that label's threshold (not
    judged when the score is within ``--tolerance`` of it, since serving may round scores but
@@ -90,15 +91,24 @@ def check_prediction(response: dict[str, Any], expected: dict[str, float],
     return problems, worst
 
 
+def reference_pairs(reference: dict[str, Any]) -> tuple[list[str], list[dict[str, float]]]:
+    """(texts, scores) from serving's ``{"items": [{"text", "scores"}]}`` format, or the older
+    ``{"texts": [...], "scores": [...]}``."""
+    if "items" in reference:
+        items = reference["items"] or []
+        return [i["text"] for i in items], [i["scores"] for i in items]
+    return list(reference["texts"]), list(reference["scores"])
+
+
 def run(base: str, reference: dict[str, Any], thresholds: dict[str, float],
         model_version: str, tolerance: float, timeout: float = 30.0,
         health_attempts: int = 6, health_delay: float = 5.0) -> dict[str, Any]:
     base = base.rstrip("/")
     problems = wait_for_health(base, model_version, health_attempts, health_delay, timeout)
     worst, checked = 0.0, 0
+    texts, expected_scores = reference_pairs(reference)
     if not problems:
-        for i, (text, expected) in enumerate(zip(reference["texts"], reference["scores"],
-                                                 strict=True)):
+        for i, (text, expected) in enumerate(zip(texts, expected_scores, strict=True)):
             try:
                 response = _request(f"{base}/predict", {"text": text}, timeout)
             except (urllib.error.URLError, TimeoutError, ValueError) as exc:
@@ -108,7 +118,7 @@ def run(base: str, reference: dict[str, Any], thresholds: dict[str, float],
                                            tolerance)
             problems += [f"input {i}: {p}" for p in found]
             worst, checked = max(worst, diff), checked + 1
-    return {"passed": not problems, "url": base, "n_inputs": len(reference["texts"]),
+    return {"passed": not problems, "url": base, "n_inputs": len(texts),
             "n_checked": checked, "max_abs_diff": worst, "tolerance": tolerance,
             "problems": problems[:MAX_PROBLEMS], "n_problems": len(problems)}
 
@@ -120,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reference", required=True, help="reference_outputs.json")
     parser.add_argument("--thresholds", required=True, help="the package's thresholds.json")
     parser.add_argument("--model-version", default="", help="expected model_version")
-    parser.add_argument("--tolerance", type=float, default=1e-3)
+    parser.add_argument("--tolerance", type=float, default=1e-4)
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--out", default=None, help="write the JSON summary here")
     args = parser.parse_args(argv)

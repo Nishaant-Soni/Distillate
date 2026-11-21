@@ -11,14 +11,16 @@
 #      the gate and be published to Artifact Registry
 #   2. download the package from Artifact Registry (distillate-models)
 #   3. check every file against its SHA-256 in meta.json
-#   4. make sure the package has reference_outputs.json (computed from model.onnx if not)
-#   5. build the serving image with the package baked in (Cloud Build) and push it
+#   4. make sure the package has reference_outputs.json (serving's scorer.py computes it if not)
+#   5. build serve.Dockerfile with the package baked in (Cloud Build) and push it; the build
+#      itself fails on a broken package (scorer.py --package)
 #   6. deploy a Cloud Run revision with no traffic, tagged v<version>-<commit>
 #   7. smoke test the tagged URL: /health, then the reference inputs against the package
 #   8. pass: shift 100% of traffic to it and move @production; fail: nothing moves
 #   Always: a line in deployments.jsonl, the GitHub job summary, and Slack.
 #
-# Needs gcloud (logged in) and python3 with Deployment/deploy/requirements.txt. MLflow:
+# Needs gcloud (logged in) and python3 with Deployment/deploy/requirements.txt (and
+# Deployment/serving/requirements.txt for packages without reference_outputs.json). MLflow:
 # MLFLOW_TRACKING_URI (and MLFLOW_TRACKING_USERNAME) set; the password comes from
 # MLFLOW_TRACKING_PASSWORD if set, else from the mlflow-password secret in Secret Manager.
 #
@@ -33,17 +35,18 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROJECT="${PROJECT:-distillate-mlops}"
 REGION="${REGION:-us-east1}"
 SERVICE="${SERVICE:-distillate-api}"
-IMAGE="${IMAGE:-$REGION-docker.pkg.dev/$PROJECT/distillate-images/serving}"
+IMAGE="${IMAGE:-$REGION-docker.pkg.dev/$PROJECT/distillate-images/distillate-api}"
 AR_REPOSITORY="${AR_REPOSITORY:-distillate-models}"
 AR_PACKAGE="${AR_PACKAGE:-distillate-student}"
 MODEL_NAME="${MODEL_NAME:-distillate-student}"
 SERVING_DIR="${SERVING_DIR:-$REPO_ROOT/Deployment/serving}"
-# TO CONFIRM WITH SHIVAM: how serve.Dockerfile takes the package. deploy.sh copies
-# Deployment/serving/ into a build context, puts the package in $PACKAGE_SUBDIR inside it,
-# and builds $DOCKERFILE from there.
+# serve.Dockerfile (Deployment/serving/README.md): the build context is Deployment/serving with
+# the checked package copied to package/, built with -f serve.Dockerfile and the registry
+# version as --build-arg REGISTRY_VERSION. deploy.sh builds a copy, so the repo stays clean.
 DOCKERFILE="${DOCKERFILE:-serve.Dockerfile}"
 PACKAGE_SUBDIR="${PACKAGE_SUBDIR:-package}"
-SMOKE_TOLERANCE="${SMOKE_TOLERANCE:-0.001}"
+# Serving matched the pipeline's own ONNX scoring to 6e-8 on a real package.
+SMOKE_TOLERANCE="${SMOKE_TOLERANCE:-0.0001}"
 DEPLOYMENTS_LOG="${DEPLOYMENTS_LOG:-gs://distillate-mlops-data/deployments/deployments.jsonl}"
 PYTHON="${PYTHON:-python3}"
 TOOLS="$SCRIPT_DIR/deploy_tools.py"
@@ -182,12 +185,20 @@ CONTEXT="$WORK/context"
 cp -R "$SERVING_DIR" "$CONTEXT"
 rm -rf "${CONTEXT:?}/$PACKAGE_SUBDIR"
 cp -R "$PACKAGE" "$CONTEXT/$PACKAGE_SUBDIR"
-if [ "$DOCKERFILE" != "Dockerfile" ]; then
-  cp "$CONTEXT/$DOCKERFILE" "$CONTEXT/Dockerfile"
-fi
 IMAGE_REF="$IMAGE:$TAG"
-gcloud builds submit "$CONTEXT" --project="$PROJECT" --tag="$IMAGE_REF" --quiet \
-  || fail "the image build failed"
+# gcloud builds submit --tag only finds a file named Dockerfile and can't pass build args, so
+# the build runs from a one-step config. BuildKit for serve.Dockerfile's syntax line and its
+# own serve.Dockerfile.dockerignore.
+cat > "$WORK/cloudbuild.yaml" <<CONFIG
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build", "-f", "$DOCKERFILE", "--build-arg", "REGISTRY_VERSION=${VERSION:-$TAG}",
+           "-t", "$IMAGE_REF", "."]
+images: ["$IMAGE_REF"]
+CONFIG
+gcloud builds submit "$CONTEXT" --project="$PROJECT" --config="$WORK/cloudbuild.yaml" --quiet \
+  || fail "the image build failed (a broken package fails here too: see the build log)"
 
 # 6. Deploy a revision with no traffic.
 STEP="deploy-revision"

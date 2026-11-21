@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,8 +31,11 @@ def make_package(folder: Path, model_version: str = "student-test-1") -> Path:
     return folder
 
 
-def fake_scorer(texts):
-    return [{lab: 0.1 + 0.01 * i for i, lab in enumerate(dt.LABELS)} for _ in texts]
+def fake_scorer(package, texts):
+    """Stands in for serving's scorer.reference_outputs (same output format)."""
+    scores = {lab: 0.1 + 0.01 * i for i, lab in enumerate(dt.LABELS)}
+    return {"model_version": "student-test-1", "max_length": 256,
+            "items": [{"text": t, "scores": dict(scores)} for t in texts]}
 
 
 class FakeVersion(SimpleNamespace):
@@ -79,17 +83,23 @@ def test_ensure_reference_computes_and_writes(tmp_path):
     reference, created = dt.ensure_reference(package, scorer=fake_scorer)
     assert created
     assert reference["model_version"] == "student-test-1"
-    assert len(reference["texts"]) == len(reference["scores"]) == 50
+    texts, scores = dt.reference_pairs(reference)
+    assert texts == dt.reference_texts() and len(scores) == 50
     saved = json.loads((package / dt.REFERENCE_FILE).read_text())
     assert saved == reference
 
 
-def test_ensure_reference_keeps_the_packages_own(tmp_path):
+@pytest.mark.parametrize("own", [
+    {"model_version": "student-test-1", "max_length": 256,
+     "items": [{"text": "revert", "scores": {lab: 0.2 for lab in dt.LABELS}}]},
+    {"texts": ["revert"], "scores": [{lab: 0.2 for lab in dt.LABELS}]},
+])
+def test_ensure_reference_keeps_the_packages_own(tmp_path, own):
     package = make_package(tmp_path / "pkg")
-    own = {"texts": ["revert"], "scores": [{lab: 0.2 for lab in dt.LABELS}]}
     (package / dt.REFERENCE_FILE).write_text(json.dumps(own))
-    reference, created = dt.ensure_reference(package, scorer=lambda texts: pytest.fail("used"))
+    reference, created = dt.ensure_reference(package, scorer=lambda *a: pytest.fail("used"))
     assert not created and reference == own
+    assert dt.reference_pairs(reference) == (["revert"], [{lab: 0.2 for lab in dt.LABELS}])
 
 
 def test_reference_must_cover_every_label(tmp_path):
@@ -100,10 +110,11 @@ def test_reference_must_cover_every_label(tmp_path):
         dt.ensure_reference(package)
 
 
-def test_sigmoid_is_stable_for_large_logits():
-    assert dt.sigmoid(0) == pytest.approx(0.5)
-    assert dt.sigmoid(1000) == pytest.approx(1.0)
-    assert dt.sigmoid(-1000) == pytest.approx(0.0)
+def test_missing_serving_scorer_is_a_clear_error(tmp_path, monkeypatch):
+    package = make_package(tmp_path / "pkg")
+    monkeypatch.setitem(sys.modules, "scorer", None)      # import scorer -> ImportError
+    with pytest.raises(dt.DeployError, match="install Deployment/serving/requirements.txt"):
+        dt.ensure_reference(package)
 
 
 # ---------------------------------------------------------------------------
