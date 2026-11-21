@@ -1,0 +1,23 @@
+# Ops VM override for Data-Pipeline/docker-compose.yaml (Deployment/ops/startup.sh):
+#   docker compose -f docker-compose.yaml -f ../Deployment/ops/airflow.ops.yaml up -d
+# * The UI listens on the VM itself only; reach it with an SSH tunnel (README).
+# * Credentials come from the VM's service account through the metadata server, so the laptop
+#   default (a mounted application_default_credentials.json) is cleared.
+x-ops-env: &ops-env
+  GOOGLE_APPLICATION_CREDENTIALS: ""
+
+services:
+  airflow-apiserver:
+    ports: !override
+      - "127.0.0.1:8080:8080"
+    environment: *ops-env
+  airflow-scheduler:
+    environment: *ops-env
+  airflow-dag-processor:
+    environment: *ops-env
+  airflow-triggerer:
+    environment: *ops-env
+  airflow-init:
+    environment: *ops-env
+  airflow-cli:
+    environment: *ops-env
