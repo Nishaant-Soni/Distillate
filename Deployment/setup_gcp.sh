@@ -155,6 +155,14 @@ exists gcloud storage buckets describe "gs://${P}_cloudbuild" \
        --uniform-bucket-level-access
 retry gcloud storage buckets add-iam-policy-binding "gs://${P}_cloudbuild" --member="$CI" \
   --role=roles/storage.admin --condition=None
+# Before uploading, gcloud lists the project's buckets to find that staging bucket
+# (storage.buckets.list; bucket metadata only, no objects).
+project_role "$CI" roles/storage.bucketViewer
+# Builds run as Cloud Build's runtime account, the Compute default one, and creating a build
+# needs actAs on it. act_as builds names under this project, so this one is spelled out.
+retry gcloud iam service-accounts add-iam-policy-binding \
+  "${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" --project "$P" \
+  --member="$CI" --role=roles/iam.serviceAccountUser
 
 # mlflow-server: artifacts under mlflow/ only, plus listing for the artifact browser.
 prefix_role "$MLFLOW" roles/storage.objectUser mlflow mlflow-prefix-only
