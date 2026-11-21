@@ -53,6 +53,9 @@ spec:
                   key: latest
             - name: DEPLOYMENTS_LOG
               value: /mnt/deployments/deployments.jsonl
+            # retrain_dag writes its records under deployments/retrain/, inside the same mount.
+            - name: RETRAIN_RECORDS
+              value: /mnt/deployments/retrain
             - name: GRAFANA_URL
               value: "${GRAFANA_URL}"
           volumeMounts:

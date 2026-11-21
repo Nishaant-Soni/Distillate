@@ -59,6 +59,8 @@ def test_only_the_deployments_folder_is_mounted_read_only():
     assert mount["name"] == volume["name"] and mount["readOnly"]
     log = env_vars(service)["DEPLOYMENTS_LOG"]["value"]
     assert log == f"{mount['mountPath']}/deployments.jsonl"
+    # retrain_dag's records (gs://<bucket>/deployments/retrain/) come through the same mount.
+    assert env_vars(service)["RETRAIN_RECORDS"]["value"] == f"{mount['mountPath']}/retrain"
 
 
 def test_settings_reach_the_app():

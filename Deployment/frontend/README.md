@@ -40,7 +40,7 @@ DISTILLATE_API_URL=http://127.0.0.1:8000 streamlit run app.py
 | `DISTILLATE_API_URL` | unset: the mock | the serving API |
 | `MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD` | unset: no registry | the team MLflow server, for Status and the thresholds. On Cloud Run the password comes from Secret Manager (`--set-secrets`) |
 | `DEPLOYMENTS_LOG` | unset: "not yet" | `deploy.sh`'s `deployments.jsonl`, a local path (on Cloud Run, the read-only mount of `gs://distillate-mlops-data/deployments/`) |
-| `RETRAIN_RECORDS` | unset: "not yet" | a folder of `retrain_dag`'s `<run_id>.json` records |
+| `RETRAIN_RECORDS` | unset: "not yet" | a folder of `retrain_dag`'s `<run_id>.json` records (on Cloud Run, `/mnt/deployments/retrain`: `gs://distillate-mlops-data/deployments/retrain/` through the same mount) |
 | `GRAFANA_URL` | unset: "not yet" | the Grafana link |
 | `DISTILLATE_SESSION_PER_MINUTE`, `DISTILLATE_INSTANCE_PER_MINUTE` | 10, 60 | the rate limits |
 | `DISTILLATE_MAX_CHARS` | 2000 | the longest comment the page sends |
@@ -96,8 +96,9 @@ Things to know:
   logs to Cloud Logging only, since the default logs bucket can be read only by project
   Viewers. `setup_frontend.sh --deployer` creates the staging bucket if needed, and grants
   access to it and Logs Viewer.
-* Retraining records (`RETRAIN_RECORDS`) stay "not yet" until `retrain_dag` writes them to GCS;
-  then a second mount like the `deployments/` one shows them.
+* Retraining records: `retrain_dag` writes them to `gs://distillate-mlops-data/deployments/retrain/`,
+  inside the same read-only mount, so `RETRAIN_RECORDS=/mnt/deployments/retrain` needs no
+  other mount or permission. The card shows "not yet" until the first record exists.
 
 ### If the mount fails
 
