@@ -14,7 +14,7 @@ What a retraining run trains on, what it holds out, and how the candidate is com
 | n−2 | released, labels arrived (the newest labeled batch) | **held out:** the promotion comparison |
 | n−1 | released, labels not yet arrived | not used |
 
-`retrain_dag` computes these from `state.json`, and refuses to start (Slack message, no Vertex job) when `n < 3`, i.e. when there is no drift batch to train on yet.
+`retrain_dag` computes these from `state.json`, and refuses to start (Slack message, no Vertex job) when `n < 3`, i.e. until three batches are out (batches are numbered from 0, so `n = 3` means batches 0, 1 and 2 are released): before that there is no drift batch to train on. The first retrain, at `n = 3`, trains on batch 0, holds out batch 1, and skips batch 2.
 
 ## 2. Labels for the drift rows
 
@@ -112,4 +112,4 @@ So:
 2. Drift rows get gold and soft labels with the same loss; `drift_weight` 1.0.
 3. Obfuscation augmentation: 3,000 toxic Wikipedia train rows, seed 42.
 4. Promotion: all five Civil labels, `min_gain` 0, as the plan says (section 5 has the tests on the real batches).
-5. No retrain before batch 3 is released (`n < 3`).
+5. No retrain until three batches are out (`n < 3`, i.e. before batch 2 is released). The first retrain is at `n = 3`: it trains on batch 0, holds out batch 1, and skips batch 2.
