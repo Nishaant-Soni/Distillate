@@ -151,3 +151,51 @@ def test_cli_writes_the_report_without_text_and_sets_the_exit_code(tmp_path):
     scores(batch(), 0.02, "worse").to_parquet(worse)
     assert main(["--batch", "5", "--candidate", str(worse), "--production", str(p["prod"]),
                  "--gold", str(p["gold"]), "--out", str(out)]) == 1
+
+
+def test_low_coverage_is_an_error_not_a_verdict():
+    gold = batch()
+    cand = scores(gold, 0.8, "cand").assign(status="ok")
+    cand.loc[: len(cand) // 2, "status"] = "failed"          # half the batch unscored
+    with pytest.raises(ValueError, match="below min_coverage 95%"):
+        compare(cand, scores(gold, 0.4, "prod", seed=2), gold, cfg())
+    report = compare(cand, scores(gold, 0.4, "prod", seed=2), gold, cfg(min_coverage=0.4))
+    assert report["batch_rows"] == len(gold) and report["coverage"] < 0.6
+
+
+def test_coverage_is_reported():
+    gold = batch()
+    report = compare(scores(gold, 0.8, "c"), scores(gold, 0.4, "p", seed=2), gold, cfg())
+    assert report["coverage"] == 1.0 and report["batch_rows"] == report["rows"] == len(gold)
+
+
+def test_duplicate_ids_are_a_clear_error():
+    gold = batch()
+    cand = scores(gold, 0.8, "c")
+    cand.loc[1, "id"] = cand.loc[0, "id"]
+    with pytest.raises(ValueError, match="candidate's file has 1 duplicate ids"):
+        compare(cand, scores(gold, 0.4, "p", seed=2), gold, cfg())
+
+
+@pytest.mark.parametrize("extra, message", [
+    (["--production-model-version", "v2"], "rescore the batch"),
+    (["--trained-on", "4", "5"], "training data"),
+])
+def test_the_cli_exits_2_without_a_report_when_it_cannot_decide(tmp_path, capsys, extra,
+                                                                 message):
+    p = _files(tmp_path)
+    out = tmp_path / "out"
+    code = main(["--batch", "5", "--candidate", str(p["cand"]), "--production", str(p["prod"]),
+                 "--gold", str(p["gold"]), "--out", str(out), *extra])
+    assert code == 2
+    assert message in capsys.readouterr().err
+    assert not (out / "promote_check.json").exists()
+
+
+def test_the_cli_exits_2_on_low_coverage(tmp_path, capsys):
+    p = _files(tmp_path)
+    cand = pd.read_parquet(p["cand"]).head(100)           # 100 of 400 rows
+    cand.to_parquet(p["cand"])
+    code = main(["--batch", "5", "--candidate", str(p["cand"]), "--production", str(p["prod"]),
+                 "--gold", str(p["gold"]), "--out", str(tmp_path / "out")])
+    assert code == 2 and "below min_coverage" in capsys.readouterr().err

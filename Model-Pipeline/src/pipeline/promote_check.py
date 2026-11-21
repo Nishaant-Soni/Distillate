@@ -2,7 +2,11 @@
 
 Work plan v5 (6.1): a retrained candidate goes through the same gate as CI, and must also beat
 production on the most recent labeled drift batch that the retraining did not use, by mean AUC
-over the five Civil labels. retrain_dag runs this after the gate; exit code 0 is pass, 1 fail.
+over the five Civil labels. retrain_dag runs this after the gate.
+
+Exit codes: 0 the candidate passed; 1 it didn't (keep production); 2 the check couldn't decide
+(bad or mismatched inputs, too few rows scored), with a one-line reason on stderr and no
+report written. A crash is never read as a verdict.
 
 Inputs, all for that one batch:
 
@@ -17,8 +21,10 @@ Inputs, all for that one batch:
   columns are read) or an ``id`` + labels file.
 
 Both models are scored on the same rows (``ok`` in both), ranking on ``p_<label>`` (logit
-columns are dropped, since the live service returns only scores). ``--trained-on`` lists the
-batches the candidate trained on; the check refuses to run if the held-out batch is among them.
+columns are dropped, since the live service returns only scores). Those rows must be at least
+``min_coverage`` of the batch, so a verdict never rests on a few scored rows. ``--trained-on``
+lists the batches the candidate trained on; the check refuses to run if the held-out batch is
+among them.
 
 Writes promote_check.json and promote_check.md to ``--out``.
 
@@ -53,7 +59,14 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def as_predictions(frame: pd.DataFrame, labels: Sequence[str]) -> pd.DataFrame:
+def _unique_ids(frame: pd.DataFrame, name: str) -> None:
+    dups = int(frame["id"].duplicated().sum())
+    if dups:
+        raise ValueError(f"{name} has {dups} duplicate ids")
+
+
+def as_predictions(frame: pd.DataFrame, labels: Sequence[str],
+                   name: str = "prediction file") -> pd.DataFrame:
     """``id``, ``p_<label>``, ``model_version`` (and ``status`` if present), from a section 2.2
     file or a drift_ingest file (``score_<label>``). Logit columns are dropped."""
     out = frame.copy()
@@ -68,6 +81,7 @@ def as_predictions(frame: pd.DataFrame, labels: Sequence[str]) -> pd.DataFrame:
         keep.append("status")
     out = out[keep]
     out["id"] = out["id"].astype(str)
+    _unique_ids(out, name)
     return out
 
 
@@ -78,6 +92,7 @@ def as_gold(frame: pd.DataFrame, labels: Sequence[str]) -> pd.DataFrame:
         raise ValueError(f"gold file is missing {missing}")
     gold = frame[["id", *labels]].copy()
     gold["id"] = gold["id"].astype(str)
+    _unique_ids(gold, "the gold file")
     return gold
 
 
@@ -101,7 +116,8 @@ def compare(candidate: pd.DataFrame, production: pd.DataFrame, gold: pd.DataFram
             cfg: dict[str, Any]) -> dict[str, Any]:
     """The rule on one batch: candidate mean AUC minus production's, above ``min_gain``."""
     labels = list(cfg["labels"])
-    cand, prod = as_predictions(candidate, labels), as_predictions(production, labels)
+    cand = as_predictions(candidate, labels, "the candidate's file")
+    prod = as_predictions(production, labels, "the production file")
     gold = as_gold(gold, labels)
     for name, pred in (("candidate", cand), ("production", prod)):
         extra = set(pred["id"]) - set(gold["id"])
@@ -111,9 +127,13 @@ def compare(candidate: pd.DataFrame, production: pd.DataFrame, gold: pd.DataFram
     for pred in (cand, prod):
         rows = pred if "status" not in pred else pred[pred["status"] == "ok"]
         ok &= set(rows["id"])
+    batch_rows = len(gold)
     gold = gold[gold["id"].isin(ok)].reset_index(drop=True)
-    if gold.empty:
-        raise ValueError("no row is scored by both models")
+    coverage = len(gold) / batch_rows if batch_rows else 0.0
+    min_coverage = float(cfg.get("min_coverage") or 0.0)
+    if gold.empty or coverage < min_coverage:
+        raise ValueError(f"only {len(gold)} of the batch's {batch_rows} rows are scored by both "
+                         f"models ({coverage:.1%}, below min_coverage {min_coverage:.0%})")
 
     used, positives = eligible_labels(gold, labels, cfg.get("min_positives"))
     if not used:
@@ -136,6 +156,8 @@ def compare(candidate: pd.DataFrame, production: pd.DataFrame, gold: pd.DataFram
         "production": {"model_version": _model_version(prod), "mean_auc": prod_m["mean_auc"],
                        "auc": {k: v["auc"] for k, v in prod_m["per_label"].items()}},
         "rows": len(gold),
+        "batch_rows": batch_rows,
+        "coverage": round(coverage, 4),
         "positives": positives,
         "labels_used": used,
         "labels_left_out": [label for label in labels if label not in used],
@@ -171,7 +193,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     verdict = "PASSED" if report["passed"] else "FAILED"
     cand, prod = report["candidate"], report["production"]
     lines = [f"# Promotion check: {verdict}", "",
-             f"Drift batch {report['batch']} ({report['rows']} rows), held out from training "
+             f"Drift batch {report['batch']} ({report['rows']} of {report['batch_rows']} rows "
+             f"scored by both models), held out from training "
              f"(trained on batches {report['trained_on'] or 'none'}).", "",
              f"Rule: {report['rule']}. Gain: **{_fmt(report['gain'])}**.", ""]
     boot = report.get("bootstrap_gain")
@@ -202,8 +225,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args(argv)
 
-    report = run(load_config(args.config), args.batch, args.candidate, args.production,
-                 args.gold, args.production_model_version, args.trained_on)
+    try:
+        report = run(load_config(args.config), args.batch, args.candidate, args.production,
+                     args.gold, args.production_model_version, args.trained_on)
+    except Exception as error:  # noqa: BLE001 - every failure to decide is exit 2, never 1
+        # The type and message only: they name files, versions and counts, never comment text.
+        print(f"promote_check: error: {type(error).__name__}: {error}", file=sys.stderr)
+        return 2
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "promote_check.json").write_text(
         json.dumps(to_jsonable(report), indent=2, sort_keys=True) + "\n", encoding="utf-8")
