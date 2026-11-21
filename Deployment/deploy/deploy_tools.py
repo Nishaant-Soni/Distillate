@@ -63,7 +63,7 @@ def reference_texts() -> list[str]:
 def reference_pairs(reference: dict[str, Any]) -> tuple[list[str], list[dict[str, float]]]:
     """(texts, scores) from reference_outputs.json.
 
-    The format is serving's (``scorer.reference_outputs``, and package.py for new packages):
+    The format is serving's (``scorer.reference_outputs``; package.py may write it later):
     ``{"model_version", "max_length", "items": [{"text", "scores": {label: p}}]}``. The older
     ``{"texts": [...], "scores": [...]}`` shape is read too.
     """
@@ -312,6 +312,7 @@ def append_log(log: str, entry: dict[str, Any], runner=subprocess.run, attempts:
         with open(log, "a", encoding="utf-8") as f:
             f.write(line)
         return
+    generation = None
     for _ in range(attempts):
         body, generation = _gcs_read(log, runner)
         if body and not body.endswith("\n"):
@@ -328,6 +329,11 @@ def append_log(log: str, entry: dict[str, Any], runner=subprocess.run, attempts:
             return
         if not any(marker in result.stderr.lower() for marker in PRECONDITION):
             raise DeployError(f"could not write {log}: {result.stderr.strip()[-300:]}")
+    if generation == 0:
+        # gcloud reports an object the caller can't read as 404, so "no log yet" can really be
+        # "exists but unreadable"; the 0 precondition then always fails, which is safe (nothing
+        # is overwritten) but would otherwise look like a write race.
+        raise DeployError(f"{log} exists but can't be read (permissions?); nothing was written")
     raise DeployError(f"{log} kept changing under another writer ({attempts} tries)")
 
 
