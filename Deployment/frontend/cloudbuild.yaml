@@ -1,0 +1,9 @@
+# Builds frontend.Dockerfile with Cloud Build (deploy_frontend.sh runs it; no local Docker).
+# The Dockerfile isn't named Dockerfile, so `gcloud builds submit --tag` can't build it.
+#   gcloud builds submit Deployment/frontend --config Deployment/frontend/cloudbuild.yaml \
+#     --substitutions _IMAGE=us-east1-docker.pkg.dev/<project>/distillate-images/frontend:<tag>
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "frontend.Dockerfile", "-t", "${_IMAGE}", "."]
+images:
+  - "${_IMAGE}"
