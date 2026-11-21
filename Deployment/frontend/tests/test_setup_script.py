@@ -11,6 +11,9 @@ FAKE_GCLOUD = r"""#!/usr/bin/env bash
 echo "gcloud $*" >> "$FAKE_LOG"
 case "$*" in
   "projects describe"*) echo 123456 ;;
+  "storage buckets describe gs://"*_cloudbuild*)
+    [ -n "$FAKE_NO_STAGING" ] && exit 1
+    echo True ;;
   "storage buckets describe"*)
     [ "$FAKE_UBLA" = error ] && exit 1
     echo "$FAKE_UBLA" ;;
@@ -22,7 +25,7 @@ esac
 """
 
 
-def run(tmp_path, ubla, *args):
+def run(tmp_path, ubla, *args, **extra_env):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     gcloud = bin_dir / "gcloud"
@@ -30,7 +33,7 @@ def run(tmp_path, ubla, *args):
     gcloud.chmod(0o755)
     log = tmp_path / "calls.log"
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG": str(log),
-           "FAKE_UBLA": ubla, "PROJECT": "test-project", "BUCKET": "test-bucket"}
+           "FAKE_UBLA": ubla, "PROJECT": "test-project", "BUCKET": "test-bucket", **extra_env}
     result = subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True,
                             text=True, timeout=30)
     return result, (log.read_text() if log.exists() else "")
@@ -71,3 +74,12 @@ def test_stops_before_any_change_without_uniform_access(tmp_path, ubla, message)
     changes = [c for c in calls.splitlines() if c.startswith("gcloud ")
                and "buckets describe" not in c]
     assert changes == []
+
+
+def test_a_missing_staging_bucket_is_created_in_the_region(tmp_path):
+    result, calls = run(tmp_path, "True", "--deployer", "user:someone@example.com",
+                        FAKE_NO_STAGING="1", REGION="us-east1")
+    assert result.returncode == 0, result.stderr
+    create = [c for c in calls.splitlines() if c.startswith("gcloud storage buckets create")]
+    assert len(create) == 1 and "gs://test-project_cloudbuild" in create[0]
+    assert "--location=us-east1" in create[0] and "--uniform-bucket-level-access" in create[0]

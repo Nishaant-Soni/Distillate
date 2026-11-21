@@ -103,6 +103,12 @@ Things to know:
   project-wide `storage.buckets.list`.
 * Creating a build needs Service Account User on the account Cloud Build runs builds as (the
   Compute Engine default account here); `setup_frontend.sh --deployer` grants it.
+* **To narrow later:** acting as the Compute default account amounts to project Editor, since
+  that account has Editor (and `setup_gcp.sh` gives `github-ci` the same). A dedicated build
+  account (Artifact Registry Writer on `distillate-images`, Log Writer, read on the staging
+  bucket), passed as `BUILD_SA` and named in `cloudbuild.yaml`, would avoid that. The deployer's
+  Cloud Run Admin could also be granted on the `distillate-frontend` service rather than the
+  whole project.
 * Retraining records: `retrain_dag` writes them to `gs://distillate-mlops-data/deployments/retrain/`,
   inside the same read-only mount, so `RETRAIN_RECORDS=/mnt/deployments/retrain` needs no
   other mount or permission. The card shows "not yet" until the first record exists.

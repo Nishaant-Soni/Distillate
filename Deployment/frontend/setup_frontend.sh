@@ -97,7 +97,7 @@ if [ -n "$DEPLOYER" ]; then
   # default staging bucket); create it if no build has run yet, and let the deployer use it.
   staging="gs://${PROJECT}_cloudbuild"
   gcloud storage buckets describe "$staging" >/dev/null 2>&1 \
-    || gcloud storage buckets create "$staging" --project="$PROJECT" \
+    || gcloud storage buckets create "$staging" --project="$PROJECT" --location="$REGION" \
          --uniform-bucket-level-access
   gcloud storage buckets add-iam-policy-binding "$staging" --member="$DEPLOYER" \
     --role=roles/storage.admin >/dev/null
