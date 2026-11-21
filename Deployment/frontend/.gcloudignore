@@ -1,0 +1,9 @@
+# What `gcloud builds submit Deployment/frontend` uploads (without this file gcloud would follow
+# .gitignore). The image needs only what frontend.Dockerfile copies.
+.gcloudignore
+.venv*/
+tests/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.md
