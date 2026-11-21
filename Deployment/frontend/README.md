@@ -8,10 +8,12 @@ Streamlit app with two pages (work plan v5, section 6):
   toggle for the original. Presets are shown masked and never in an editable box. Rate limited
   per visitor and per instance.
 * **Status:** `@production` and `@staging` from the MLflow registry (version, gate result,
-  Artifact Registry upload, last alias move), the last deployment, the last retraining, and
-  Grafana links. Anything that doesn't exist yet shows as "not yet". It flags `@staging` being
-  newer than `@production` with no deployment line (v5 section 6.1: a replaced deploy run never
-  starts, so it leaves no line and no Slack message).
+  Artifact Registry upload, last alias move), what is serving (the newest `deployed` or
+  `rolled-back` line of `deployments.jsonl`) and any newer attempt that didn't succeed, the last
+  retraining, and Grafana links. Anything that doesn't exist yet shows as "not yet". It flags
+  `@staging` being newer than `@production` with no deployment line (v5 section 6.1: a replaced
+  deploy run never starts, so it leaves no line and no Slack message), and says instead that the
+  deploy failed when a line shows it ran and was blocked.
 
 The app never logs or stores the text it scores. The presets (`presets.json`) are written for
 the demo; none comes from a dataset.

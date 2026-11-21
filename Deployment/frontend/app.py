@@ -191,11 +191,21 @@ def status() -> None:
             version_card(s.production_alias, info.production)
         with right:
             version_card(s.staging_alias, info.staging)
-    st.subheader("Last deployment")
-    if info.last_deployment:
-        st.json(info.last_deployment)
+    st.subheader("Deployment")
+    if info.serving:
+        st.write("Serving:")
+        st.json(info.serving)
     else:
         st.write(info.deployment_note)
+    if info.latest_attempt:
+        attempt = info.latest_attempt
+        text = (f"Latest attempt: {attempt.get('action', 'deploy')} "
+                f"{'v' + str(attempt['version']) if attempt.get('version') else 'test package'} "
+                f"{attempt.get('status', '')} at {attempt.get('at', 'unknown time')}")
+        if str(attempt.get("status", "")).lower() in status_page.FAILED:
+            st.warning(f"{text}: {attempt.get('detail') or 'see the deploy run'}")
+        else:
+            st.caption(text)
     st.subheader("Last retraining")
     if info.last_retraining:
         st.json(info.last_retraining)
