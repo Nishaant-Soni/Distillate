@@ -167,6 +167,19 @@ pipeline:
   latency_requests: 300
   plots: true
 
+# Retraining on the drift stream (src/student/retrain.py, docs/retraining.md). Off by default:
+# with these values a run trains and scores exactly as before. retrain_dag sets them with --set
+# for a retraining run (train on batches 0..n-3, hold out n-2).
+retrain:
+  drift_batches: []         # Civil drift batches added to training: 0, 1, ..., m-1, no gaps
+  holdout_batch: null       # scored into predictions/drift_holdout.parquet for promote_check;
+                            # the batch right after the training ones (n-2)
+  drift_weight: 1.0         # sample_weight of the drift rows
+  drift_dir: null           # the batch_<k>.parquet files; null = <pipeline.data_dir>/civil/drift
+  obfuscation_augment:
+    rows: 0                 # toxic Wikipedia train rows to add rewritten (3000 when retraining)
+    seed: 42
+
 # Selection rule (src/student/select_best.py, work plan v4 §5): among the candidates that pass
 # the bias check and the CPU latency budget, the highest validation mean AUC; candidates within
 # auc_tie of the best count as tied and the higher mean PR-AUC wins.
