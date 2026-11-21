@@ -2,6 +2,7 @@
 #
 #   lint and tests -> build the training image -> Vertex AI custom job -> gate
 #   -> register (@staging + Artifact Registry) if the gate passed -> Slack, always
+#   -> deploy (deploy.yml) when a version was registered
 #
 # Runs on pushes to main that touch model code or configs, and by hand (Actions tab, or
 # `gh workflow run model-ci.yml`). The job runs the student lane's entry point,
@@ -338,3 +339,14 @@ jobs:
           fi
           python -m src.pipeline.ci notify --level "$level" --title "$title" \
             --field "detail=$detail" --field "commit=${GITHUB_SHA::7}" --field "run=$RUN_URL"
+
+  # Deploy what was just registered (work plan v5, 6.1). Only when gate-register registered a
+  # version: the smoke candidate is blocked by the gate, so it never deploys. deploy.yml is a
+  # reusable workflow with its own concurrency group (deploy), so it can't wait on model-ci's.
+  deploy:
+    needs: gate-register
+    if: needs.gate-register.outputs.version != ''
+    uses: ./.github/workflows/deploy.yml
+    with:
+      version: ${{ needs.gate-register.outputs.version }}
+    secrets: inherit
