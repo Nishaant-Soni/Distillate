@@ -181,9 +181,25 @@ retrain:
   poll_s: 60                                   # how often to check the Vertex AI job
   job_timeout_h: 5
   config: configs/student.yaml
-  fetch_tables: [train, val, gate, bias]       # Praniti: + h2 obfuscation and the drift batches (retraining.md section 4)
-  # --set overrides for src.pipeline.run, after the drift batch ones pull_data computes
-  # (retrain.drift_batches=[0..n-3] retrain.holdout_batch=n-2).
+  # The tables src.pipeline.run loads (student.yaml pipeline.tables: gate h2 bias obfuscation),
+  # plus train and val. Praniti: the drift batch files 0..n-2 too (retraining.md section 4).
+  fetch_tables: [train, val, gate, bias, h2, obfuscation]
+  # The production recipe, so a retrain trains what @production is: v1, distilbert-mixed-5ep
+  # (Model-Pipeline/docs/tuning.md, "best values", and v1's meta.json). student.yaml's defaults
+  # are the Phase 1 setup (temp data, gold-only, 128 tokens, no package). If @production moves
+  # to another recipe (Shivam's serving decision), change this list with it.
+  recipe:
+    - data.source=official
+    - model.name=distilbert
+    - model.max_length=256
+    - loss.alpha=0.3432987447660936
+    - loss.temperature=3.71295432376268
+    - train.lr=9.22542696771891e-05
+    - train.epochs=5
+    - package.enabled=true
+    - run_name=retrain-distilbert-mixed
+  # --set order: recipe, then the drift batch overrides pull_data computes
+  # (retrain.drift_batches=[0..n-3] retrain.holdout_batch=n-2), then these.
   overrides: [retrain.obfuscation_augment.rows=3000]
   model_pipeline_dir: ../Model-Pipeline        # fetch-production, gate, promote_check, register_model run here
   model_python: null                           # null: $RETRAIN_MODEL_PYTHON (the image's /opt/mpenv), else this Python

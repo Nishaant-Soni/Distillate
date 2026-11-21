@@ -156,9 +156,11 @@ def batch_plan(next_batch: int, min_batches: int = 3) -> dict[str, Any] | None:
 
 
 def overrides_for(cfg: dict[str, Any], plan: dict[str, Any]) -> list[str]:
-    """The ``--set`` overrides that make src.pipeline.run a retraining run."""
+    """The ``--set`` overrides that make src.pipeline.run a retraining run: the production
+    recipe, the drift batches to train on and hold out, then any extra overrides."""
     batches = ",".join(str(k) for k in plan["drift_batches"])
-    return [f"retrain.drift_batches=[{batches}]",
+    return [*cfg["retrain"].get("recipe", []),
+            f"retrain.drift_batches=[{batches}]",
             f"retrain.holdout_batch={plan['holdout_batch']}",
             *cfg["retrain"].get("overrides", [])]
 

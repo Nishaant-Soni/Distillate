@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import yaml
 
 from scripts import retrain
 from scripts.columns import LABELS
@@ -155,9 +156,23 @@ def test_pull_data_turns_state_json_into_the_set_overrides(cfg):
     set_next_batch(cfg, 7)
     step = retrain.step_pull_data(cfg, retrain.new_run())
     assert step["skipped"] is False and step["holdout_batch"] == 5
-    assert step["overrides"][:2] == ["retrain.drift_batches=[0,1,2,3,4]",
-                                     "retrain.holdout_batch=5"]
+    recipe = cfg["retrain"]["recipe"]
+    assert step["overrides"][:len(recipe)] == recipe
+    assert step["overrides"][len(recipe):len(recipe) + 2] == [
+        "retrain.drift_batches=[0,1,2,3,4]", "retrain.holdout_batch=5"]
     assert "retrain.obfuscation_augment.rows=3000" in step["overrides"]
+
+
+def test_the_job_trains_the_production_recipe_on_the_tables_it_loads(cfg):
+    # student.yaml's defaults are the Phase 1 setup: temp data (not in the image), gold-only,
+    # no package (check-outputs would fail). The recipe is v1's (docs/tuning.md).
+    recipe = dict(s.split("=", 1) for s in cfg["retrain"]["recipe"])
+    assert recipe["data.source"] == "official" and recipe["package.enabled"] == "true"
+    assert recipe["model.max_length"] == "256" and float(recipe["loss.alpha"]) < 1
+    student = yaml.safe_load((retrain.resolve(cfg["retrain"]["model_pipeline_dir"])
+                              / cfg["retrain"]["config"]).read_text())
+    needed = {"train", "val", *student["pipeline"]["tables"]}
+    assert needed <= set(cfg["retrain"]["fetch_tables"])
 
 
 def test_fewer_than_three_batches_skips_the_whole_run_with_a_message(cfg, monkeypatch):
