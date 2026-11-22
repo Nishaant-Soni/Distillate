@@ -132,6 +132,7 @@ def test_deploy_passes_and_promotes(env):
     assert result.returncode == 0, result.stderr
     calls = env["calls"].read_text()
     assert "builds submit" in calls and "--config=" in calls      # serve.Dockerfile via config
+    assert "--gcs-source-staging-dir=gs://distillate-mlops_cloudbuild/source" in calls
     order = ["artifacts generic download", "builds submit", "run deploy", "--no-traffic",
              "update-traffic", "rollback_model --to 3 --alias production"]
     positions = [calls.index(step) for step in order]
