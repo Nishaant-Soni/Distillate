@@ -202,8 +202,12 @@ images: ["$IMAGE_REF"]
 options:
   logging: CLOUD_LOGGING_ONLY
 CONFIG
-gcloud builds submit "$CONTEXT" --project="$PROJECT" --config="$WORK/cloudbuild.yaml" --quiet \
-  || fail "the image build failed (a broken package fails here too: see the build log)"
+# An explicit staging dir: with the default one, gcloud first lists the project's buckets
+# (project-wide storage.buckets.list) and fails with a misleading "forbidden" without it.
+# With CLOUD_LOGGING_ONLY, gcloud doesn't stream the log; it waits and reports the result.
+gcloud builds submit "$CONTEXT" --project="$PROJECT" --config="$WORK/cloudbuild.yaml" \
+  --gcs-source-staging-dir="gs://${PROJECT}_cloudbuild/source" --quiet \
+  || fail "the image build failed (a broken package fails here too: see the build in Cloud Build)"
 
 # 6. Deploy a revision with no traffic.
 STEP="deploy-revision"
