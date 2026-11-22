@@ -59,7 +59,9 @@ case "$*" in
   "secrets versions access"*) echo "pw" ;;
   "artifacts generic download"*)
     dest=$(printf '%s\\n' "$@" | sed -n 's/^--destination=//p')
-    mkdir -p "$dest"; cp -R "{package}/." "$dest/" ;;
+    # Like the real command: the destination must already exist.
+    [ -d "$dest" ] || {{ echo "ERROR: Destination directory does not exist: $dest" >&2; exit 1; }}
+    cp -R "{package}/." "$dest/" ;;
   "run services describe"*"--format=json"*)
     tag=$(sed -n 's/.*--tag=\\([^ ]*\\).*/\\1/p' "{calls}" | tail -1)
     sed "s/TAG_PLACEHOLDER/${{tag:-none}}/" "{tmp_path}/service.json" ;;

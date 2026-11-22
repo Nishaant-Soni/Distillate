@@ -157,6 +157,7 @@ if [ -n "$SPEC" ]; then
   # 2. Download the package.
   STEP="download"
   PACKAGE="$WORK/package"
+  mkdir -p "$PACKAGE"            # gcloud artifacts generic download needs it to exist
   gcloud artifacts generic download --project="$PROJECT" --location="$REGION" \
     --repository="$AR_REPOSITORY" --package="$AR_PACKAGE" --version="$VERSION" \
     --destination="$PACKAGE" --quiet \
