@@ -1,0 +1,6 @@
+# Tests and lint for Deployment/serving (not in the image).
+-r requirements.txt
+pytest==9.2.0
+httpx==0.28.1            # FastAPI's TestClient
+onnx==1.23.2             # builds the tiny test model
+ruff==0.17.6

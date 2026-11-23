@@ -1,0 +1,2 @@
+# The model package is copied in by deploy.sh (or by hand) for the image build; never committed.
+package/

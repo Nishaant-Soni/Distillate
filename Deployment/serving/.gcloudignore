@@ -1,0 +1,8 @@
+# What `gcloud builds submit Deployment/serving` uploads. Without this file gcloud follows
+# .gitignore, which leaves out package/, the one thing the image build needs.
+.gcloudignore
+.venv/
+tests/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
