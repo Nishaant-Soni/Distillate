@@ -1,0 +1,3 @@
+# The demo app's runtime packages (frontend.Dockerfile installs these). Tests also need pytest.
+streamlit==1.67.0
+requests==2.34.2

@@ -1,0 +1,10 @@
+# Ruff settings for Deployment/frontend, matching Deployment/monitoring and Data-Pipeline (line
+# length 100, the same rule set), so the result is the same from the repo root or this folder.
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "I", "B"]
+
+[lint.isort]
+known-first-party = ["demo_app"]
