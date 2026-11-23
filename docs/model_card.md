@@ -74,6 +74,7 @@ Besides the human (gold) labels, the student learns from **soft labels**: per-co
 | Rows labeled | 159,571 training comments, 20,000 test comments (the gate subset), 40,000 Civil Comments drift comments; 0 failed rows |
 | Labeling cost | about 9.4 T4 GPU-hours: 7.0 for training, 0.9 for the gate subset, 1.6 for drift (shard manifests) |
 | Held-out quality (gate subset) | mean AUC 0.982, PR-AUC 0.659, ECE 0.010 (weighted; table below) |
+| Cost as a service (H3) | one T4 sustains 6 comments/s; $25.00 per million comments on one instance, $30.00 at the 10 comments/s comparison point (2 instances; *Serving cost* below) |
 
 ### How a probability is read from the teacher
 
@@ -159,6 +160,33 @@ Per label, AUC / PR-AUC:
 * **Domain**: English Wikipedia talk-page comments. Over the same five labels the stack's mean AUC is 0.981 on the Wikipedia gate subset (weighted) and 0.924 on the Civil drift stream (unweighted). Civil gold labels are rater fractions thresholded at 0.5.
 * **Truncation** at 1,024 tokens (0.37% of training comments).
 * **Censored cells**: when one answer has no token in the top 20, its log-odds is a conservative bound (1,090 of 957,426 training cells, 0.11%).
+
+### Serving cost (H3)
+
+H3 compares serving the teacher with serving the student at the same request rate. This is the teacher's half: raw Qwen with the P2 zero-shot prompt (`p2-zs-v2b`), as labeling ran it. The stack's TF-IDF part costs almost nothing on a CPU, so the teacher's cost is Qwen's. The student's half, and the cost ratio next to the accuracy difference, are in Shivam's H3 report. Source: `Model-Pipeline/reports/h3_teacher_cost.json`, built by `python -m src.teacher.h3_cost` from the two Kaggle sessions in `Model-Pipeline/artifacts/h3/` (notebook `Model-Pipeline/kaggle/20_teacher_cost_and_presets.ipynb`, code commit `5daa102`).
+
+**How it was measured.**
+* **Server:** vLLM 0.31.0's OpenAI-compatible server on one T4, with labeling's engine settings (fp16, maximum length 3,072, prefix caching, 20 log-probabilities, seed 42). One request is one comment's six prompts.
+* **Parity:** before the load, nine fixed inputs scored through the server matched the offline labeling code to within 0.007 in probability.
+* **Load:** 2,000 Civil drift comments, the traffic the service sees, sampled with seed 42 (ids in `h3_load_ids.csv`, no text). Arrivals were open-loop Poisson, at 0.5 to 8 comments per second for 5 minutes each, then a closed-loop run with 64 requests in flight for the ceiling.
+* **"Keeps up":** p95 latency at most 2 s, no errors, and at least 95% of the offered rate achieved.
+
+| | Result |
+|---|---|
+| Sustainable rate, one T4 | **6 comments/s**: p50 0.63 s, p95 1.88 s, p99 2.34 s, no errors |
+| The same rate for 30 minutes (second session) | 11,021 requests, 0 errors, achieved 6.12/s, p95 1.68 s, p99 2.84 s: **holds** |
+| Ceiling (64 in flight) | 7.47 and 7.86 comments/s in the two sessions, with p95 8.5 to 9.0 s; above about 6/s requests queue |
+| Price per instance | **$0.54/h**: T4 $0.35 plus an n1-standard-4 host $0.19 (GCP us-east1, on-demand list prices from the Cloud Billing Catalog API, Nov 19, 2026) |
+| Cost per million comments, one instance at 6/s | **$25.00** ($394 a month always on) |
+| At the 10 comments/s comparison point | **2 instances**, $1.08/h, **$30.00 per million comments** (83% use) |
+
+* **Below 6/s one instance is still needed,** so the cost per million rises as the rate falls: $30 at 5/s and $75 at 2/s.
+* **Caveats:**
+  * a T4, not an L4 (Kaggle's free tier has no L4);
+  * the load generator ran on `localhost` in the same session, so network time is left out, and it shared the host's CPUs with the server;
+  * the Kaggle host isn't an n1-standard-4, which is the machine a T4 would attach to on GCP;
+  * list prices, without sustained-use or committed-use discounts.
+* **None of the 2,000 comments reached the teacher's 1,024-token cap.**
 
 ### Lineage and reproduction
 
@@ -621,3 +649,4 @@ scores and metrics.
 | 2026-11-15 | Section 1: registered as v1 (`@staging`, `@production`, Artifact Registry version 1) and the training run's server copy; section 8: production now exists (Nishaant) |
 | 2026-11-15 | Section 4: the selected run's id on the team server, with the Kaggle id it came from (Nishaant) |
 | 2026-11-15 | Section 1: v1 holds `@production`, v2 (`minilm-mixed`) `@staging`; the rollback demonstration (Nishaant) |
+| 2026-11-21 | Section 3: the teacher's serving cost (H3) on one T4, with the 30-minute stability run, and a row in *At a glance* (Nishaant) |

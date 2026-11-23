@@ -34,6 +34,7 @@ paths:
   oof_dir: artifacts/oof                     # out-of-fold TF-IDF scores and stack check
   stack_dir: artifacts/stack                 # the adopted stack and its check (soft_labels.py)
   calqwen_dir: artifacts/calqwen             # calibrated-Qwen soft-label check (calqwen.py)
+  h3_dir: artifacts/h3                       # the T4 serving sweep (kaggle/20), committed
   drift_dir: data/civil_drift                # local copy of the data lane's drift batches
                                              # (gitignored: comment text)
   mlflow_db: mlruns/mlflow.db                # local MLflow store, used only when MLFLOW_TRACKING_URI isn't set (gitignored)
@@ -135,3 +136,30 @@ mlflow:
     train: teacher/p2-zs-v2b/
     gate: teacher/p2-zs-v2b/gate/
     drift: teacher/p2-zs-v2b/drift/
+
+# The teacher's serving cost for H3 (h3_cost.py), from the T4 sweep in paths.h3_dir. Prices are
+# GCP's on-demand list prices in the service's region, read from the Cloud Billing Catalog API
+# (Compute Engine, services/6F81-5844-456A/skus); sustained-use and committed-use discounts
+# are left out. target_rate is the H3 comparison point agreed with Shivam (the student's load
+# test compares at the same rate). load_ids_file is the 2,000 load comments, in order (ids only).
+h3:
+  sweep_file: h3_sweep.json
+  stability_file: h3_stability.json   # the second session: 30 min at the sustainable rate
+  load_ids_file: h3_load_ids.csv
+  report: reports/h3_teacher_cost.json
+  target_rate: 10           # comments/s (agreed Nov 21); --rate overrides
+  p95_target_s: 2.0         # the keeps-up rule's latency bound, as in notebook 20
+  price:
+    region: us-east1
+    currency: USD
+    checked: "2026-11-19"
+    source: "Cloud Billing Catalog API, Compute Engine SKUs (https://cloud.google.com/compute/gpus-pricing, https://cloud.google.com/compute/vm-instance-pricing)"
+    gpu: {name: nvidia-tesla-t4, count: 1, per_hour: 0.35, sku: 88B8-C3ED-03F0}
+    machine:
+      name: n1-standard-4
+      vcpus: 4
+      memory_gib: 15
+      per_vcpu_hour: 0.031611   # N1 Predefined Instance Core
+      per_gib_hour: 0.004237    # N1 Predefined Instance Ram
+      vcpu_sku: 2E27-4F75-95CD
+      ram_sku: 6C71-E844-38BC
