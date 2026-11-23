@@ -7,7 +7,7 @@ package (§2.5) baked into the image. Cloud Run service `distillate-api`, us-eas
 |---|---|
 | `POST /predict` `{"text": "..."}` | `scores`, `flagged`, `flag`, `low_confidence`, `model_version`, `latency_ms` |
 | `GET /health` | `{"status": "ok", "model_version": "..."}` |
-| `GET /metrics` | Prometheus text with the §2.4 metric names (for local compose; Cloud Run uses its built-in metrics) |
+| `GET /metrics` | Prometheus text with the §2.4 metric names, for local docker-compose. **Off on Cloud Run** (404): nothing scrapes it there, since service metrics come from Cloud Monitoring and model metrics from the batch jobs (`expose_metrics` in config.yaml) |
 
 - `flagged[label]` is `score >= thresholds.json[label]`; `flag` is any label flagged;
   `low_confidence` is any score within `low_confidence_margin` (0.1) of its threshold.
@@ -51,9 +51,12 @@ curl -s localhost:8080/health
 curl -s -X POST localhost:8080/predict -H 'content-type: application/json' -d '{"text": "thanks for the edit"}'
 ```
 
-For Cloud Build (`gcloud builds submit`), `.gcloudignore` makes sure `package/` is uploaded even
-though `.gitignore` excludes it. The Dockerfile isn't named `Dockerfile`, so the build needs
-`-f serve.Dockerfile` (a `cloudbuild.yaml` step) rather than `--tag` alone.
+On GCP, `Deployment/deploy/deploy.sh` does this with Cloud Build: it copies this folder and the
+checked package to a staging folder and builds from a one-step config with
+`-f serve.Dockerfile --build-arg REGISTRY_VERSION=<n>`, tagging
+`distillate-images/distillate-api:v<n>-<commit>` (`gcloud builds submit --tag` alone can't pass
+`-f` or build args). `.gcloudignore` makes sure `package/` is uploaded even though `.gitignore`
+excludes it.
 
 The image build fails if the package is incomplete, any file's SHA-256 differs from
 `meta.json`, or the model can't score the reference texts.
@@ -66,21 +69,28 @@ DISTILLATE_PACKAGE_DIR=<package> .venv/bin/uvicorn app:create_app --factory --po
 ```
 
 Run-time overrides: `DISTILLATE_PACKAGE_DIR`, `DISTILLATE_RATE_LIMIT_PER_MINUTE` (0 turns the
-limit off, for the load test), `DISTILLATE_ORT_THREADS`.
+limit off, for the load test), `DISTILLATE_ORT_THREADS`, `DISTILLATE_EXPOSE_METRICS`.
+
+The rate limit keys on the last `X-Forwarded-For` entry (the one the nearest proxy appended;
+entries a caller sends come first and can be forged). If the live service shows that entry is
+a Google address rather than the caller, set `rate_limit.trusted_proxy_hops: 1`.
 
 ## Smoke-test reference scores
 
-`python scorer.py --package <dir> --out reference_outputs.json` writes the expected scores for
-the neutral reference texts (equal to `PARITY_TEXTS` in `Model-Pipeline/src/student/package.py`;
-a test checks), in the format the smoke test reads:
+`deploy.sh` makes sure every package has `reference_outputs.json` before the build
+(`Deployment/deploy/deploy_tools.py reference`). If the package has none (v1 and v2 don't;
+`package.py` doesn't write it yet), deploy_tools computes it with this folder's
+`scorer.reference_outputs` on 50 neutral inputs and writes it into the package, so the smoke
+test compares the live service with the exact code it runs. The format:
 
 ```json
-{"model_version": "...", "max_length": 128,
+{"model_version": "...", "max_length": 256,
  "items": [{"text": "...", "scores": {"toxicity": 0.01, "...": 0.0}}]}
 ```
 
-That's the fallback for packages built before package.py writes `reference_outputs.json` (v1
-and v2). `from scorer import reference_outputs` does the same in Python.
+`python scorer.py --package <dir>` is the image build's package check (hashes, labels,
+thresholds, and the model scoring the 5 `REFERENCE_TEXTS`, equal to `PARITY_TEXTS` in
+`Model-Pipeline/src/student/package.py`). With `--out <file>` it also writes their scores.
 
 ## Tests
 

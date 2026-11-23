@@ -9,11 +9,11 @@ Scoring matches the model pipeline's ``predict_onnx_logits`` exactly (same token
 same truncation at the package's ``max_length``, sigmoid of the logits), so the service's
 scores equal the package's own outputs. One text is scored at a time, with no padding.
 
-This module is also the smoke test's fallback for packages built before
-``reference_outputs.json`` existed: ``reference_outputs(package_dir)`` computes the expected
-scores for the neutral reference texts from the package itself.
+``reference_outputs(package_dir, texts)`` computes expected scores from the package itself;
+Deployment/deploy/deploy_tools.py uses it to write ``reference_outputs.json`` into packages that
+don't have one, for the smoke test. The CLI is the image build's package check:
 
-    python scorer.py --package <dir> --out reference_outputs.json
+    python scorer.py --package <dir> [--out reference_outputs.json]
 """
 
 from __future__ import annotations
@@ -32,8 +32,7 @@ OUTPUT = "logits"
 REQUIRED = ("model.onnx", "tokenizer", "thresholds.json", "meta.json")
 
 # Neutral filler, no comment text: kept equal to PARITY_TEXTS in
-# Model-Pipeline/src/student/package.py (a test checks), so the scores package.py writes into
-# reference_outputs.json and the ones computed here are for the same inputs.
+# Model-Pipeline/src/student/package.py (a test checks), the inputs of its own ONNX parity check.
 REFERENCE_TEXTS = ("thanks for the edit to the article", "please see the talk page section",
                    "the source link in the image note was changed back", "revert",
                    "user page fact check " * 80)

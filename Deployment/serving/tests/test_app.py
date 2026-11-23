@@ -173,3 +173,44 @@ def test_environment_overrides(monkeypatch, package):
     assert cfg["package_dir"] == str(package)
     assert cfg["rate_limit"]["requests_per_minute"] == 0
     assert cfg["onnx"]["intra_op_threads"] == 4
+
+
+@pytest.mark.parametrize("k_service, setting, served", [
+    (None, "auto", True), ("distillate-api", "auto", False),
+    ("distillate-api", "true", True), (None, "false", False),
+])
+def test_metrics_are_off_on_cloud_run_unless_forced(config, monkeypatch, k_service, setting,
+                                                    served):
+    if k_service:
+        monkeypatch.setenv("K_SERVICE", k_service)
+    else:
+        monkeypatch.delenv("K_SERVICE", raising=False)
+    config["expose_metrics"] = setting
+    with TestClient(create_app(config)) as c:
+        assert (c.get("/metrics").status_code == 200) is served
+        assert c.post("/predict", json={"text": "hello"}).status_code == 200
+
+
+def test_expose_metrics_rejects_a_typo(config):
+    config["expose_metrics"] = "sometimes"
+    with pytest.raises(ValueError, match="expose_metrics"):
+        create_app(config)
+
+
+@pytest.mark.parametrize("header, hops, expected", [
+    ("1.1.1.1", 0, "1.1.1.1"),
+    ("forged, 2.2.2.2", 0, "2.2.2.2"),
+    ("forged, 2.2.2.2, 35.191.0.1", 1, "2.2.2.2"),
+    ("2.2.2.2", 3, "2.2.2.2"),            # fewer entries than hops: the leftmost
+    (" , 3.3.3.3 ,", 0, "3.3.3.3"),
+])
+def test_client_key_counts_proxies_from_the_right(header, hops, expected):
+    from starlette.requests import Request
+
+    from app import client_key
+
+    scope = {"type": "http", "headers": [(b"x-forwarded-for", header.encode())],
+             "client": ("10.9.9.9", 1234)}
+    assert client_key(Request(scope), hops) == expected
+    assert client_key(Request({"type": "http", "headers": [], "client": ("10.9.9.9", 1)})) \
+        == "10.9.9.9"

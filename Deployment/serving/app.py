@@ -8,6 +8,7 @@
                     distillate_requests_total, distillate_errors_total,
                     distillate_flagged_total{label}, distillate_flag_total,
                     distillate_score{label}, distillate_low_confidence_total
+                    (for local docker-compose; off on Cloud Run unless expose_metrics is true)
 
 Comment text is never logged. Each /predict writes one JSON line to stdout (Cloud Run sends it
 to Cloud Logging) with text_sha256, char_len, scores, flagged, flag, low_confidence,
@@ -71,7 +72,22 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
             os.environ["DISTILLATE_RATE_LIMIT_PER_MINUTE"])
     if os.environ.get("DISTILLATE_ORT_THREADS"):
         cfg["onnx"]["intra_op_threads"] = int(os.environ["DISTILLATE_ORT_THREADS"])
+    if os.environ.get("DISTILLATE_EXPOSE_METRICS"):
+        cfg["expose_metrics"] = os.environ["DISTILLATE_EXPOSE_METRICS"].strip().lower()
     return cfg
+
+
+def metrics_exposed(setting: Any) -> bool:
+    """``expose_metrics``: true/false, or "auto" (everywhere but Cloud Run, which sets
+    K_SERVICE)."""
+    value = str(setting).strip().lower()
+    if value in ("true", "1", "yes", "on"):
+        return True
+    if value in ("false", "0", "no", "off"):
+        return False
+    if value == "auto":
+        return not os.environ.get("K_SERVICE")
+    raise ValueError(f"expose_metrics must be true, false or auto, not {setting!r}")
 
 
 def emit(record: dict[str, Any]) -> None:
@@ -144,10 +160,13 @@ class Metrics:
             self.score.labels(label=label).observe(response["scores"][label])
 
 
-def client_key(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
+def client_key(request: Request, trusted_proxy_hops: int = 0) -> str:
+    """The caller's address for the rate limit: the X-Forwarded-For entry
+    ``trusted_proxy_hops`` places before the last (entries further left can be forged)."""
+    forwarded = [part.strip() for part in request.headers.get("x-forwarded-for", "").split(",")
+                 if part.strip()]
     if forwarded:
-        return forwarded.split(",")[-1].strip()
+        return forwarded[max(0, len(forwarded) - 1 - trusted_proxy_hops)]
     return request.client.host if request.client else "unknown"
 
 
@@ -199,6 +218,8 @@ def create_app(config: dict[str, Any] | None = None, scorer: Scorer | None = Non
     metrics = Metrics()
     limiter = RateLimiter(cfg["rate_limit"]["requests_per_minute"], cfg["rate_limit"]["burst"])
     margin = float(cfg["low_confidence_margin"])
+    hops = int(cfg["rate_limit"].get("trusted_proxy_hops", 0))
+    expose_metrics = metrics_exposed(cfg.get("expose_metrics", "auto"))
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -229,7 +250,7 @@ def create_app(config: dict[str, Any] | None = None, scorer: Scorer | None = Non
     @app.post("/predict")
     async def predict(request: Request):
         start = time.perf_counter()
-        if not limiter.allow(client_key(request)):
+        if not limiter.allow(client_key(request, hops)):
             return reject(429, "rate limit exceeded")
         content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
         if content_type != "application/json":
@@ -267,9 +288,10 @@ def create_app(config: dict[str, Any] | None = None, scorer: Scorer | None = Non
     def health():
         return {"status": "ok", "model_version": state["scorer"].model_version}
 
-    @app.get("/metrics")
-    def prometheus():
-        return Response(generate_latest(metrics.registry), media_type=CONTENT_TYPE_LATEST)
+    if expose_metrics:
+        @app.get("/metrics")
+        def prometheus():
+            return Response(generate_latest(metrics.registry), media_type=CONTENT_TYPE_LATEST)
 
     # FastAPI's default 422 and error bodies can echo the request; these don't.
     @app.exception_handler(RequestValidationError)
