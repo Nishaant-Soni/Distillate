@@ -1,0 +1,109 @@
+# deploy: put a model version on Cloud Run with Deployment/deploy/deploy.sh (work plan v5, 6.1).
+# Owner: Ruchita.
+#
+# Four triggers, all running deploy.sh:
+#   workflow_call         from model-ci's last job, with the version gate-register registered
+#   repository_dispatch   event type deploy-model, sent by retrain_dag: {"version": "<n>"}
+#   push                  to Deployment/serving/**: redeploys @production with the new serving code
+#   workflow_dispatch     by hand (Actions tab, or `gh workflow run deploy.yml -f version=3`)
+#
+# One deploy at a time: every trigger shares the `deploy` group and never cancels a running
+# deploy. GitHub keeps at most one waiting run and replaces it with a newer one, so the latest
+# requested version wins; a replaced run never starts and records nothing, so re-run it by hand
+# if that version should still be deployed (Deployment/README.md).
+#
+# Repository variables: GCP_WIF_PROVIDER, GCP_CI_SERVICE_ACCOUNT, MLFLOW_TRACKING_URI.
+# Repository secrets: MLFLOW_TRACKING_PASSWORD, SLACK_WEBHOOK_URL (optional).
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Model version to deploy: a number, staging or production"
+        type: string
+        required: true
+  repository_dispatch:
+    types: [deploy-model]
+  push:
+    branches: [main]
+    paths:
+      - "Deployment/serving/**"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Model version to deploy: a number, staging or production"
+        default: production
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write          # Workload Identity Federation
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+      MLFLOW_TRACKING_USERNAME: team
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      # When called from model-ci, github.event_name is model-ci's event (push), so the input
+      # is checked first; a push to Deployment/serving/** has no input and deploys production.
+      - name: Which version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          DISPATCH_VERSION: ${{ github.event.client_payload.version }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          version="${INPUT_VERSION:-$DISPATCH_VERSION}"
+          if [ -z "$version" ] && [ "$EVENT" = push ]; then version=production; fi
+          if ! [[ "$version" =~ ^([0-9]+|staging|production)$ ]]; then
+            echo "::error::version must be a number, staging or production (got '$version')"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Deploying $version (trigger: $EVENT)"
+
+      - name: Settings present
+        run: |
+          missing=()
+          for name in GCP_WIF_PROVIDER GCP_CI_SERVICE_ACCOUNT MLFLOW_TRACKING_URI; do
+            [ -n "${!name}" ] || missing+=("variable $name")
+          done
+          [ -n "$MLFLOW_TRACKING_PASSWORD" ] || missing+=("secret MLFLOW_TRACKING_PASSWORD")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository settings: ${missing[*]}"
+            exit 1
+          fi
+        env:
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_CI_SERVICE_ACCOUNT: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Serving's requirements too: deploy.sh scores packages that have no reference_outputs.json
+      # with Deployment/serving/scorer.py, the code the service itself runs.
+      - name: Install the deploy tools
+        run: pip install -r Deployment/deploy/requirements.txt -r Deployment/serving/requirements.txt
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # deploy.sh records the outcome itself: deployments.jsonl, this job's summary and Slack.
+      - name: Deploy
+        run: bash Deployment/deploy/deploy.sh --version "${{ steps.version.outputs.version }}"
