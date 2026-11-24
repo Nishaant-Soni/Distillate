@@ -1,19 +1,41 @@
 # Demo app (`Deployment/frontend/`)
 
-Streamlit app with two pages (work plan v5, section 6):
+Streamlit app with two tabs under one "Distillate" title (work plan v5, section 6). Live at
+https://distillate-frontend-x26zqukapq-ue.a.run.app, on the live `distillate-api` (v1) since
+Nov 24.
 
-* **Try it:** scores a comment through the serving API (contract section 4) and shows per-label
-  scores against their thresholds, `flag` and `low_confidence`. Text is shown **masked by
-  default** (listed words keep only their first and last letters, `demo_app/masking.py`), with a
-  toggle for the original. Presets are shown masked and never in an editable box. Rate limited
-  per visitor and per instance.
+* **Try it:** a short intro (the student, the teacher, and that a flag means *send it to a
+  human moderator*, never *remove it*), then scores a comment through the serving API
+  (contract section 4).
+  * **The verdict names the labels:** "Flagged for review: Toxicity, Insult." (or "Not
+    flagged"), and, when the API says `low_confidence`, which scores are borderline:
+    "Borderline: Obscene (0.17, threshold 0.21)…". Borderline uses the serving app's rule
+    (strictly less than `low_confidence_margin`, 0.1, from the threshold), so it always agrees
+    with the API. Without thresholds it falls back to a general line.
+  * **A table** of the six labels in plain words: score, threshold (`@production`'s package,
+    from the registry; the column is left out without it), flagged, and for presets the
+    teacher stack's cached score, with a note on what the Teacher column is.
+  * Text is shown **masked by default** (listed words keep only their first and last letters,
+    `demo_app/masking.py`), with a toggle for the original. Presets are shown masked and never
+    in an editable box. Rate limited per visitor and per instance.
 * **Status:** `@production` and `@staging` from the MLflow registry (version, gate result,
-  Artifact Registry upload, last alias move), what is serving (the newest `deployed` or
-  `rolled-back` line of `deployments.jsonl`) and any newer attempt that didn't succeed, the last
-  retraining, and Grafana links. Anything that doesn't exist yet shows as "not yet". It flags
-  `@staging` being newer than `@production` with no deployment line (v5 section 6.1: a replaced
-  deploy run never starts, so it leaves no line and no Slack message), and says instead that the
-  deploy failed when a line shows it ran and was blocked.
+  Artifact Registry upload, last alias move); what is serving, as one line ("**v1** live since
+  2026-11-24 15:56 UTC · smoke test passed on 50 inputs · deploy run"), from the newest
+  `deployed` or `rolled-back` line of `deployments.jsonl`, and any newer attempt that didn't
+  succeed; the last retraining, also as one line; and the Grafana link. Anything that doesn't
+  exist yet shows as "not yet". **Who ran a deploy is never shown** (the page is public; the
+  record stays in the log and the run).
+  * **The `@staging` flag** (v5 section 6.1): `@staging` newer than `@production` with no
+    deployment line naming it means a requested deploy never ran (a replaced deploy run never
+    starts, so it leaves no line and no Slack message). When a line shows the deploy ran and
+    failed, it says that instead. A version **registered before the first deployment record**
+    isn't flagged for a missing line: it predates the deploy pipeline, so no deploy of it was
+    requested (v2, `@staging` since the Phase 2 rollback demo). It needs the version's
+    `creation_timestamp`; without it, or without dated records, the flag stays as it was.
+
+The words both tabs show are built in `demo_app/display.py`, without Streamlit. Streamlit runs
+both tabs on every interaction, so the Status data is cached for 30 s and a Score doesn't query
+the registry again.
 
 The app never logs or stores the text it scores. The presets (`presets.json`) are written for
 the demo; none comes from a dataset.
@@ -115,7 +137,10 @@ Things to know:
 
 ### If the mount fails
 
-The prefix-limited grant has two requirements:
+The prefix-limited mount **works on the live service**: it has been in place since the first
+frontend deploy (Nov 21), and the Status page has read `deployments.jsonl` through it since
+the first `deploy.sh` run (Nov 24). This section is for setting it up elsewhere. The
+prefix-limited grant has two requirements:
 
 * **Uniform bucket-level access on the bucket.** IAM conditions don't work with fine-grained
   ACLs, so `setup_frontend.sh` checks this first and stops before changing anything if it's off.
@@ -152,4 +177,6 @@ ruff check . && python -m pytest tests -v
 ```
 
 The masking, rate limits, API contract check, registry client (against recorded MLflow answers),
-Status logic, and both pages end to end with Streamlit's `AppTest` on the mock. No network.
+Status logic (including the `@staging` flag's cases), the page's words (`display.py`: verdicts,
+the borderline margin's edge, times in UTC, no actor), and both tabs end to end with
+Streamlit's `AppTest` on the mock. No network.
