@@ -69,10 +69,11 @@ def test_the_verdict_names_the_labels(app):
         assert at.success[0].value.startswith("**Not flagged:**")
 
 
-def test_the_page_switch_is_at_the_top(app):
+def test_the_pages_are_tabs(app):
     at = app().run()
-    assert not at.sidebar.radio
-    assert at.radio[0].options == ["Try it", "Status"]
+    assert [tab.label for tab in at.tabs] == ["Try it", "Status"]
+    assert not at.sidebar.radio and not at.radio
+    assert [t.value for t in at.title] == ["Distillate"]       # one title above the tabs
 
 
 def test_the_rate_limit_message(app, monkeypatch):
@@ -86,8 +87,7 @@ def test_the_rate_limit_message(app, monkeypatch):
 
 
 def test_status_without_sources_says_not_yet(app):
-    at = app().run()
-    at.radio[0].set_value("Status").run()
+    at = app().run()                                       # both tabs render on each run
     assert not at.exception
     assert any("MLFLOW_TRACKING_URI" in i.value for i in at.info)
     page = " ".join(m.value for m in at.markdown)
@@ -102,10 +102,21 @@ def test_status_summarises_the_deployment_without_the_actor(app, monkeypatch, tm
         "smoke": {"max_abs_diff": 0.0, "n_inputs": 50, "passed": True}}) + "\n")
     monkeypatch.setenv("DEPLOYMENTS_LOG", str(log))
     at = app().run()
-    at.radio[0].set_value("Status").run()
     assert not at.exception
-    page = " ".join(m.value for m in at.markdown)
+    page = " ".join(m.value for m in at.tabs[1].markdown)  # the Status tab
     assert "**v1** live since 2026-11-24 15:56 UTC" in page
     assert "smoke test passed on 50 inputs" in page and "[deploy run](" in page
-    assert "someone-on-the-team" not in page
+    assert "someone-on-the-team" not in " ".join(m.value for m in at.markdown)
     assert not at.json                                     # no raw record dumps
+
+
+def test_scoring_does_not_query_the_status_sources_again(app, monkeypatch):
+    # Both tabs run on every interaction; the Status data comes from the 30 s cache.
+    import demo_app.status as status_module
+    calls = []
+    real = status_module.build
+    monkeypatch.setattr(status_module, "build", lambda *a, **k: calls.append(1) or real(*a, **k))
+    at = app().run()
+    at.text_area[0].input("Thanks for the edit").run()
+    at.button[0].click().run()
+    assert not at.exception and len(calls) == 1

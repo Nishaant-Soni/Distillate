@@ -71,6 +71,13 @@ def presets() -> list[dict]:
 
 
 @st.cache_data(ttl=30, show_spinner=False)
+def status_info(_registry: Registry | None) -> status_page.Status:
+    """The Status tab's data. Cached: both tabs run on every interaction, so without it each
+    Score would also query the registry. (_registry: not hashed, it is the cached client.)"""
+    return status_page.build(settings(), _registry)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
 def health() -> tuple[str | None, str | None]:
     """(model_version, error) from the serving API's /health."""
     try:
@@ -106,7 +113,6 @@ def source_caption() -> None:
 
 
 def try_it() -> None:
-    st.title("Try it")
     st.markdown(INTRO)
     source_caption()
     items = presets()
@@ -192,7 +198,6 @@ def version_card(alias: str, info) -> None:
 
 
 def status() -> None:
-    st.title("Status")
     s = settings()
     version, error = health()
     if error:
@@ -201,7 +206,7 @@ def status() -> None:
         st.caption("Serving API: the mock (no live endpoint configured).")
     else:
         st.caption(f"Serving API at `{s.api_url}` is up, serving `{version}`.")
-    info = status_page.build(s, registry())
+    info = status_info(registry())
     for warning in info.warnings:
         st.warning(warning)
     if info.registry_note:
@@ -238,9 +243,11 @@ def status() -> None:
         st.write("not yet: no Grafana URL configured (GRAFANA_URL)")
 
 
-# At the top of the page, not in the sidebar, which phones hide behind a menu.
-if st.radio("Page", ["Try it", "Status"], horizontal=True,
-            label_visibility="collapsed") == "Try it":
+# Tabs at the top, not a sidebar switch, which phones hide behind a menu. Streamlit runs both
+# tabs on every interaction, so the Status data is cached (status_info).
+st.title("Distillate")
+try_tab, status_tab = st.tabs(["Try it", "Status"])
+with try_tab:
     try_it()
-else:
+with status_tab:
     status()
