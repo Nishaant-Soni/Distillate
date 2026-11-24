@@ -2,6 +2,10 @@
 
 import json
 import os
+from dataclasses import replace
+from datetime import datetime
+
+import pytest
 
 from demo_app.config import load
 from demo_app.registry import RegistryError, VersionInfo
@@ -114,6 +118,67 @@ def test_no_line_for_staging_still_suggests_a_rerun():
     warning = staging_warning(version("production", 1), version("staging", 2),
                               [line(1, "deployed")])
     assert "no deployment line names it" in warning and "re-run it by hand" in warning
+
+
+NOV_15 = 1_763_200_000_000            # 2025-11-15T09:46:40Z in ms; any time before NOV_24
+NOV_24 = "2026-11-24T15:56:43+00:00"   # the first real deployment line
+
+
+def registered(alias, number, at_ms):
+    return replace(version(alias, number), created_ms=at_ms)
+
+
+def ms(iso):
+    return int(datetime.fromisoformat(iso).timestamp() * 1000)
+
+
+def test_a_version_older_than_every_record_is_not_flagged(tmp_path):
+    # The live case: v2 has been @staging since the Phase 2 rollback demo, before deploy.sh
+    # wrote its first line, so nobody ever asked to deploy it.
+    log = write_log(tmp_path, line(1, "deployed", at=NOV_24))
+    reg = FakeRegistry({"production": version("production", 1),
+                        "staging": registered("staging", 2, ms("2026-11-15T12:00:00+00:00"))})
+    assert build(settings(deployments_log=log), reg).warnings == []
+
+
+def test_a_version_registered_after_the_first_record_is_still_flagged():
+    # model-ci / retrain_dag register and then request the deploy: no line means it never ran.
+    warning = staging_warning(version("production", 1),
+                              registered("staging", 3, ms("2026-12-02T10:00:00+00:00")),
+                              [line(1, "deployed", at=NOV_24)])
+    assert "no deployment line names it" in warning and "re-run it by hand" in warning
+
+
+def test_the_first_record_is_the_earliest_not_the_first_line():
+    lines = [line(1, "deployed", at="2026-12-01T00:00:00+00:00"), line(1, "error", at=NOV_24)]
+    stage = registered("staging", 2, ms("2026-11-30T00:00:00+00:00"))   # after Nov 24
+    assert staging_warning(version("production", 1), stage, lines) is not None
+
+
+def test_an_old_version_whose_deploy_failed_still_says_so():
+    # The exemption is only for a missing line: a line that names it and failed is real.
+    stage = registered("staging", 2, ms("2026-11-15T12:00:00+00:00"))
+    warning = staging_warning(version("production", 1), stage,
+                              [line(1, "deployed", at=NOV_24),
+                               line(2, "smoke-failed", step="smoke-test", at=NOV_24)])
+    assert "ran and failed" in warning
+
+
+@pytest.mark.parametrize("lines", [
+    [],                                                   # no records: nothing to compare with
+    [line(1, "deployed", at="not a time")],               # no dated record
+    [{k: v for k, v in line(1, "deployed").items() if k != "at"}],
+])
+def test_without_a_dated_record_the_flag_stays(lines):
+    stage = registered("staging", 2, NOV_15)
+    assert staging_warning(version("production", 1), stage, lines) is not None
+
+
+def test_naive_and_z_times_are_utc():
+    stage = registered("staging", 2, ms("2026-11-24T15:00:00+00:00"))
+    for at in ("2026-11-24T16:00:00Z", "2026-11-24T16:00:00"):        # an hour after it
+        assert staging_warning(version("production", 1), stage,
+                               [line(1, "deployed", at=at)]) is None
 
 
 def test_no_flag_when_staging_isnt_newer():
