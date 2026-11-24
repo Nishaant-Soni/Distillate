@@ -108,8 +108,10 @@ python -m src.sensitivity.run --model-dir <dir> --sample 2000 --no-mlflow   # a 
 
 ```bash
 cd Model-Pipeline
-pytest tests/teacher       # no network or GPU: synthetic data and fixtures
+pytest tests/teacher       # no network or GPU: synthetic data and fixtures (includes H3)
 pytest tests/sensitivity
+pytest tests/pipeline/test_promote_check.py tests/pipeline/test_retrain_run.py \
+       tests/student/test_retrain.py               # Phase 3: retraining and promote_check
 ruff check src tests
 ```
 
@@ -130,6 +132,80 @@ CI (`.github/workflows/model-pipeline-ci.yml`) runs `ruff check src tests` and t
 | `src/teacher/stack.py`, `soft_labels.py`, `calqwen.py` | the stack and the two soft-label sets |
 | `src/teacher/mlflow_log.py` | the runs in MLflow (PR #27) |
 | `src/sensitivity/` | hyperparameter importance, SHAP attributions, length and obfuscation sweeps, the report (PR D, #46) |
+| `src/teacher/h3_cost.py` | Phase 3: the teacher's serving cost for H3, from notebook 20's sweep (#63; section 1.10) |
+| `src/student/retrain.py`, `src/pipeline/promote_check.py` | Phase 3: the retraining run's extra rows and held-out batch (#69), and the promotion rule (#68; section 1.11) |
+
+### 1.10 Phase 3: the teacher's serving cost (H3)
+
+H3 compares serving the student with serving the teacher. This is the teacher's side: raw Qwen
+(the P2 zero-shot prompts, which is what the stack's cost is: its TF-IDF part is negligible on
+CPU) served with vLLM on **one T4**, model card section 3, *Serving cost (H3)*.
+
+| | |
+|---|---|
+| Sustainable rate, one T4 | **6 comments/s**: p50 0.63 s, p95 1.88 s, no errors (the "keeps up" rule: p95 at most 2 s, no errors, at least 95% of the offered rate) |
+| The same rate for 30 minutes (second session) | 11,021 requests, 0 errors, p95 1.68 s: holds |
+| Cost, one instance (T4 on an n1-standard-4, us-east1 list price, $0.54/h) | **$25.00 per million comments** |
+| At the 10 comments/s comparison point (agreed with Shivam) | 2 instances, $1.08/h, **$30.00 per million** |
+
+**How it was made:**
+
+1. **The run:** `kaggle/20_teacher_cost_and_presets.ipynb` (#61), one Kaggle T4 session: a
+   vLLM server and a load generator in the same session, at a series of Poisson request rates,
+   then a second session for the 30-minute stability run. The load is 2,000 seeded Civil
+   drift comments; only their ids are committed (`artifacts/h3/h3_load_ids.csv`, in order, so
+   the student load test can send the same comments in the same order).
+2. **The records:** `artifacts/h3/h3_sweep.json` and `h3_stability.json` (no text).
+3. **The report:** `python -m src.teacher.h3_cost [--rate R]` writes
+   `reports/h3_teacher_cost.json` from those records and the `h3` section of
+   `configs/teacher.yaml` (prices with their SKUs, the target rate 10, the keeps-up bound). It
+   checks that both sessions used the same teacher, code, comments and rate before combining
+   them.
+
+**Caveats (also in the report):** measured on a T4, not an L4 (Kaggle has no L4); the load
+generator ran on the same host, so network time is left out; the Kaggle host isn't an
+n1-standard-4, which is only the machine a T4 attaches to on GCP.
+
+### 1.11 Phase 3: retraining and the promotion rule
+
+How a retraining run uses the drift stream, and when its candidate may replace production. The
+full design (agreed Nov 21) is `docs/retraining.md`; `retrain_dag` (Vaishnavi) runs the steps.
+
+* **What it trains on:** when drift batch n−1 is released, the run trains on batches 0 to n−3
+  (gold labels and the stack's soft labels, weight 1.0) plus 3,000 toxic Wikipedia train rows
+  rewritten with the data lane's obfuscation tricks, holds out batch n−2, and skips n−1 (its
+  gold labels aren't in yet). No retrain until three batches are out (n < 3).
+* **How it's set:** the `retrain` section of `configs/student.yaml` (`src/student/retrain.py`),
+  off by default, so CI trains exactly as before. `retrain_dag` sets it with `--set`, for
+  example after batch 6 is released: `retrain.drift_batches=[0,1,2,3,4] retrain.holdout_batch=5
+  retrain.obfuscation_augment.rows=3000`. `src.pipeline.run` then also scores the held-out
+  batch into `predictions/drift_holdout.parquet`, and the package's `meta.json` records a
+  `retrain` block.
+* **The promotion rule** (`src/pipeline/promote_check.py`, `configs/promotion.yaml`): after
+  the gate, the candidate must beat `@production` on the held-out batch: mean AUC over the five
+  Civil labels (no `severe_toxicity`), higher than production's (`min_gain: 0.0`), on the same
+  rows, with at least 95% of the batch scored by both (`min_coverage`). Production's scores are
+  the ones `drift_ingest` stored when the batch went through the live service. A paired
+  bootstrap of the difference is recorded but doesn't change the verdict.
+
+```bash
+python -m src.pipeline.promote_check --batch 5 \
+    --candidate <job>/predictions/drift_holdout.parquet \
+    --production ../Data-Pipeline/reports/drift/predictions/batch_05.parquet \
+    --gold ../Data-Pipeline/data/processed/civil/drift/batch_05.parquet \
+    --production-model-version <production's model_version> --trained-on 0 1 2 3 4 \
+    --out <job>/promotion
+```
+
+**Exit codes:** 0 the candidate passed (register and deploy it); 1 it didn't (keep
+production); 2 the check couldn't decide (bad or mismatched inputs, the held-out batch among
+the trained ones, production's scores from a different model, or too few rows), with a
+one-line reason and no report, so a crash is never read as "keep production". It writes
+`promote_check.json` and `promote_check.md` to `--out`.
+
+**Order in `retrain_dag`:** gate → `promote_check` → register (`@staging` and Artifact
+Registry) only if both passed → `repository_dispatch` to `deploy.yml` → Slack. `deploy.sh`'s
+smoke test then decides whether traffic and `@production` move (`Deployment/deploy/`).
 
 ## 2. Teacher labels, data loading and EDA (Praniti)
 
