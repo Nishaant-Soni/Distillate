@@ -1,0 +1,47 @@
+# Serving settings (work plan v5 §2.4, §6.1). Baked into the image next to app.py.
+# Environment variables override a few of them at run time, for Cloud Run and the load test:
+#   DISTILLATE_PACKAGE_DIR            package_dir
+#   DISTILLATE_RATE_LIMIT_PER_MINUTE  rate_limit.requests_per_minute (0 turns the limit off)
+#   DISTILLATE_ORT_THREADS            onnx.intra_op_threads
+#   DISTILLATE_EXPOSE_METRICS         expose_metrics (true or false)
+
+# The model package baked into the image (serve.Dockerfile copies it here).
+package_dir: /app/package
+
+# low_confidence is true when any label's score is within this distance of its threshold.
+low_confidence_margin: 0.1
+
+# Input limits. Text beyond the model's max_length tokens is truncated anyway; the character
+# cap bounds tokenizer work per request. Longer text gets 413.
+max_text_chars: 10000
+max_body_bytes: 65536
+
+# Per-client token bucket, per instance (Cloud Run instances don't share it). Over the limit
+# gets 429. Sized for our own batch caller with the most in flight: the canary replay
+# (Data-Pipeline config: 8 requests at once from the ops VM, no retries, fails above 1% errors)
+# can reach 100-200 requests a second against Cloud Run, so a lower limit would fail it. Drift
+# ingestion sends one request at a time. An allowlist for the ops VM would allow a lower default,
+# but the VM has no static address (its ephemeral IP changes whenever it stops and starts, as
+# with the nightly shutdown). The limit stops one runaway client; max instances (service.yaml) caps cost beyond
+# that. The load test turns it off with DISTILLATE_RATE_LIMIT_PER_MINUTE=0.
+rate_limit:
+  requests_per_minute: 12000
+  burst: 200
+  # The client is the X-Forwarded-For entry this many places before the last one. Proxies
+  # append to the header, so entries a caller sends come first and can be forged; the last
+  # is added by the nearest proxy. 0 (the last entry) assumes Google's front end appends the
+  # caller's address and nothing after it; if a check on the live service shows a Google
+  # address there instead, set 1.
+  trusted_proxy_hops: 0
+
+# /metrics: "auto" serves it except on Cloud Run (K_SERVICE is set there), where nothing
+# scrapes it (service metrics come from Cloud Monitoring, model metrics from the batch jobs)
+# and it would be public. true/false force it; DISTILLATE_EXPOSE_METRICS overrides.
+expose_metrics: auto
+
+# ONNX Runtime threads per request. Cloud Run gives 2 vCPU (service.yaml) and the host can
+# report more cores than that, so the count is set, not detected. The load test tunes this
+# together with Cloud Run's concurrency.
+onnx:
+  intra_op_threads: 2
+  inter_op_threads: 1

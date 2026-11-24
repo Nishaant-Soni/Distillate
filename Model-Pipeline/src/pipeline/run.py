@@ -54,7 +54,7 @@ def _path(value: str | None) -> Path | None:
 def labels_for(stem: str) -> tuple[str, ...]:
     from src.eval.metrics import CIVIL_LABELS
 
-    return CIVIL_LABELS if stem in ("h2_eval", "bias_eval") else LABELS
+    return CIVIL_LABELS if stem in ("h2_eval", "bias_eval", "drift_holdout") else LABELS
 
 
 def load_eval_tables(p: Mapping[str, Any]):
@@ -109,6 +109,7 @@ def bias_passed(report: Mapping[str, Any]) -> bool:
 
 
 def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
+    from src.student import retrain as retrain_mod
     from src.student import train
     from src.student.data import load_splits
     from src.student.eval_sets import write_gold
@@ -136,6 +137,12 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
     loaded = load_eval_tables(p)
     record["data"] = {"data_hash": loaded.data_hash, "files": loaded.file_hashes,
                       "rev": loaded.rev, "rows": {k: len(v) for k, v in loaded.tables.items()}}
+    # The retraining run's held-out drift batch (docs/retraining.md): scored whole, never
+    # trained on, for promote_check. Read now so a missing file fails before training.
+    holdout = retrain_mod.holdout_table(cfg)
+    if holdout is not None:
+        record["data"]["rows"][retrain_mod.HOLDOUT_STEM] = len(holdout)
+        record["data"]["holdout_batch"] = retrain_mod.settings(cfg)["holdout_batch"]
 
     # 2. Train.
     summary = train.run(cfg)
@@ -155,6 +162,8 @@ def run(cfg: Mapping[str, Any]) -> dict[str, Any]:
               sample_tables(loaded.tables, p.get("eval_limit"), cfg["seed"]).items()}
     if p.get("eval_limit"):
         record["data"]["scored_rows"] = {k: len(v) for k, v in tables.items()}
+    if holdout is not None:                  # never sampled: promote_check needs every row
+        tables[retrain_mod.HOLDOUT_STEM] = holdout
 
     # 3. Validate: prediction files, gold files, metrics.
     record["scoring"] = step("score", lambda: score_run(

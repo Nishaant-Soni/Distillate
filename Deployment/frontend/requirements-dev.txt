@@ -1,0 +1,5 @@
+# Tests and lint for Deployment/frontend (not in the image).
+-r requirements.txt
+pytest==9.2.0
+pyyaml==6.0.4            # tests/test_deploy_config.py reads service.yaml and cloudbuild.yaml
+ruff==0.17.6

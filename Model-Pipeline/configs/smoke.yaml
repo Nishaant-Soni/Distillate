@@ -143,6 +143,13 @@ pipeline:
   latency_requests: 20
   plots: true
 
+retrain:                    # as in student.yaml: off unless set (src/student/retrain.py)
+  drift_batches: []
+  holdout_batch: null
+  drift_weight: 1.0
+  drift_dir: null
+  obfuscation_augment: {rows: 0, seed: 42}
+
 select:
   latency_stat: p95_ms
   latency_budget_ms: 50

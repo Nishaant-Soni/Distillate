@@ -1,0 +1,8 @@
+# Build context: Deployment/serving (same as serve.Dockerfile.dockerignore, for builders that only read .dockerignore).
+*
+!app.py
+!scorer.py
+!config.yaml
+!requirements.txt
+!package/
+!package/**

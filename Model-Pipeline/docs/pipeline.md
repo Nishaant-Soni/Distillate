@@ -10,7 +10,7 @@ For the student in the config (`configs/student.yaml` plus `--set` overrides):
 |---|---|---|
 | 1. Data | The evaluation tables through `src.data.load_data`: files on disk, a DVC revision (`pipeline.data_rev`), or a folder in the same layout (`pipeline.data_dir`). Read **before** training, so a missing table fails in seconds | `pipeline.json` → `data` (hashes, rows) |
 | 2. Train | `src.student.train`: model, thresholds, validation predictions, the §2.5 package | `model/`, `package/`, `summary.json` |
-| 3. Validate | Prediction files for gate, H2, bias and obfuscation; gold files (ids and labels, no text); every metric (`src.eval.metrics`) at the tuned thresholds | `predictions/`, `gold/`, `eval/metrics.json` |
+| 3. Validate | Prediction files for gate, H2, bias and obfuscation (and, in a retraining run, the held-out drift batch, `drift_holdout`: docs/retraining.md); gold files (ids and labels, no text); every metric (`src.eval.metrics`) at the tuned thresholds | `predictions/`, `gold/`, `eval/metrics.json` |
 | 4. Bias check and gate | `src.eval.gate` with `configs/gate.yaml`, no production model | `eval/gate_report.{json,md}` |
 | 5. Latency | The package's batch-1 CPU latency, tokenization included, on real comments (`pipeline.latency_threads`, default 2) | `latency.json` |
 | 6. Plots | Per-label confusion matrices at the tuned thresholds; per-label AUC and PR-AUC by split | `plots/` |
