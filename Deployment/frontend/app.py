@@ -16,7 +16,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from demo_app import api, config, masking, rate_limit
+from demo_app import api, config, display, masking, rate_limit
 from demo_app import status as status_page
 from demo_app.registry import Registry, RegistryError
 
@@ -71,6 +71,13 @@ def presets() -> list[dict]:
 
 
 @st.cache_data(ttl=30, show_spinner=False)
+def status_info(_registry: Registry | None) -> status_page.Status:
+    """The Status tab's data. Cached: both tabs run on every interaction, so without it each
+    Score would also query the registry. (_registry: not hashed, it is the cached client.)"""
+    return status_page.build(settings(), _registry)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
 def health() -> tuple[str | None, str | None]:
     """(model_version, error) from the serving API's /health."""
     try:
@@ -85,16 +92,28 @@ def session_window() -> rate_limit.SlidingWindow:
     return st.session_state["window"]
 
 
+INTRO = ("Distillate scores an English comment for six kinds of toxicity. The model is a small "
+         "DistilBERT **student**, trained on human labels and on the scores of a larger "
+         "**teacher** (an LLM, Qwen3-4B, combined with a TF-IDF model). A flag means *send it "
+         "to a human moderator*, never *remove it*.")
+TEACHER_NOTE = ("**Teacher:** the teacher's scores for this example (the stack of Qwen3-4B and "
+                "TF-IDF), computed once in advance. The student learned from scores like "
+                "these, so the Score and Teacher columns show how closely it follows the "
+                "teacher.")
+
+
 def source_caption() -> None:
     if client().mock:
         st.caption("Scoring with the **mock** service: made-up scores, for trying the page "
                    "before the live endpoint exists.")
-    else:
-        st.caption(f"Scoring with the live service at `{settings().api_url}`.")
+        return
+    version, _ = health()
+    st.caption(f"Scoring with the live model `{version}`." if version
+               else "Scoring with the live model.")
 
 
 def try_it() -> None:
-    st.title("Try it")
+    st.markdown(INTRO)
     source_caption()
     items = presets()
     names = [OWN] + [p["label"] for p in items]
@@ -127,28 +146,36 @@ def show_result(result: dict) -> None:
     st.divider()
     original = st.toggle("Show the original text", value=False)
     st.text(result["text"] if original else masking.mask(result["text"]))
-    if response["flag"]:
-        st.error("Flagged: at least one label is at or above its threshold.")
-    else:
-        st.success("Not flagged.")
-    if response["low_confidence"]:
-        st.warning("Low confidence: a score is close to its threshold.")
     marks = thresholds()
+    if response["flag"]:
+        st.error(display.verdict(response))
+    else:
+        st.success(display.verdict(response))
+    if response["low_confidence"]:
+        st.warning(display.borderline_line(response, marks))
     stack = (preset or {}).get("stack_scores")
     rows = []
     for label in api.LABELS:
-        row = {"Label": label, "Score": response["scores"][label],
-               "Threshold": marks[label] if marks else None,
-               "Flagged": response["flagged"][label]}
+        row = {"Label": display.name(label), "Score": response["scores"][label]}
+        if marks:     # without the registry there are no thresholds: no column of "None"
+            row["Threshold"] = marks[label]
+        row["Flagged"] = response["flagged"][label]
         if preset:
             row["Teacher (stack)"] = stack.get(label) if stack else None
         rows.append(row)
-    st.dataframe(rows, hide_index=True, column_config={
-        "Score": st.column_config.ProgressColumn(min_value=0.0, max_value=1.0, format="%.3f"),
-        "Threshold": st.column_config.NumberColumn(format="%.3f"),
-        "Teacher (stack)": st.column_config.NumberColumn(format="%.3f"),
+    # Narrow columns kept small, so the whole table fits a phone's width.
+    st.dataframe(rows, hide_index=True, use_container_width=True, column_config={
+        "Label": st.column_config.TextColumn(width="small"),
+        "Score": st.column_config.ProgressColumn(min_value=0.0, max_value=1.0, format="%.3f",
+                                                 width="small"),
+        "Threshold": st.column_config.NumberColumn(format="%.3f", width="small"),
+        "Flagged": st.column_config.CheckboxColumn(width="small"),
+        "Teacher (stack)": st.column_config.NumberColumn("Teacher", format="%.3f",
+                                                         width="small"),
     })
-    if preset and not stack:
+    if preset and stack:
+        st.caption(TEACHER_NOTE)
+    elif preset:
         st.caption("The teacher's scores for this example haven't been computed yet.")
     st.caption(f"Model `{response['model_version']}` · {response['latency_ms']:.0f} ms")
 
@@ -171,7 +198,6 @@ def version_card(alias: str, info) -> None:
 
 
 def status() -> None:
-    st.title("Status")
     s = settings()
     version, error = health()
     if error:
@@ -180,7 +206,7 @@ def status() -> None:
         st.caption("Serving API: the mock (no live endpoint configured).")
     else:
         st.caption(f"Serving API at `{s.api_url}` is up, serving `{version}`.")
-    info = status_page.build(s, registry())
+    info = status_info(registry())
     for warning in info.warnings:
         st.warning(warning)
     if info.registry_note:
@@ -193,8 +219,7 @@ def status() -> None:
             version_card(s.staging_alias, info.staging)
     st.subheader("Deployment")
     if info.serving:
-        st.write("Serving:")
-        st.json(info.serving)
+        st.markdown(display.serving_line(info.serving))
     else:
         st.write(info.deployment_note)
     if info.latest_attempt:
@@ -208,7 +233,7 @@ def status() -> None:
             st.caption(text)
     st.subheader("Last retraining")
     if info.last_retraining:
-        st.json(info.last_retraining)
+        st.markdown(display.retraining_line(info.last_retraining))
     else:
         st.write(info.retraining_note)
     st.subheader("Dashboards")
@@ -218,7 +243,11 @@ def status() -> None:
         st.write("not yet: no Grafana URL configured (GRAFANA_URL)")
 
 
-if st.sidebar.radio("Page", ["Try it", "Status"]) == "Try it":
+# Tabs at the top, not a sidebar switch, which phones hide behind a menu. Streamlit runs both
+# tabs on every interaction, so the Status data is cached (status_info).
+st.title("Distillate")
+try_tab, status_tab = st.tabs(["Try it", "Status"])
+with try_tab:
     try_it()
-else:
+with status_tab:
     status()
