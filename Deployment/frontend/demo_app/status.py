@@ -13,7 +13,9 @@ It also raises the flag from work plan v5, section 6.1: a deploy run that waits 
 ``deploy`` concurrency group and is replaced by a newer request never starts, so it leaves no
 deployment line and no Slack message. So when ``@staging`` is newer than ``@production`` and no
 deployment line names it, the page says so. When a line does name it but the deploy failed,
-the page says that instead, since a re-run alone wouldn't help.
+the page says that instead, since a re-run alone wouldn't help. A version registered before
+the first deployment record isn't flagged for a missing line: it predates the deploy pipeline,
+so no deploy of it was requested (v2, ``@staging`` since the Phase 2 rollback demo).
 
 ``deployments.jsonl`` follows #64 (``status``: ``deployed`` and ``rolled-back`` on success;
 ``smoke-failed``, ``error``, ``partial`` and ``smoke-passed-not-promoted`` otherwise). The
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -106,8 +109,34 @@ def staging_warning(production: VersionInfo | None, staging: VersionInfo | None,
                     "production.")
         return (f"{head}: its deploy ran and failed ({_status(last)}{step}{when}). Fix the "
                 "cause before deploying it again; see the deploy run.")
+    if registered_before_records(staging, deployments):
+        return None
     return (f"{head} and no deployment line names it. If a deploy was requested, its run may "
             "have been replaced in the deploy queue; re-run it by hand.")
+
+
+def _moment(at: Any) -> datetime | None:
+    """A deployments.jsonl ``at`` as an aware UTC time (naive is taken as UTC), or None."""
+    try:
+        moment = datetime.fromisoformat(str(at).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def registered_before_records(staging: VersionInfo, deployments: list[dict[str, Any]]) -> bool:
+    """True when ``staging`` was registered before the first deployment record.
+
+    Such a version predates the deploy pipeline (v2, @staging since the Phase 2 rollback demo),
+    so no deploy of it was ever requested and the missing line means nothing. Every version
+    registered since (by model-ci or retrain_dag, which request the deploy right after
+    registering) is still flagged. Without a registration time or any dated record, False:
+    the flag stays as it was."""
+    times = [m for m in (_moment(d.get("at")) for d in deployments if d.get("at")) if m]
+    if staging.created_ms is None or not times:
+        return False
+    registered = datetime.fromtimestamp(staging.created_ms / 1000, tz=timezone.utc)
+    return registered < min(times)
 
 
 def latest_retraining(folder: str) -> dict[str, Any] | None:

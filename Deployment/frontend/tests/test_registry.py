@@ -62,6 +62,16 @@ def test_an_alias_and_its_tags():
                                   {"name": "distillate-student", "alias": "production"})]
 
 
+@pytest.mark.parametrize("value, expected", [
+    (1763208000123, 1763208000123),        # a JSON number
+    ("1763208000123", 1763208000123),      # int64 as a string (some MLflow servers)
+    (None, None), ("soon", None), (True, None),
+])
+def test_the_registration_time(value, expected):
+    body = {**V1, "creation_timestamp": value} if value is not None else V1
+    assert version_info("production", body).created_ms == expected
+
+
 def test_a_missing_alias_is_none():
     reg = registry({"/api/2.0/mlflow/registered-models/alias": FakeResponse(status=404, body={})})
     assert reg.alias("staging") is None

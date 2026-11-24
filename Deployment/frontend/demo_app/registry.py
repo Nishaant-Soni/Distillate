@@ -40,6 +40,15 @@ class VersionInfo:
     code_commit: str | None
     last_alias_move: dict[str, Any] | None = None
     tags: dict[str, str] = field(default_factory=dict)
+    created_ms: int | None = None      # when the version was registered (creation_timestamp)
+
+
+def _millis(value: Any) -> int | None:
+    """MLflow's int64 timestamps arrive as numbers or, from some servers, as strings."""
+    try:
+        return int(value) if value is not None and not isinstance(value, bool) else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _tags(items: list[dict[str, str]] | None) -> dict[str, str]:
@@ -62,7 +71,8 @@ def version_info(alias: str, body: dict[str, Any]) -> VersionInfo:
                        model_version=tags.get("model_version"),
                        gate_passed=None if gate is None else gate == "true",
                        gate_mean_auc=auc, ar_upload=tags.get("ar_upload"),
-                       code_commit=tags.get("code_commit"), last_alias_move=move, tags=tags)
+                       code_commit=tags.get("code_commit"), last_alias_move=move, tags=tags,
+                       created_ms=_millis(body.get("creation_timestamp")))
 
 
 class Registry:
