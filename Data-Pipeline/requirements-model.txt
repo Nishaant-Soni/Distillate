@@ -1,0 +1,11 @@
+# /opt/mpenv: the Model-Pipeline steps retrain_dag runs as subprocesses (scripts/retrain.py):
+# src.pipeline.ci fetch-production, src.eval.gate, src.pipeline.promote_check and
+# src.pipeline.register_model. The same set model-ci's gate-register job installs (no torch);
+# versions from Model-Pipeline/requirements-pipeline.txt. Kept apart from Airflow's environment
+# so mlflow's dependencies can't move Airflow's pins.
+pandas==3.0.6
+pyarrow==25.0.1
+numpy==2.5.4
+PyYAML==6.0.3
+scikit-learn==1.9.1
+mlflow==3.17.2

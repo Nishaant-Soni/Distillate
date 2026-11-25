@@ -83,7 +83,34 @@ PY
 COPY --chown=airflow:0 requirements-dev.txt /tmp/requirements-dev.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-dev.txt
 
+# ---------------------------------------------------------------------------
+# 5. retrain_dag (scripts/retrain.py), last so adding it rebuilt nothing above:
+#    - the gcloud CLI: the Vertex AI job, gs:// copies, and register_model's
+#      Artifact Registry upload. On the ops VM it authenticates as the VM's
+#      service account through the metadata server, with no key file.
+#    - /opt/mpenv (Python 3.12): the Model-Pipeline gate, promote_check and
+#      register_model, which need mlflow (requirements-model.txt).
+# ---------------------------------------------------------------------------
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends apt-transport-https ca-certificates curl gnupg \
+ && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+      | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+ && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+      > /etc/apt/sources.list.d/google-cloud-sdk.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends google-cloud-cli \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/* \
+ && install -d -o airflow -g 0 -m 775 /opt/mpenv
+USER airflow
+COPY --chown=airflow:0 requirements-model.txt /tmp/requirements-model.txt
+RUN python -m venv /opt/mpenv \
+ && /opt/mpenv/bin/pip install --no-cache-dir -r /tmp/requirements-model.txt \
+ && /opt/mpenv/bin/python -c "import mlflow, sklearn, pandas; print('mpenv OK', mlflow.__version__)"
+
 ENV TFENV_PYTHON=/opt/tfenv/bin/python \
+    RETRAIN_MODEL_PYTHON=/opt/mpenv/bin/python \
     PYTHONPATH=/opt/airflow/repo/Data-Pipeline
 
 WORKDIR /opt/airflow/repo/Data-Pipeline

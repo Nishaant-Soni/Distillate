@@ -165,18 +165,47 @@ teacher:
     tfidf_manifest: ../Model-Pipeline/artifacts/oof/tfidf_oof.manifest.json
 
 retrain:
-  # Phase 2 skeleton of retrain_dag (scripts/retrain.py); Phase 3 submits the job and fills in
-  # each step. The job is model-ci's: same image, same identity, same gate and registry.
-  reports_dir: reports/retrain                 # one <run_id>.json record per run
+  # retrain_dag (scripts/retrain.py; Model-Pipeline/docs/retraining.md). The job is model-ci's:
+  # same image, same identity, same gate and registry, plus promote_check on the held-out batch.
+  reports_dir: reports/retrain                 # one <run_id>.json record per run (+ <run_id>/ work dir)
+  records_uri: gs://distillate-mlops-data/deployments/retrain   # each record + latest.json, under deployments/ so the Status page can read it; null: local only
+  min_batches: 3                               # no retrain until three drift batches are out (n < 3)
+  submit: false                                # true: really submit the Vertex AI job (costs money); false: record the spec only
   project: distillate-mlops
   region: us-east1
   bucket: distillate-mlops-data                # outputs under ci/retrain/<run_id>/ (vertex-trainer writes only ci/)
   image: us-east1-docker.pkg.dev/distillate-mlops/distillate-images/trainer
+  image_tag: null                              # null: the newest image in Artifact Registry, pinned by digest
   service_account: vertex-trainer@distillate-mlops.iam.gserviceaccount.com
   machine_type: n1-standard-4
-  config: configs/student.yaml                 # Phase 3: a retraining config with the drift batches
-  overrides: []                                # --set overrides for src.pipeline.run
+  poll_s: 60                                   # how often to check the Vertex AI job
+  job_timeout_h: 5
+  config: configs/student.yaml
+  # The tables src.pipeline.run loads (student.yaml pipeline.tables: gate h2 bias obfuscation),
+  # plus train and val. Praniti: the drift batch files 0..n-2 too (retraining.md section 4).
+  fetch_tables: [train, val, gate, bias, h2, obfuscation]
+  # The production recipe, so a retrain trains what @production is: v1, distilbert-mixed-5ep
+  # (Model-Pipeline/docs/tuning.md, "best values", and v1's meta.json). student.yaml's defaults
+  # are the Phase 1 setup (temp data, gold-only, 128 tokens, no package). If @production moves
+  # to another recipe (Shivam's serving decision), change this list with it.
+  recipe:
+    - data.source=official
+    - model.name=distilbert
+    - model.max_length=256
+    - loss.alpha=0.3432987447660936
+    - loss.temperature=3.71295432376268
+    - train.lr=9.22542696771891e-05
+    - train.epochs=5
+    - package.enabled=true
+    - run_name=retrain-distilbert-mixed
+  # --set order: recipe, then the drift batch overrides pull_data computes
+  # (retrain.drift_batches=[0..n-3] retrain.holdout_batch=n-2), then these.
+  overrides: [retrain.obfuscation_augment.rows=3000]
+  model_pipeline_dir: ../Model-Pipeline        # fetch-production, gate, promote_check, register_model run here
+  model_python: null                           # null: $RETRAIN_MODEL_PYTHON (the image's /opt/mpenv), else this Python
   candidate_alias: staging
+  github_repo: Nishaant-Soni/Distillate        # repository_dispatch target (token: $GITHUB_DISPATCH_TOKEN)
+  dispatch_event: deploy-model                 # deploy.yml's repository_dispatch type
 
 drift_ingest:
   # Phase 2 skeleton of drift_ingest_dag; Phase 3 points service_url at the live endpoint.
