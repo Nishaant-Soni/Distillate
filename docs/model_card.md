@@ -10,6 +10,7 @@
 | 3 (teacher and soft labels) | Nishaant |
 | 4 (training) | Shivam |
 | 7 (sensitivity analysis) | Nishaant |
+| 13 (serving and deployment) | Nishaant |
 | 5 data facts | Praniti / Sai |
 
 ---
@@ -33,7 +34,8 @@
 - **Training method:** knowledge distillation from a teacher (section 3) mixed with gold labels:
   `alpha * BCE(gold) + (1 - alpha) * T^2 * BCE(soft)`, with alpha = 0.343 and T = 3.71
   (tuned, section 4).
-- **Serving format:** ONNX (int8) behind FastAPI on Cloud Run (Phase 3).
+- **Serving format:** ONNX behind FastAPI on Cloud Run (section 13). v1 serves the fp32 export;
+  an int8 package is the planned latency lever and doesn't exist yet.
 - **Package contents:** `model.onnx`, `tokenizer/`, `thresholds.json`, `meta.json` (model
   version, training-data DVC hash, alpha, temperature, teacher_version,
   teacher_model_version, prompt_version, stack_sha256).
@@ -621,7 +623,7 @@ identity-term comments) chosen on a held-out slice, not on the bias set.
 | Civil Comments shift sample | Hugging Face: `google/civil_comments` | CC0 1.0 (section 3) |
 | Teacher LLM | Qwen3-4B-Instruct-2507 | Apache 2.0 (checked at the pinned revision) |
 | Student base model | `distilbert-base-uncased` (Hugging Face) | Apache 2.0 |
-| Llama Guard 3-1B | Benchmark only, never used for training | Llama 3.2 Community License (Nishaant to confirm with the Phase 3 benchmark) |
+| Llama Guard 3-1B | Optional comparison benchmark only (not run as of Nov 24); never used for training or serving | Llama 3.2 Community License (`llama3.2` on the Hugging Face model page, checked Nov 24, 2026); gated: access requires accepting the licence |
 
 Comment text is never redistributed: the repository and any public artifact hold only ids,
 scores and metrics.
@@ -632,6 +634,77 @@ scores and metrics.
 - Raw text stays in private storage (the DVC bucket and private Kaggle datasets shared only
   with teammates who accepted the competition rules).
 - Demo text is masked by default.
+
+## 13. Serving and deployment
+
+**What is live (Nov 24, 2026).** v1 (`student-distilbert-mixed-5ep-20261112T210931Z`) serves
+100% of the Cloud Run service `distillate-api` (us-east1): revision `distillate-api-00002-mib`,
+tag `v1-87bc9d0`, image `distillate-images/distillate-api:v1-87bc9d0`. It was deployed on
+Nov 24 by `deploy.yml` (run 45430423505), and its smoke test passed on all 50 reference inputs
+with a largest score difference of 0.0 from the package's own outputs.
+
+**The service** (`Deployment/serving`, `Deployment/deploy/service.yaml`):
+
+- FastAPI over ONNX Runtime, serving the registered package unchanged: the fp32 ONNX export
+  (no int8 package exists yet). One comment is scored at a time, truncated at the package's
+  `max_length` (256 tokens), with the same tokenizer and sigmoid as the pipeline's
+  `predict_onnx_logits`, so the service's scores equal the package's.
+- `POST /predict` returns `scores`, `flagged`, `flag`, `low_confidence` (section 2),
+  `model_version` and `latency_ms`; `GET /health` returns the model version. `/metrics` is off
+  on Cloud Run (`expose_metrics: auto`), since the endpoint would be public.
+- 2 vCPU and 2 GiB per instance, 4 requests at a time per instance, 0 to 5 instances, a 30 s
+  request timeout. Public (anyone may call it). Each client is limited to 12,000 requests a
+  minute (burst 200) per instance; which `X-Forwarded-For` entry identifies the client is
+  still to be checked on the live service (`rate_limit.trusted_proxy_hops`).
+- Logs follow section 12: one JSON line per request with `text_sha256`, `char_len` and the
+  scores, never the text.
+
+**How a version is deployed** (`Deployment/deploy/deploy.sh`, run by `.github/workflows/deploy.yml`
+by hand, by `model-ci` after the gate registers a version, or on a change to the serving code):
+
+1. Resolve the version in the MLflow registry; it must have passed the gate (section 8) and be
+   published to Artifact Registry.
+2. Download the package and check every file against its SHA-256 in `meta.json`.
+3. Build the image with the package inside it (Cloud Build); the build fails on a broken
+   package.
+4. Deploy a revision with no traffic, tagged `v<version>-<commit>`.
+5. Smoke test the tagged revision: `/health`, then each reference input's scores within 0.0001
+   of the package's own, and the flags consistent with `thresholds.json`.
+6. On a pass, move 100% of traffic to it and move `@production`. On a failure, nothing moves.
+
+Every attempt is recorded in `gs://distillate-mlops-data/deployments/deployments.jsonl`, which
+the demo's Status page reads.
+
+**Rollback** (`Deployment/deploy/rollback.sh --previous` or `--to <n>`): moves traffic back to
+that version's revision first, then `@production` (Phase 2's `rollback_model.py`, which only
+accepts versions that passed the gate). The registry rollback was demonstrated in Phase 2
+(section 1). On the live service it hasn't been exercised yet: v1 is the only model revision
+so far.
+
+**Latency spot check** (Nov 24, one client sending requests one after another to a warm
+instance, the 50 neutral smoke-test inputs of 6 to 4,079 characters; not a load test):
+
+| | p50 | p95 | max |
+|---|---|---|---|
+| In the service (`latency_ms`: tokenizing and scoring) | 59 ms | 361 ms | 380 ms |
+| End to end, from a laptop in the US | 185 ms | 487 ms | 844 ms |
+
+The inputs over-represent long comments: their lengths are spread evenly up to the maximum,
+while 6.5% of training comments reach 256 tokens (Phase 2 report). Even so, the full-length
+time on Cloud Run's 2 vCPUs (about 360 to 380 ms) is well above Phase 2's measurement on
+Kaggle's CPU (p95 144 ms at 256 tokens, section 4). The 50 ms p95 budget is not met. The
+student load test gives the real p95 and throughput; int8 is the first lever (section 4).
+
+**Demo** (`Deployment/frontend`, Cloud Run service `distillate-frontend`): *Try it* calls the
+live API and shows the scores, thresholds and flags, with the text masked by default; its
+preset comments also show the teacher stack's cached scores for comparison. *Status* shows
+the registry's `@production` and `@staging`, the deployment and retraining records, and a
+Grafana link once monitoring is live.
+
+**Not live yet:** monitoring (Prometheus through a Cloud Run sidecar and Managed Service for
+Prometheus to Grafana, `Deployment/monitoring`), and retraining on the drift stream
+(`Model-Pipeline/docs/retraining.md`: a candidate replaces production only if `promote_check`
+finds it better on the held-out drift batch), with the first closed loop planned for Dec 2.
 
 ## Changelog
 
@@ -650,3 +723,4 @@ scores and metrics.
 | 2026-11-15 | Section 4: the selected run's id on the team server, with the Kaggle id it came from (Nishaant) |
 | 2026-11-15 | Section 1: v1 holds `@production`, v2 (`minilm-mixed`) `@staging`; the rollback demonstration (Nishaant) |
 | 2026-11-21 | Section 3: the teacher's serving cost (H3) on one T4, with the 30-minute stability run, and a row in *At a glance* (Nishaant) |
+| 2026-11-24 | Section 13 (serving and deployment): what is live, the service, the deploy and rollback steps, a latency spot check, the demo, what isn't live yet; section 1: v1 serves the fp32 export (no int8 package yet); section 11: Llama Guard 3-1B's licence confirmed, benchmark not run (Nishaant) |
